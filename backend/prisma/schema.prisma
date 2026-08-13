@@ -92,8 +92,8 @@ model Permission {
 model UserRole {
   userId String
   roleId String
-  user   User @relation(fields: [userId], references: [id])
-  role   Role @relation(fields: [roleId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
 
   @@id([userId, roleId])
 }
@@ -108,7 +108,75 @@ model RolePermission {
 }
 
 // ──────────────────────────────────────────────
-// Placeholder — flesh out when building logistics module
+// CRM Models
+// ──────────────────────────────────────────────
+
+model Prospect {
+  id         String   @id @default(uuid())
+  firstName  String
+  lastName   String
+  phone      String?
+  email      String?
+  wilaya     String?
+  source     String?
+  status     String   @default("new")
+  assignedTo String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  activities ProspectActivity[]
+  client     Client?
+}
+
+model ProspectActivity {
+  id           String   @id @default(uuid())
+  prospectId   String
+  prospect     Prospect @relation(fields: [prospectId], references: [id])
+  userId       String
+  type         String
+  title        String
+  description  String?
+  activityDate DateTime
+  createdAt    DateTime @default(now())
+}
+
+model Client {
+  id             String    @id @default(uuid())
+  prospectId     String?   @unique
+  prospect       Prospect? @relation(fields: [prospectId], references: [id])
+  firstName      String
+  lastName       String
+  phone          String?
+  email          String?
+  passportNumber String?
+  passportExpiry DateTime?
+  nationality    String?
+  address        String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  dossiers Dossier[]
+  orders   Order[]
+}
+
+model Partner {
+  id            String   @id @default(uuid())
+  name          String
+  type          String // "supplier" | "carrier" | "other"
+  country       String?
+  city          String?
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────
+// Placeholders — flesh out when building respective modules
 // ──────────────────────────────────────────────
 
 model Warehouse {
@@ -117,4 +185,18 @@ model Warehouse {
   organization   Organization @relation(fields: [organizationId], references: [id])
   name           String
   createdAt      DateTime     @default(now())
+}
+
+model Dossier {
+  id        String   @id @default(uuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id        String   @id @default(uuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  createdAt DateTime @default(now())
 }
