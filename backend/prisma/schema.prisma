@@ -11,3 +11,110 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ──────────────────────────────────────────────
+// Identity & Tenancy Models
+// ──────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  country   String?
+  city      String?
+  phone     String?
+  email     String?
+  address   String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offices    Office[]
+  users      User[]
+  warehouses Warehouse[]
+  roles      Role[]
+}
+
+model Office {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  country        String?
+  city           String?
+  status         String       @default("active")
+  createdAt      DateTime     @default(now())
+
+  users User[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  officeId       String?
+  office         Office?      @relation(fields: [officeId], references: [id])
+  firstName      String
+  lastName       String
+  email          String       @unique
+  passwordHash   String
+  status         String       @default("active")
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  userRoles UserRole[]
+}
+
+model Role {
+  id             String        @id @default(uuid())
+  organizationId String? // null = platform-level role (Super Admin SaaS)
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  name           String
+  scope          String        @default("tenant") // "platform" | "tenant"
+  description    String?
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  resource    String // "dossiers", "finance", "vehicles"...
+  action      String // "read", "write", "approve", "delete"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action])
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id])
+  role   Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+// ──────────────────────────────────────────────
+// Placeholder — flesh out when building logistics module
+// ──────────────────────────────────────────────
+
+model Warehouse {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  createdAt      DateTime     @default(now())
+}
