@@ -528,12 +528,152 @@ model BusinessDocument {
 }
 
 // ──────────────────────────────────────────────
-// Placeholder — flesh out when building finance module
+// Finance Models
 // ──────────────────────────────────────────────
 
 model Invoice {
+  id            String    @id @default(uuid())
+  invoiceNumber String    @unique
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id])
+  clientId      String
+  status        String    @default("draft")
+  subtotal      Decimal   @db.Decimal(12, 2)
+  tax           Decimal   @default(0) @db.Decimal(12, 2)
+  discount      Decimal   @default(0) @db.Decimal(12, 2)
+  total         Decimal   @db.Decimal(12, 2)
+  currency      String
+  issueDate     DateTime  @default(now())
+  dueDate       DateTime?
+  createdAt     DateTime  @default(now())
+
+  items    InvoiceItem[]
+  payments Payment[]
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  orderItemId String?
+  description String?
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+}
+
+model PaymentPlan {
+  id          String   @id @default(uuid())
+  orderId     String
+  totalAmount Decimal  @db.Decimal(12, 2)
+  currency    String
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+
+  installments PaymentInstallment[]
+}
+
+model PaymentInstallment {
+  id                String      @id @default(uuid())
+  paymentPlanId     String
+  paymentPlan       PaymentPlan @relation(fields: [paymentPlanId], references: [id])
+  installmentNumber Int
+  amount            Decimal     @db.Decimal(12, 2)
+  paidAmount        Decimal     @default(0) @db.Decimal(12, 2)
+  dueDate           DateTime
+  status            String      @default("pending")
+
+  payments Payment[]
+}
+
+model Payment {
+  id            String              @id @default(uuid())
+  invoiceId     String?
+  invoice       Invoice?            @relation(fields: [invoiceId], references: [id])
+  installmentId String?
+  installment   PaymentInstallment? @relation(fields: [installmentId], references: [id])
+  amount        Decimal             @db.Decimal(12, 2)
+  currency      String
+  paymentMethod String?
+  reference     String?
+  status        String              @default("pending")
+  paymentDate   DateTime?
+  notes         String?
+  createdAt     DateTime            @default(now())
+}
+
+model CustomerDeposit {
+  id            String    @id @default(uuid())
+  prospectId    String?
+  clientId      String?
+  orderId       String?
+  amount        Decimal   @db.Decimal(12, 2)
+  currency      String
+  paymentMethod String?
+  reference     String?
+  status        String    @default("pending")
+  paymentDate   DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+}
+
+// ──────────────────────────────────────────────
+// Support & Operations Models
+// ──────────────────────────────────────────────
+
+model Task {
+  id          String    @id @default(uuid())
+  assignedTo  String
+  createdBy   String
+  title       String
+  description String?
+  priority    String    @default("normal")
+  status      String    @default("todo")
+  dueDate     DateTime?
+  relatedType String?
+  relatedId   String?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model NotificationTemplate {
   id        String   @id @default(uuid())
-  orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  name      String
+  eventType String
+  subject   String?
+  content   String
+  channel   String   @default("in_app")
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
+
+  notifications Notification[]
+}
+
+model Notification {
+  id          String                @id @default(uuid())
+  userId      String
+  templateId  String?
+  template    NotificationTemplate? @relation(fields: [templateId], references: [id])
+  type        String
+  title       String
+  content     String?
+  channel     String                @default("in_app")
+  relatedType String?
+  relatedId   String?
+  readAt      DateTime?
+  createdAt   DateTime              @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 }
