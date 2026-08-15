@@ -6,6 +6,8 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
+import { ProspectsModule } from './prospects/prospects.module';
+import { ClientsModule } from './clients/clients.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -22,6 +24,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     UsersModule,
     RolesModule,
     PermissionsModule,
+    ProspectsModule,
+    ClientsModule,
   ],
   controllers: [AppController],
   providers: [
