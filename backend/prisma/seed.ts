@@ -76,6 +76,10 @@ async function main() {
     { resource: 'vehicles', action: 'write', description: 'Create and edit vehicles' },
     { resource: 'warehouses', action: 'read', description: 'Read warehouses and stock movements' },
     { resource: 'warehouses', action: 'write', description: 'Create and manage warehouses and locations' },
+    { resource: 'vehicle-requests', action: 'read', description: 'Read vehicle requests' },
+    { resource: 'vehicle-requests', action: 'write', description: 'Create and edit vehicle requests' },
+    { resource: 'orders', action: 'read', description: 'Read orders and reservations' },
+    { resource: 'orders', action: 'write', description: 'Create, update and manage orders' },
   ];
 
   for (const p of allPermissions) {

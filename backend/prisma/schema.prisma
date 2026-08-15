@@ -231,10 +231,12 @@ model Vehicle {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  specs      VehicleSpec?
-  photos     VehiclePhoto[]
-  dossiers   Dossier[]
-  candidates VehicleCandidate[]
+  specs        VehicleSpec?
+  photos       VehiclePhoto[]
+  dossiers     Dossier[]
+  candidates   VehicleCandidate[]
+  orderItems   OrderItem[]
+  reservations Reservation[]
 }
 
 model VehicleSpec {
@@ -387,6 +389,7 @@ model OrderItem {
   orderId   String
   order     Order    @relation(fields: [orderId], references: [id])
   vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
   unitPrice Decimal  @db.Decimal(12, 2)
   discount  Decimal  @default(0) @db.Decimal(12, 2)
   total     Decimal  @db.Decimal(12, 2)
@@ -407,6 +410,7 @@ model OrderStatusHistory {
 model Reservation {
   id         String    @id @default(uuid())
   vehicleId  String
+  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id])
   orderId    String?
   order      Order?    @relation(fields: [orderId], references: [id])
   reservedBy String
