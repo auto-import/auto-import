@@ -6,6 +6,10 @@ export class CreateDossierDto {
 
   @IsOptional()
   @IsUUID()
+  vehicleRequestId?: string;
+
+  @IsOptional()
+  @IsUUID()
   vehicleId?: string;
 
   @IsOptional()

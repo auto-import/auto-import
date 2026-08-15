@@ -354,6 +354,8 @@ model VehicleCandidate {
   notes            String?
   presentedAt      DateTime?
   validatedAt      DateTime?
+
+  @@unique([vehicleRequestId, vehicleId])
 }
 
 model Order {

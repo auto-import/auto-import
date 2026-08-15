@@ -68,6 +68,7 @@ export class DossiersService {
         data: {
           reference,
           clientId,
+          vehicleRequestId: createDossierDto.vehicleRequestId,
           vehicleId,
           orderId,
           status: status || 'prospection',
