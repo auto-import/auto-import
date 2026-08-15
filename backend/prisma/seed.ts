@@ -58,19 +58,54 @@ async function main() {
     console.log('Created Role:', role.name);
   }
 
-  // 4. Create Permission
-  let perm = await prisma.permission.findFirst({
-    where: { resource: 'users', action: 'read' },
-  });
-  if (!perm) {
-    perm = await prisma.permission.create({
-      data: {
-        resource: 'users',
-        action: 'read',
-        description: 'Read users list',
+  // 4. Create All System Permissions and link to Admin
+  const allPermissions = [
+    { resource: 'users', action: 'read', description: 'Read users list' },
+    { resource: 'users', action: 'write', description: 'Create and edit users' },
+    { resource: 'users', action: 'manage', description: 'Manage users' },
+    { resource: 'roles', action: 'read', description: 'Read roles' },
+    { resource: 'roles', action: 'write', description: 'Create and edit roles' },
+    { resource: 'roles', action: 'manage', description: 'Manage roles' },
+    { resource: 'prospects', action: 'read', description: 'Read prospects' },
+    { resource: 'prospects', action: 'write', description: 'Create and edit prospects' },
+    { resource: 'clients', action: 'read', description: 'Read clients' },
+    { resource: 'clients', action: 'write', description: 'Create and edit clients' },
+    { resource: 'dossiers', action: 'read', description: 'Read dossiers' },
+    { resource: 'dossiers', action: 'write', description: 'Create and edit dossiers' },
+    { resource: 'vehicles', action: 'read', description: 'Read vehicles and stock' },
+    { resource: 'vehicles', action: 'write', description: 'Create and edit vehicles' },
+    { resource: 'warehouses', action: 'read', description: 'Read warehouses and stock movements' },
+    { resource: 'warehouses', action: 'write', description: 'Create and manage warehouses and locations' },
+  ];
+
+  for (const p of allPermissions) {
+    let perm = await prisma.permission.findFirst({
+      where: { resource: p.resource, action: p.action },
+    });
+    if (!perm) {
+      perm = await prisma.permission.create({
+        data: p,
+      });
+      console.log(`Created Permission: ${p.resource}:${p.action}`);
+    }
+
+    const rolePerm = await prisma.rolePermission.findUnique({
+      where: {
+        roleId_permissionId: {
+          roleId: role.id,
+          permissionId: perm.id,
+        },
       },
     });
-    console.log('Created Permission: users:read');
+    if (!rolePerm) {
+      await prisma.rolePermission.create({
+        data: {
+          roleId: role.id,
+          permissionId: perm.id,
+        },
+      });
+      console.log(`Linked ${p.resource}:${p.action} to Admin Role`);
+    }
   }
 
   // 5. Link UserRole
@@ -90,25 +125,6 @@ async function main() {
       },
     });
     console.log('Linked UserRole');
-  }
-
-  // 6. Link RolePermission
-  const rolePerm = await prisma.rolePermission.findUnique({
-    where: {
-      roleId_permissionId: {
-        roleId: role.id,
-        permissionId: perm.id,
-      },
-    },
-  });
-  if (!rolePerm) {
-    await prisma.rolePermission.create({
-      data: {
-        roleId: role.id,
-        permissionId: perm.id,
-      },
-    });
-    console.log('Linked RolePermission');
   }
 
   console.log('✅ Seeding completed successfully!');

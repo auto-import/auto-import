@@ -1,0 +1,64 @@
+import { IsString, IsOptional, IsNumber, IsUUID, IsEnum, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
+import { AcquisitionType, VehicleStatus } from './create-vehicle.dto';
+
+export class UpdateVehicleDto {
+  @IsOptional()
+  @IsString()
+  vin?: string;
+
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @IsOptional()
+  @IsString()
+  model?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1900)
+  @Max(2030)
+  year?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  mileage?: number;
+
+  @IsOptional()
+  @IsString()
+  condition?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  purchasePrice?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  sellingPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsEnum(VehicleStatus)
+  status?: VehicleStatus;
+
+  @IsOptional()
+  @IsEnum(AcquisitionType)
+  acquisitionType?: AcquisitionType;
+
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  currentLocationId?: string;
+}

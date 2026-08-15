@@ -9,6 +9,8 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { ProspectsModule } from './prospects/prospects.module';
 import { ClientsModule } from './clients/clients.module';
 import { DossiersModule } from './dossiers/dossiers.module';
+import { VehiclesModule } from './vehicles/vehicles.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -28,6 +30,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ProspectsModule,
     ClientsModule,
     DossiersModule,
+    VehiclesModule,
+    WarehousesModule,
   ],
   controllers: [AppController],
   providers: [
