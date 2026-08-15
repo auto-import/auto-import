@@ -5,7 +5,6 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('dossiers')
 export class DossiersController {
@@ -23,12 +22,11 @@ export class DossiersController {
   @Get()
   @RequirePermission('dossiers:read')
   findAll(
-    @Query() pagination: PaginationDto,
     @Query() filters: FilterDossierDto,
   ) {
     return this.dossiersService.findAll(
-      pagination.page,
-      pagination.limit,
+      filters.page,
+      filters.limit,
       filters,
     );
   }

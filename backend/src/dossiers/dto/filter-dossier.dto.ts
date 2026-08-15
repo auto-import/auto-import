@@ -1,6 +1,7 @@
 import { IsOptional, IsString, IsUUID, IsDateString } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 
-export class FilterDossierDto {
+export class FilterDossierDto extends PaginationDto {
   @IsOptional()
   @IsString()
   status?: string;
