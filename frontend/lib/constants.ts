@@ -1,35 +1,172 @@
-import type { StatutDossier, StatutVehicule, StatutFacture, StatutContrat, StatutExpedition, TabItem } from '@/types';
+import type {
+  StatutDossier,
+  StatutVehicule,
+  StatutFacture,
+  StatutContrat,
+  StatutExpedition,
+  StatutOffre,
+  StatutPaiement,
+  TypePaiementClient,
+  TypeCout,
+  PrioriteTache,
+  StatutTache,
+  TypeDocumentDossier,
+  StatutDocument,
+  TypeTimeline,
+  Devise,
+  TabItem,
+  TypeDossier,
+  SourceVehicule,
+  Vehicule,
+  Dossier,
+  PaiementClient,
+  Cout,
+} from '@/types';
 
-// ─── Dossier Statuts (ordered for stepper) ───────────────────────────
+// ─── Dossier Statuts (per workflow type) ─────────────────────────────
 
-export const DOSSIER_STATUTS: StatutDossier[] = [
-  'nouveau',
-  'recherche_vehicule',
+export const DOSSIER_STATUTS_CIF: StatutDossier[] = [
+  'offre_selectionnee',
+  'client_confirme',
+  'contrat_signe',
+  'acompte_recu',
   'achat_confirme',
-  'en_mer',
-  'douane',
-  'livre',
+  'paiement_fournisseur',
+  'inspection',
+  'booking',
+  'chargement',
+  'bl_emis',
+  'en_transit',
+  'arrivee_port',
+  'documents_remis',
   'cloture',
 ];
 
+export const DOSSIER_STATUTS_DDP: StatutDossier[] = [
+  'offre_selectionnee',
+  'client_confirme',
+  'contrat_signe',
+  'acompte_recu',
+  'achat_confirme',
+  'paiement_fournisseur',
+  'inspection',
+  'booking',
+  'chargement',
+  'bl_emis',
+  'en_transit',
+  'arrivee_port',
+  'douane',
+  'mainlevee',
+  'sortie_port',
+  'transport_local',
+  'livraison_client',
+  'cloture',
+];
+
+export const DOSSIER_STATUTS_SHIPPING: StatutDossier[] = [
+  'client',
+  'vehicule_externe_renseigne',
+  'fournisseur_externe',
+  'reception_pickup',
+  'devis_shipping',
+  'paiement',
+  'booking',
+  'chargement',
+  'bl_conteneur',
+  'en_transit',
+  'arrivee',
+  'service_termine',
+];
+
+export const DOSSIER_STATUTS_BY_TYPE: Record<TypeDossier, StatutDossier[]> = {
+  cif: DOSSIER_STATUTS_CIF,
+  ddp: DOSSIER_STATUTS_DDP,
+  shipping_only: DOSSIER_STATUTS_SHIPPING,
+};
+
+// Global ordered union (for filters & charts across all types)
+export const DOSSIER_STATUTS: StatutDossier[] = Array.from(
+  new Set([
+    ...DOSSIER_STATUTS_CIF,
+    ...DOSSIER_STATUTS_DDP,
+    ...DOSSIER_STATUTS_SHIPPING,
+  ]),
+);
+
 export const DOSSIER_STATUT_LABELS: Record<StatutDossier, string> = {
-  nouveau: 'Nouveau',
-  recherche_vehicule: 'Recherche véhicule',
+  offre_selectionnee: 'Offre sélectionnée',
+  client_confirme: 'Client confirmé',
+  contrat_signe: 'Contrat signé',
+  acompte_recu: 'Acompte reçu',
   achat_confirme: 'Achat confirmé',
-  en_mer: 'En mer',
-  douane: 'Douane',
-  livre: 'Livré',
+  paiement_fournisseur: 'Paiement fournisseur',
+  inspection: 'Inspection',
+  booking: 'Booking',
+  chargement: 'Chargement',
+  bl_emis: 'BL émis',
+  en_transit: 'En transit',
+  arrivee_port: 'Arrivée port',
+  documents_remis: 'Documents remis',
   cloture: 'Clôturé',
+  douane: 'Douane',
+  mainlevee: 'Mainlevée',
+  sortie_port: 'Sortie port',
+  transport_local: 'Transport local',
+  livraison_client: 'Livraison client',
+  client: 'Client',
+  vehicule_externe_renseigne: 'Véhicule externe renseigné',
+  fournisseur_externe: 'Fournisseur externe',
+  reception_pickup: 'Réception / pickup',
+  devis_shipping: 'Devis shipping',
+  paiement: 'Paiement',
+  bl_conteneur: 'BL / conteneur',
+  arrivee: 'Arrivée',
+  service_termine: 'Service terminé',
 };
 
 export const DOSSIER_STATUT_VARIANTS: Record<StatutDossier, string> = {
-  nouveau: 'blue',
-  recherche_vehicule: 'blue',
+  offre_selectionnee: 'blue',
+  client_confirme: 'blue',
+  contrat_signe: 'blue',
+  acompte_recu: 'blue',
   achat_confirme: 'blue',
-  en_mer: 'blue',
-  douane: 'amber',
-  livre: 'green',
+  paiement_fournisseur: 'amber',
+  inspection: 'amber',
+  booking: 'blue',
+  chargement: 'blue',
+  bl_emis: 'blue',
+  en_transit: 'blue',
+  arrivee_port: 'green',
+  documents_remis: 'green',
   cloture: 'gray',
+  douane: 'amber',
+  mainlevee: 'green',
+  sortie_port: 'green',
+  transport_local: 'green',
+  livraison_client: 'green',
+  client: 'gray',
+  vehicule_externe_renseigne: 'gray',
+  fournisseur_externe: 'gray',
+  reception_pickup: 'blue',
+  devis_shipping: 'amber',
+  paiement: 'amber',
+  bl_conteneur: 'blue',
+  arrivee: 'green',
+  service_termine: 'gray',
+};
+
+// ─── Dossier Types ───────────────────────────────────────────────────
+
+export const DOSSIER_TYPE_LABELS: Record<TypeDossier, string> = {
+  cif: 'CIF',
+  ddp: 'DDP',
+  shipping_only: 'Expédition seule',
+};
+
+export const DOSSIER_TYPE_VARIANTS: Record<TypeDossier, string> = {
+  cif: 'blue',
+  ddp: 'amber',
+  shipping_only: 'gray',
 };
 
 // ─── Véhicule Statuts ────────────────────────────────────────────────
@@ -50,6 +187,36 @@ export const VEHICULE_STATUT_VARIANTS: Record<StatutVehicule, string> = {
   en_douane: 'amber',
   livre: 'green',
   vendu: 'gray',
+};
+
+// ─── Source Véhicule ─────────────────────────────────────────────────
+
+export const VEHICLE_SOURCE_LABELS: Record<SourceVehicule, string> = {
+  offre: 'Offre',
+  corapide: 'Corapide',
+  external: 'Externe',
+};
+
+export const VEHICLE_SOURCE_VARIANTS: Record<SourceVehicule, string> = {
+  offre: 'blue',
+  corapide: 'green',
+  external: 'gray',
+};
+
+// ─── Offres ──────────────────────────────────────────────────────────
+
+export const OFFRE_STATUT_LABELS: Record<StatutOffre, string> = {
+  disponible: 'Disponible',
+  reservee: 'Réservée',
+  vendue: 'Vendue',
+  expiree: 'Expirée',
+};
+
+export const OFFRE_STATUT_VARIANTS: Record<StatutOffre, string> = {
+  disponible: 'green',
+  reservee: 'amber',
+  vendue: 'gray',
+  expiree: 'red',
 };
 
 // ─── Facture Statuts ─────────────────────────────────────────────────
@@ -98,6 +265,140 @@ export const EXPEDITION_STATUT_VARIANTS: Record<StatutExpedition, string> = {
   dedouanee: 'green',
 };
 
+// ─── Devises ─────────────────────────────────────────────────────────
+
+export const DEVISE_LABELS: Record<Devise, string> = {
+  DZD: 'DA',
+  USD: '$',
+  CNY: '¥',
+  EUR: '€',
+};
+
+export const BASE_DEVISE: Devise = 'USD';
+
+// ─── Purchase / Paiement Fournisseur ─────────────────────────────────
+
+export const STATUT_PAIEMENT_LABELS: Record<StatutPaiement, string> = {
+  en_attente: 'En attente',
+  partiel: 'Partiel',
+  paye: 'Payé',
+};
+
+export const STATUT_PAIEMENT_VARIANTS: Record<StatutPaiement, string> = {
+  en_attente: 'amber',
+  partiel: 'blue',
+  paye: 'green',
+};
+
+// ─── Paiements Client ────────────────────────────────────────────────
+
+export const TYPE_PAIEMENT_CLIENT_LABELS: Record<TypePaiementClient, string> = {
+  acompte: 'Acompte',
+  partiel: 'Paiement partiel',
+  final: 'Solde final',
+  shipping: 'Paiement shipping',
+  douane: 'Paiement douane',
+  autre: 'Autre',
+};
+
+// ─── Coûts (Money Out) ───────────────────────────────────────────────
+
+export const TYPE_COUT_LABELS: Record<TypeCout, string> = {
+  achat_vehicule: 'Achat véhicule',
+  acompte_fournisseur: 'Acompte fournisseur',
+  solde_fournisseur: 'Solde fournisseur',
+  shipping: 'Fret / shipping',
+  inspection: 'Inspection',
+  pickup: 'Pickup Chine',
+  transport_chine: 'Transport Chine',
+  port: 'Frais port',
+  douane: 'Douane',
+  transport_local: 'Transport local',
+  autre: 'Autre',
+};
+
+// ─── Tâches ──────────────────────────────────────────────────────────
+
+export const PRIORITE_TACHE_LABELS: Record<PrioriteTache, string> = {
+  basse: 'Basse',
+  normale: 'Normale',
+  haute: 'Haute',
+  urgente: 'Urgente',
+};
+
+export const PRIORITE_TACHE_VARIANTS: Record<PrioriteTache, string> = {
+  basse: 'gray',
+  normale: 'blue',
+  haute: 'amber',
+  urgente: 'red',
+};
+
+export const STATUT_TACHE_LABELS: Record<StatutTache, string> = {
+  a_faire: 'À faire',
+  en_cours: 'En cours',
+  en_attente: 'En attente',
+  terminee: 'Terminée',
+};
+
+export const STATUT_TACHE_VARIANTS: Record<StatutTache, string> = {
+  a_faire: 'gray',
+  en_cours: 'blue',
+  en_attente: 'amber',
+  terminee: 'green',
+};
+
+// ─── Documents (checklist) ───────────────────────────────────────────
+
+export const DOCUMENT_TYPE_LABELS: Record<TypeDocumentDossier, string> = {
+  id_client: "Pièce d'identité client",
+  contrat: 'Contrat signé',
+  pi_fournisseur: 'Proforma fournisseur',
+  facture_fournisseur: 'Facture fournisseur',
+  preuve_paiement: 'Preuve de paiement',
+  documents_vehicule: 'Documents du véhicule',
+  rapport_inspection: "Rapport d'inspection",
+  bl_draft: 'BL provisoire',
+  bl_final: 'BL final',
+  documents_douane: 'Documents douane',
+  document_livraison: 'Document de livraison',
+};
+
+export const DOCUMENT_STATUT_LABELS: Record<StatutDocument, string> = {
+  recu: 'Reçu',
+  manquant: 'Manquant',
+  en_attente: 'En attente',
+  valide: 'Validé',
+  rejete: 'Rejeté',
+};
+
+export const DOCUMENT_STATUT_VARIANTS: Record<StatutDocument, string> = {
+  recu: 'green',
+  manquant: 'red',
+  en_attente: 'amber',
+  valide: 'blue',
+  rejete: 'gray',
+};
+
+// ─── Timeline ────────────────────────────────────────────────────────
+
+export const TIMELINE_TYPE_LABELS: Record<TypeTimeline, string> = {
+  statut: 'Statut',
+  paiement: 'Paiement',
+  document: 'Document',
+  note: 'Note',
+  tache: 'Tâche',
+  systeme: 'Système',
+};
+
+export const TIMELINE_TYPE_VARIANTS: Record<TypeTimeline, string> = {
+  statut: 'blue',
+  paiement: 'green',
+  document: 'amber',
+  note: 'gray',
+  tache: 'amber',
+  systeme: 'gray',
+};
+
 // ─── Sidebar Navigation ─────────────────────────────────────────────
 
 export interface NavItem {
@@ -109,6 +410,7 @@ export interface NavItem {
 export const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: 'LayoutDashboard' },
   { label: 'Véhicules / Stock', href: '/vehicules', icon: 'Car' },
+  { label: 'Offres Chine', href: '/offres', icon: 'PackageSearch' },
   { label: 'Dossiers', href: '/dossiers', icon: 'FolderOpen' },
   { label: 'Fournisseurs', href: '/fournisseurs', icon: 'Handshake' },
   { label: 'Expéditions maritimes', href: '/expeditions', icon: 'Ship' },
@@ -123,13 +425,16 @@ export const SIDEBAR_NAV_ITEMS: NavItem[] = [
 // ─── Dossier Detail Tabs ─────────────────────────────────────────────
 
 export const DOSSIER_TABS: TabItem[] = [
+  { key: 'overview', label: 'Vue d\u2019ensemble' },
   { key: 'client', label: 'Client' },
-  { key: 'vehicule', label: 'Véhicule' },
-  { key: 'paiements', label: 'Paiements' },
-  { key: 'documents', label: 'Documents' },
+  { key: 'vehicles', label: 'Véhicules' },
+  { key: 'purchase', label: 'Achat' },
   { key: 'shipping', label: 'Shipping' },
-  { key: 'douane', label: 'Douane' },
-  { key: 'historique', label: 'Historique' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'documents', label: 'Documents' },
+  { key: 'tasks', label: 'Tâches' },
+  { key: 'timeline', label: 'Timeline' },
+  { key: 'notes', label: 'Notes' },
 ];
 
 // ─── Formatting Helpers ──────────────────────────────────────────────
@@ -149,4 +454,60 @@ export function formatDate(dateStr: string): string {
     month: 'short',
     year: 'numeric',
   }).format(date);
+}
+
+export function dossierVehiculesSummary(vehicles: Vehicule[]): string {
+  if (vehicles.length === 0) return '—';
+  return vehicles
+    .map((v) => `${v.marque} ${v.modele} ${v.annee}`)
+    .join(', ');
+}
+
+export function formatOffrePrix(value: number, devise: string): string {
+  return (
+    new Intl.NumberFormat('fr-FR', {
+      style: 'decimal',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value) +
+    ' ' +
+    devise
+  );
+}
+
+export function formatMontantDevise(montant: number, devise: Devise): string {
+  const value = new Intl.NumberFormat('fr-FR', {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(montant);
+  return `${DEVISE_LABELS[devise]}${value}`;
+}
+
+function enBase(montant: number, devise: Devise, tauxChange: number | null): number {
+  if (devise === BASE_DEVISE) return montant;
+  return tauxChange ? montant * tauxChange : montant;
+}
+
+export interface DossierFinance {
+  revenu: number;
+  cout_total: number;
+  marge: number;
+  marge_pct: number;
+}
+
+export function computeDossierFinance(
+  dossier: Pick<Dossier, 'paiements_client' | 'couts'>,
+): DossierFinance {
+  const revenu = dossier.paiements_client.reduce(
+    (sum: number, p: PaiementClient) => sum + enBase(p.montant, p.devise, p.taux_change),
+    0,
+  );
+  const cout_total = dossier.couts.reduce(
+    (sum: number, c: Cout) => sum + enBase(c.montant, c.devise, c.taux_change),
+    0,
+  );
+  const marge = revenu - cout_total;
+  const marge_pct = revenu > 0 ? Math.round((marge / revenu) * 100) : 0;
+  return { revenu, cout_total, marge, marge_pct };
 }

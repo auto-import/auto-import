@@ -6,9 +6,11 @@ import { vehicules } from '@/lib/mockData';
 import {
   VEHICULE_STATUT_LABELS,
   VEHICULE_STATUT_VARIANTS,
+  VEHICLE_SOURCE_LABELS,
+  VEHICLE_SOURCE_VARIANTS,
   formatMontant,
 } from '@/lib/constants';
-import type { Vehicule, Column, StatutVehicule } from '@/types';
+import type { Vehicule, Column, StatutVehicule, SourceVehicule } from '@/types';
 import { Search } from 'lucide-react';
 
 const VEHICULE_COLUMNS: Column<Vehicule>[] = [
@@ -25,6 +27,17 @@ const VEHICULE_COLUMNS: Column<Vehicule>[] = [
   {
     key: 'annee',
     header: 'Année',
+  },
+  {
+    key: 'source',
+    header: 'Source',
+    render: (row) => (
+      <StatusBadge
+        variant={VEHICLE_SOURCE_VARIANTS[row.source]}
+        label={VEHICLE_SOURCE_LABELS[row.source]}
+        size="sm"
+      />
+    ),
   },
   {
     key: 'fournisseur_nom',
@@ -49,10 +62,12 @@ const VEHICULE_COLUMNS: Column<Vehicule>[] = [
 ];
 
 const ALL_STATUTS: StatutVehicule[] = ['disponible', 'reserve', 'en_mer', 'en_douane', 'livre', 'vendu'];
+const ALL_SOURCES: SourceVehicule[] = ['offre', 'corapide', 'external'];
 
 export default function VehiculesPage() {
   const [search, setSearch] = useState('');
   const [statutFilter, setStatutFilter] = useState<StatutVehicule | 'tous'>('tous');
+  const [sourceFilter, setSourceFilter] = useState<SourceVehicule | 'tous'>('tous');
 
   const filtered = useMemo(() => {
     return vehicules.filter((v) => {
@@ -66,9 +81,10 @@ export default function VehiculesPage() {
         if (!match) return false;
       }
       if (statutFilter !== 'tous' && v.statut !== statutFilter) return false;
+      if (sourceFilter !== 'tous' && v.source !== sourceFilter) return false;
       return true;
     });
-  }, [search, statutFilter]);
+  }, [search, statutFilter, sourceFilter]);
 
   return (
     <>
@@ -93,6 +109,16 @@ export default function VehiculesPage() {
             <option value="tous">Tous les statuts</option>
             {ALL_STATUTS.map((s) => (
               <option key={s} value={s}>{VEHICULE_STATUT_LABELS[s]}</option>
+            ))}
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value as SourceVehicule | 'tous')}
+            className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+          >
+            <option value="tous">Toutes les sources</option>
+            {ALL_SOURCES.map((s) => (
+              <option key={s} value={s}>{VEHICLE_SOURCE_LABELS[s]}</option>
             ))}
           </select>
         </div>

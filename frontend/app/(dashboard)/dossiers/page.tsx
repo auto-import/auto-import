@@ -5,12 +5,16 @@ import { useRouter } from 'next/navigation';
 import { Topbar, StatusBadge, DataTable } from '@/components';
 import { dossiers } from '@/lib/mockData';
 import {
+  DOSSIER_STATUTS,
   DOSSIER_STATUT_LABELS,
   DOSSIER_STATUT_VARIANTS,
-  DOSSIER_STATUTS,
+  DOSSIER_STATUTS_BY_TYPE,
+  DOSSIER_TYPE_LABELS,
+  DOSSIER_TYPE_VARIANTS,
   formatDate,
+  dossierVehiculesSummary,
 } from '@/lib/constants';
-import type { Dossier, Column, StatutDossier, OrigineDossier } from '@/types';
+import type { Dossier, Column, StatutDossier, OrigineDossier, TypeDossier } from '@/types';
 import { Search, Plus } from 'lucide-react';
 
 const DOSSIER_COLUMNS: Column<Dossier>[] = [
@@ -20,13 +24,29 @@ const DOSSIER_COLUMNS: Column<Dossier>[] = [
     render: (row) => <span className="font-semibold">{row.reference}</span>,
   },
   {
+    key: 'type',
+    header: 'Type',
+    render: (row) => (
+      <StatusBadge
+        variant={DOSSIER_TYPE_VARIANTS[row.type]}
+        label={DOSSIER_TYPE_LABELS[row.type]}
+        size="sm"
+      />
+    ),
+  },
+  {
     key: 'client_nom',
     header: 'Client',
   },
   {
-    key: 'vehicule_desc',
-    header: 'Véhicule',
-    render: (row) => row.vehicule_desc ?? <span className="text-muted">—</span>,
+    key: 'vehicles',
+    header: 'Véhicules',
+    render: (row) =>
+      row.vehicles.length > 0 ? (
+        dossierVehiculesSummary(row.vehicles)
+      ) : (
+        <span className="text-muted">—</span>
+      ),
   },
   {
     key: 'statut',
@@ -56,8 +76,12 @@ const DOSSIER_COLUMNS: Column<Dossier>[] = [
 export default function DossiersPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TypeDossier | 'tous'>('tous');
   const [statutFilter, setStatutFilter] = useState<StatutDossier | 'tous'>('tous');
   const [origineFilter, setOrigineFilter] = useState<OrigineDossier | 'tous'>('tous');
+
+  const statutOptions: StatutDossier[] =
+    typeFilter === 'tous' ? DOSSIER_STATUTS : DOSSIER_STATUTS_BY_TYPE[typeFilter];
 
   const filteredDossiers = useMemo(() => {
     return dossiers.filter((d) => {
@@ -66,16 +90,20 @@ export default function DossiersPage() {
         const q = search.toLowerCase();
         const matchRef = d.reference.toLowerCase().includes(q);
         const matchClient = d.client_nom.toLowerCase().includes(q);
-        const matchVehicule = d.vehicule_desc?.toLowerCase().includes(q);
+        const matchVehicule = d.vehicles.some((v) =>
+          `${v.marque} ${v.modele} ${v.annee}`.toLowerCase().includes(q),
+        );
         if (!matchRef && !matchClient && !matchVehicule) return false;
       }
+      // Type filter
+      if (typeFilter !== 'tous' && d.type !== typeFilter) return false;
       // Statut filter
       if (statutFilter !== 'tous' && d.statut !== statutFilter) return false;
       // Origine filter
       if (origineFilter !== 'tous' && d.origine !== origineFilter) return false;
       return true;
     });
-  }, [search, statutFilter, origineFilter]);
+  }, [search, typeFilter, statutFilter, origineFilter]);
 
   return (
     <>
@@ -95,6 +123,21 @@ export default function DossiersPage() {
             />
           </div>
 
+          {/* Type filter */}
+          <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value as TypeDossier | 'tous');
+              setStatutFilter('tous');
+            }}
+            className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+          >
+            <option value="tous">Tous les types</option>
+            <option value="cif">CIF</option>
+            <option value="ddp">DDP</option>
+            <option value="shipping_only">Expédition seule</option>
+          </select>
+
           {/* Statut filter */}
           <select
             value={statutFilter}
@@ -102,7 +145,7 @@ export default function DossiersPage() {
             className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
           >
             <option value="tous">Tous les statuts</option>
-            {DOSSIER_STATUTS.map((s) => (
+            {statutOptions.map((s) => (
               <option key={s} value={s}>
                 {DOSSIER_STATUT_LABELS[s]}
               </option>
