@@ -9,6 +9,7 @@ import {
   DOSSIER_STATUTS,
   formatMontant,
   formatDate,
+  dossierVehiculesSummary,
 } from '@/lib/constants';
 import type { Dossier, Column } from '@/types';
 import {
@@ -32,8 +33,12 @@ import {
 // ─── Compute KPI data ────────────────────────────────────────────────
 
 const totalDossiers = dossiers.length;
-const vehiculesDisponibles = vehicules.filter((v) => v.statut === 'disponible').length;
-const vehiculesReserves = vehicules.filter((v) => v.statut === 'reserve').length;
+const vehiculesDisponibles = vehicules.filter(
+  (v) => v.statut === 'disponible' && v.source !== 'external',
+).length;
+const vehiculesReserves = vehicules.filter(
+  (v) => v.statut === 'reserve' && v.source !== 'external',
+).length;
 const totalVehiculesStock = vehiculesDisponibles + vehiculesReserves;
 const facturesEnRetard = factures.filter((f) => f.statut === 'en_retard').length;
 const caTotal = factures
@@ -75,9 +80,14 @@ const RECENT_COLUMNS: Column<Dossier>[] = [
     header: 'Client',
   },
   {
-    key: 'vehicule_desc',
-    header: 'Véhicule',
-    render: (row) => row.vehicule_desc ?? <span className="text-muted">—</span>,
+    key: 'vehicles',
+    header: 'Véhicules',
+    render: (row) =>
+      row.vehicles.length > 0 ? (
+        dossierVehiculesSummary(row.vehicles)
+      ) : (
+        <span className="text-muted">—</span>
+      ),
   },
   {
     key: 'statut',
@@ -113,7 +123,7 @@ const alertes = [
     .map((d) => ({
       id: d.id,
       type: 'info' as const,
-      message: `${d.reference} — ETA ${formatDate(d.expedition!.eta)} (${d.vehicule_desc})`,
+      message: `${d.reference} — ETA ${formatDate(d.expedition!.eta)} (${dossierVehiculesSummary(d.vehicles)})`,
     })),
 ];
 

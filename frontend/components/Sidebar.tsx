@@ -14,6 +14,7 @@ import {
   UserCog,
   BarChart3,
   Settings,
+  PackageSearch,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SIDEBAR_NAV_ITEMS } from '@/lib/constants';
@@ -21,6 +22,7 @@ import { SIDEBAR_NAV_ITEMS } from '@/lib/constants';
 const ICON_MAP: Record<string, ReactNode> = {
   LayoutDashboard: <LayoutDashboard className="w-5 h-5" />,
   Car: <Car className="w-5 h-5" />,
+  PackageSearch: <PackageSearch className="w-5 h-5" />,
   FolderOpen: <FolderOpen className="w-5 h-5" />,
   Handshake: <Handshake className="w-5 h-5" />,
   Ship: <Ship className="w-5 h-5" />,
