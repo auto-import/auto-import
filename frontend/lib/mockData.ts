@@ -13,7 +13,12 @@ import type {
   Cout,
   Tache,
   Note,
+  TypeDossier,
+  Notification,
+  TypeNotification,
 } from '@/types';
+import { DOSSIER_STATUTS_BY_TYPE, DOSSIER_STATUT_LABELS } from './constants';
+import { creerEntreeTimeline } from './timeline';
 
 // ─── Clients ─────────────────────────────────────────────────────────
 
@@ -2601,4 +2606,421 @@ export function getOffreById(id: string): Offre | undefined {
 
 export function getUtilisateurById(id: string): Utilisateur | undefined {
   return utilisateurs.find((u) => u.id === id);
+}
+
+// ─── Création de dossier ─────────────────────────────────────────────
+
+export interface CreateClientInfos {
+  nom: string;
+  prenom: string;
+  telephone: string;
+  email: string;
+  numero_passeport: string;
+  adresse: string;
+}
+
+export function createClient(infos: CreateClientInfos): Client {
+  const client: Client = {
+    id: `cli-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: infos.nom,
+    prenom: infos.prenom,
+    telephone: infos.telephone || '—',
+    email: infos.email || '',
+    numero_passeport: infos.numero_passeport || '',
+    adresse: infos.adresse || '',
+    date_inscription: new Date().toISOString().slice(0, 10),
+    nombre_dossiers: 0,
+  };
+  clients.push(client);
+  return client;
+}
+
+export function vehiculeDepuisOffre(offre: Offre): Vehicule {
+  return {
+    id: `veh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    vin: '',
+    marque: offre.marque,
+    modele: offre.modele,
+    annee: offre.annee,
+    couleur: '',
+    prix_achat_cny: 0,
+    prix_achat_dzd: 0,
+    fournisseur_id: '',
+    fournisseur_nom: offre.fournisseur_nom,
+    source: 'offre',
+    statut: 'reserve',
+    photos: [],
+    date_ajout: new Date().toISOString().slice(0, 10),
+  };
+}
+
+export interface VehiculeExterneInfos {
+  marque: string;
+  modele: string;
+  annee: number;
+  vin: string;
+}
+
+export function vehiculeExterne(infos: VehiculeExterneInfos): Vehicule {
+  return {
+    id: `veh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    vin: infos.vin,
+    marque: infos.marque,
+    modele: infos.modele,
+    annee: infos.annee,
+    couleur: '',
+    prix_achat_cny: 0,
+    prix_achat_dzd: 0,
+    fournisseur_id: '',
+    fournisseur_nom: 'Externe — client',
+    source: 'external',
+    statut: 'disponible',
+    photos: [],
+    date_ajout: new Date().toISOString().slice(0, 10),
+  };
+}
+
+export interface CreateDossierDraft {
+  type: TypeDossier;
+  clientId: string;
+  responsableChineId: string | null;
+  responsableAlgerieId: string | null;
+  vehicles: Vehicule[];
+  offreIds: string[];
+  note: string;
+}
+
+function nextDossierReference(): string {
+  const year = new Date().getFullYear();
+  const max = dossiers.reduce((m, d) => {
+    const match = d.reference.match(/CA-(\d{4})-(\d+)/);
+    if (match && match[1] === String(year)) return Math.max(m, parseInt(match[2], 10));
+    return m;
+  }, 0);
+  return `CA-${year}-${String(max + 1).padStart(4, '0')}`;
+}
+
+export function createDossier(draft: CreateDossierDraft): Dossier {
+  const id = `dos-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const nowIso = new Date().toISOString();
+  const today = nowIso.slice(0, 10);
+  const client = getClientById(draft.clientId);
+  const reference = nextDossierReference();
+
+  for (const offreId of draft.offreIds) {
+    const offre = getOffreById(offreId);
+    if (offre && offre.statut === 'disponible') offre.statut = 'reservee';
+  }
+
+  const dossier: Dossier = {
+    id,
+    reference,
+    type: draft.type,
+    client_id: draft.clientId,
+    client_nom: client ? `${client.prenom.charAt(0)}. ${client.nom}` : draft.clientId,
+    fournisseur_nom: draft.vehicles[0]?.fournisseur_nom ?? null,
+    statut: DOSSIER_STATUTS_BY_TYPE[draft.type][0],
+    origine: 'client',
+    date_creation: today,
+    date_mise_a_jour: today,
+    responsable_chine_id: draft.responsableChineId,
+    responsable_algerie_id: draft.responsableAlgerieId,
+    offre_id: draft.offreIds[0] ?? null,
+    supplier_id: null,
+    contrat_statut: 'brouillon',
+    contrat_date: null,
+    client,
+    vehicles: draft.vehicles,
+    paiements_client: [],
+    couts: [],
+    documents: [],
+    taches: [],
+    timeline: [
+      {
+        id: `tim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        dossier_id: id,
+        date: nowIso,
+        utilisateur: 'A. Djelloul',
+        action: 'Dossier créé',
+        type: 'systeme',
+        details: 'Dossier ouvert depuis le formulaire de création',
+      },
+    ],
+    notes: draft.note
+      ? [
+          {
+            id: `not-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            dossier_id: id,
+            auteur: 'A. Djelloul',
+            date: nowIso,
+            contenu: draft.note,
+          },
+        ]
+      : [],
+  };
+
+  dossiers.push(dossier);
+  return dossier;
+}
+
+// ─── Actions sur dossier ─────────────────────────────────────────────
+
+export function avancerStatutDossier(id: string): Dossier | undefined {
+  const dossier = getDossierById(id);
+  if (!dossier) return undefined;
+  const steps = DOSSIER_STATUTS_BY_TYPE[dossier.type];
+  const currentIndex = steps.indexOf(dossier.statut);
+  const next = steps[currentIndex + 1];
+  if (!next) return dossier;
+
+  const prevStatut = dossier.statut;
+  dossier.statut = next;
+  dossier.date_mise_a_jour = new Date().toISOString().slice(0, 10);
+  dossier.timeline.push(
+    creerEntreeTimeline(
+      dossier.id,
+      `Statut → ${DOSSIER_STATUT_LABELS[next]}`,
+      'statut',
+      'A. Djelloul',
+      `Dossier passé de « ${DOSSIER_STATUT_LABELS[prevStatut]} » à « ${DOSSIER_STATUT_LABELS[next]} »`,
+    ),
+  );
+  return dossier;
+}
+
+export function updateDossier(
+  id: string,
+  updates: Partial<Dossier>,
+  options?: { log?: string },
+): Dossier | undefined {
+  const dossier = getDossierById(id);
+  if (!dossier) return undefined;
+  Object.assign(dossier, updates, {
+    date_mise_a_jour: new Date().toISOString().slice(0, 10),
+  });
+  dossier.timeline.push(
+    creerEntreeTimeline(
+      dossier.id,
+      'Dossier modifié',
+      'systeme',
+      'A. Djelloul',
+      options?.log ?? 'Informations du dossier mises à jour',
+    ),
+  );
+  return dossier;
+}
+
+export function addNoteDossier(id: string, contenu: string): Dossier | undefined {
+  const dossier = getDossierById(id);
+  if (!dossier || !contenu.trim()) return dossier;
+  const now = new Date();
+  dossier.notes.push({
+    id: `not-${now.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+    dossier_id: id,
+    auteur: 'A. Djelloul',
+    date: now.toISOString(),
+    contenu: contenu.trim(),
+  });
+  dossier.date_mise_a_jour = now.toISOString().slice(0, 10);
+  dossier.timeline.push(
+    creerEntreeTimeline(
+      id,
+      'Note ajoutée',
+      'note',
+      'A. Djelloul',
+      contenu.trim().slice(0, 80),
+    ),
+  );
+  return dossier;
+}
+
+// ─── Notifications ───────────────────────────────────────────────────
+
+export const UTILISATEUR_COURANT_ID = 'usr-001';
+
+export const typesNotification: TypeNotification[] = [
+  {
+    id: 'tnt-001',
+    code: 'statut_avance',
+    libelle: 'Statut de dossier avancé',
+    description: 'Envoyée lorsqu\u2019un dossier passe à l\u2019étape suivante de son workflow.',
+    niveau: 'info',
+    actif: true,
+    destinataires: ['super_admin', 'operations_chine', 'sales_algerie'],
+  },
+  {
+    id: 'tnt-002',
+    code: 'paiement_recu',
+    libelle: 'Paiement client reçu',
+    description: 'Envoyée quand un acompte ou un paiement client est enregistré.',
+    niveau: 'success',
+    actif: true,
+    destinataires: ['super_admin', 'finance', 'sales_algerie'],
+  },
+  {
+    id: 'tnt-003',
+    code: 'paiement_retard',
+    libelle: 'Paiement en retard',
+    description: 'Alerte lorsqu\u2019un paiement dépasse sa date d\u2019échéance.',
+    niveau: 'warning',
+    actif: true,
+    destinataires: ['super_admin', 'finance'],
+  },
+  {
+    id: 'tnt-004',
+    code: 'document_manquant',
+    libelle: 'Document manquant',
+    description: 'Envoyée lorsqu\u2019un document requis pour le dossier est manquant ou rejeté.',
+    niveau: 'warning',
+    actif: true,
+    destinataires: ['super_admin', 'operations_chine', 'dedouanement'],
+  },
+  {
+    id: 'tnt-005',
+    code: 'etape_approche',
+    libelle: 'Échéance proche (ETA / tâche)',
+    description: 'Alerte avant une échéance : arrivée du navire, tâche ou rappel.',
+    niveau: 'info',
+    actif: true,
+    destinataires: ['super_admin', 'shipping', 'operations_chine'],
+  },
+  {
+    id: 'tnt-006',
+    code: 'nouveau_dossier',
+    libelle: 'Nouveau dossier créé',
+    description: 'Envoyée à la création d\u2019un nouveau dossier d\u2019importation.',
+    niveau: 'info',
+    actif: true,
+    destinataires: ['super_admin', 'sales_algerie', 'operations_chine'],
+  },
+  {
+    id: 'tnt-007',
+    code: 'dedouanement_valide',
+    libelle: 'Dédouanement validé',
+    description: 'Envoyée quand un dossier passe la douane (mainlevée).',
+    niveau: 'success',
+    actif: true,
+    destinataires: ['super_admin', 'dedouanement', 'sales_algerie'],
+  },
+  {
+    id: 'tnt-008',
+    code: 'tache_assignee',
+    libelle: 'Tâche assignée',
+    description: 'Envoyée lorsqu\u2019une tâche est assignée à un utilisateur.',
+    niveau: 'info',
+    actif: true,
+    destinataires: ['super_admin'],
+  },
+  {
+    id: 'tnt-009',
+    code: 'stock_reserve',
+    libelle: 'Véhicule réservé',
+    description: 'Envoyée lorsqu\u2019un véhicule en stock passe au statut réservé.',
+    niveau: 'warning',
+    actif: false,
+    destinataires: ['super_admin', 'sales_algerie'],
+  },
+];
+
+export const notifications: Notification[] = [
+  {
+    id: 'ntf-001',
+    type_id: 'tnt-003',
+    titre: 'Facture en retard',
+    message: 'La facture FAC-2026-115 (Frais douane) est en retard de paiement.',
+    date: '2026-08-15T10:00:00',
+    lu: false,
+    destinataire: UTILISATEUR_COURANT_ID,
+  },
+  {
+    id: 'ntf-002',
+    type_id: 'tnt-005',
+    titre: 'Arrivée prochaine',
+    message: 'Le conteneur MSCU-1187-4 (MSC ZONDA) arrive le 22 Août à Alger.',
+    date: '2026-08-14T15:30:00',
+    lu: false,
+    destinataire: UTILISATEUR_COURANT_ID,
+  },
+  {
+    id: 'ntf-003',
+    type_id: 'tnt-007',
+    titre: 'Dédouanement validé',
+    message: 'Le dossier CA-2026-0012 a été dédouané avec succès.',
+    date: '2026-08-10T09:00:00',
+    lu: true,
+    destinataire: UTILISATEUR_COURANT_ID,
+    dossier_id: 'dossier001',
+  },
+  {
+    id: 'ntf-004',
+    type_id: 'tnt-006',
+    titre: 'Nouveau dossier',
+    message: 'Le dossier CA-2026-0060 a été créé pour B. Amrani (Audi Q7 2024).',
+    date: '2026-08-14T11:00:00',
+    lu: true,
+    destinataire: UTILISATEUR_COURANT_ID,
+    dossier_id: 'dossier009',
+  },
+  {
+    id: 'ntf-005',
+    type_id: 'tnt-002',
+    titre: 'Paiement reçu',
+    message: 'Acompte de 3 000 000 DA reçu pour le dossier CA-2026-0045.',
+    date: '2026-07-01T14:00:00',
+    lu: true,
+    destinataire: UTILISATEUR_COURANT_ID,
+  },
+  {
+    id: 'ntf-006',
+    type_id: 'tnt-004',
+    titre: 'Document manquant',
+    message: 'Le BL original du dossier CA-2026-0009 est manquant.',
+    date: '2026-08-16T08:20:00',
+    lu: false,
+    destinataire: UTILISATEUR_COURANT_ID,
+    dossier_id: 'dossier005',
+  },
+];
+
+export function getTypesNotification(): TypeNotification[] {
+  return typesNotification;
+}
+
+export function getTypeNotificationById(id: string): TypeNotification | undefined {
+  return typesNotification.find((t) => t.id === id);
+}
+
+export function createTypeNotification(data: Omit<TypeNotification, 'id'>): TypeNotification {
+  const type: TypeNotification = {
+    ...data,
+    id: `tnt-${Date.now()}`,
+  };
+  typesNotification.push(type);
+  return type;
+}
+
+export function setTypeNotificationActif(id: string, actif: boolean): void {
+  const type = getTypeNotificationById(id);
+  if (type) type.actif = actif;
+}
+
+export function getNotificationsUtilisateur(userId: string): Notification[] {
+  return notifications
+    .filter((n) => n.destinataire === userId)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export function getNotificationsNonLues(userId: string): Notification[] {
+  return getNotificationsUtilisateur(userId).filter((n) => !n.lu);
+}
+
+export function marquerNotificationLue(id: string): void {
+  const n = notifications.find((x) => x.id === id);
+  if (n) n.lu = true;
+}
+
+export function marquerToutesNotificationsLues(userId: string): void {
+  notifications.forEach((n) => {
+    if (n.destinataire === userId) n.lu = true;
+  });
 }

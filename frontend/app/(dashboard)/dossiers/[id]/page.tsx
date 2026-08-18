@@ -3,7 +3,17 @@
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Topbar, StatusBadge, Stepper, Tabs } from '@/components';
-import { getDossierById, getOffreById, getUtilisateurById } from '@/lib/mockData';
+import {
+  clients,
+  utilisateurs,
+  getDossierById,
+  getOffreById,
+  getClientById,
+  getUtilisateurById,
+  avancerStatutDossier,
+  updateDossier,
+  addNoteDossier,
+} from '@/lib/mockData';
 import {
   DOSSIER_STATUT_LABELS,
   DOSSIER_STATUT_VARIANTS,
@@ -33,6 +43,13 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
   const router = useRouter();
   const dossier = getDossierById(id);
   const [activeTab, setActiveTab] = useState('overview');
+  const [, setRefresh] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [editClientId, setEditClientId] = useState('');
+  const [editResChine, setEditResChine] = useState('');
+  const [editResAlgerie, setEditResAlgerie] = useState('');
+  const [editFournisseur, setEditFournisseur] = useState('');
+  const [editNote, setEditNote] = useState('');
 
   if (!dossier) {
     return (
@@ -54,6 +71,47 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
   const steps = DOSSIER_STATUTS_BY_TYPE[dossier.type];
   const currentStepIndex = steps.indexOf(dossier.statut);
   const stepLabels = steps.map((s) => DOSSIER_STATUT_LABELS[s]);
+  const isLastStep = currentStepIndex === steps.length - 1;
+
+  const responsablesChine = utilisateurs.filter(
+    (u) => u.actif && (u.role === 'operations_chine' || u.role === 'super_admin'),
+  );
+  const responsablesAlgerie = utilisateurs.filter(
+    (u) => u.actif && (u.role === 'sales_algerie' || u.role === 'super_admin'),
+  );
+
+  const handleAvancerStatut = () => {
+    avancerStatutDossier(dossier.id);
+    setRefresh((v) => v + 1);
+  };
+
+  const openEdit = () => {
+    setEditClientId(dossier.client_id);
+    setEditResChine(dossier.responsable_chine_id ?? '');
+    setEditResAlgerie(dossier.responsable_algerie_id ?? '');
+    setEditFournisseur(dossier.fournisseur_nom ?? '');
+    setEditNote('');
+    setEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    const client = getClientById(editClientId);
+    updateDossier(
+      dossier.id,
+      {
+        client_id: editClientId,
+        client_nom: client ? `${client.prenom.charAt(0)}. ${client.nom}` : dossier.client_nom,
+        client,
+        responsable_chine_id: editResChine || null,
+        responsable_algerie_id: editResAlgerie || null,
+        fournisseur_nom: editFournisseur.trim() || null,
+      },
+      { log: 'Informations modifiées (client, responsables, fournisseur)' },
+    );
+    if (editNote.trim()) addNoteDossier(dossier.id, editNote.trim());
+    setEditing(false);
+    setRefresh((v) => v + 1);
+  };
 
   const responsableChine = dossier.responsable_chine_id
     ? getUtilisateurById(dossier.responsable_chine_id)
@@ -143,14 +201,108 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
               </div>
             </div>
             <div className="flex gap-3">
-              <button className="px-4 py-2 text-sm font-medium border border-border rounded-button hover:bg-surface transition-colors">
+              <button
+                onClick={openEdit}
+                className="px-4 py-2 text-sm font-medium border border-border rounded-button hover:bg-surface transition-colors"
+              >
                 Modifier
               </button>
-              <button className="px-4 py-2 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity">
-                Avancer le statut
+              <button
+                onClick={handleAvancerStatut}
+                disabled={isLastStep}
+                title={isLastStep ? 'Statut final atteint' : 'Passer à l\u2019étape suivante'}
+                className="px-4 py-2 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isLastStep ? 'Statut final' : 'Avancer le statut'}
               </button>
             </div>
           </div>
+
+          {/* Edit panel */}
+          {editing && (
+            <div className="mt-6 p-5 rounded-card border border-border bg-surface">
+              <h3 className="section-title">Modifier le dossier</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <p className="field-label mb-1">Client</p>
+                  <select
+                    value={editClientId}
+                    onChange={(e) => setEditClientId(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-card bg-white focus:outline-none focus:ring-1 focus:ring-status-blue-text"
+                  >
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.prenom} {c.nom} — {c.telephone}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="field-label mb-1">Fournisseur</p>
+                  <input
+                    value={editFournisseur}
+                    onChange={(e) => setEditFournisseur(e.target.value)}
+                    placeholder="Nom du fournisseur"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-card focus:outline-none focus:ring-1 focus:ring-status-blue-text"
+                  />
+                </div>
+                <div>
+                  <p className="field-label mb-1">Responsable Chine</p>
+                  <select
+                    value={editResChine}
+                    onChange={(e) => setEditResChine(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-card bg-white focus:outline-none focus:ring-1 focus:ring-status-blue-text"
+                  >
+                    <option value="">—</option>
+                    {responsablesChine.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.prenom} {u.nom}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="field-label mb-1">Responsable Algérie</p>
+                  <select
+                    value={editResAlgerie}
+                    onChange={(e) => setEditResAlgerie(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-card bg-white focus:outline-none focus:ring-1 focus:ring-status-blue-text"
+                  >
+                    <option value="">—</option>
+                    {responsablesAlgerie.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.prenom} {u.nom}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="field-label mb-1">Note interne</p>
+                  <textarea
+                    rows={2}
+                    value={editNote}
+                    onChange={(e) => setEditNote(e.target.value)}
+                    placeholder="Ajouter une note (facultatif)"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-card focus:outline-none focus:ring-1 focus:ring-status-blue-text resize-none"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-5 py-2 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity"
+                >
+                  Enregistrer
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-5 py-2 text-sm font-medium border border-border rounded-button hover:bg-background transition-colors"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Stepper */}
           <div className="mt-6">

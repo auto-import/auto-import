@@ -21,6 +21,7 @@ import type {
   Dossier,
   PaiementClient,
   Cout,
+  RoleUtilisateur,
 } from '@/types';
 
 // ─── Dossier Statuts (per workflow type) ─────────────────────────────
@@ -77,6 +78,17 @@ export const DOSSIER_STATUTS_SHIPPING: StatutDossier[] = [
   'arrivee',
   'service_termine',
 ];
+
+export const ROLE_LABELS: Record<RoleUtilisateur, string> = {
+  super_admin: 'Super Admin',
+  sales_algerie: 'Commercial Algérie',
+  operations_chine: 'Opérations Chine',
+  finance: 'Finance',
+  shipping: 'Shipping',
+  dedouanement: 'Dédouanement',
+  client: 'Client',
+  fournisseur: 'Fournisseur',
+};
 
 export const DOSSIER_STATUTS_BY_TYPE: Record<TypeDossier, StatutDossier[]> = {
   cif: DOSSIER_STATUTS_CIF,
