@@ -164,7 +164,10 @@ export default function DossiersPage() {
           </select>
 
           {/* New dossier button */}
-          <button className="ms-auto flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity">
+          <button
+            onClick={() => router.push('/dossiers/creer')}
+            className="ms-auto flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity"
+          >
             <Plus className="w-4 h-4" />
             Nouveau dossier
           </button>

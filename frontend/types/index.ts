@@ -110,6 +110,8 @@ export type StatutDocument = 'recu' | 'manquant' | 'en_attente' | 'valide' | 're
 
 export type TypeTimeline = 'statut' | 'paiement' | 'document' | 'note' | 'tache' | 'systeme';
 
+export type NiveauNotification = 'info' | 'warning' | 'success';
+
 // ─── Interfaces ──────────────────────────────────────────────────────
 
 export interface TimelineEntry {
@@ -327,6 +329,27 @@ export interface Utilisateur {
   actif: boolean;
   date_creation: string;
   avatar_initials: string;
+}
+
+export interface TypeNotification {
+  id: string;
+  code: string;
+  libelle: string;
+  description: string;
+  niveau: NiveauNotification;
+  actif: boolean;
+  destinataires: RoleUtilisateur[];
+}
+
+export interface Notification {
+  id: string;
+  type_id: string;
+  titre: string;
+  message: string;
+  date: string;
+  lu: boolean;
+  destinataire: string;
+  dossier_id?: string | null;
 }
 
 export interface Expedition {
