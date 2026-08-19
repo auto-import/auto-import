@@ -54,6 +54,23 @@ export type StatutVehicule =
   | 'livre'
   | 'vendu';
 
+export type EtatVehicule = 'neuf' | 'occasion';
+
+export type TypeCarrosserie =
+  | 'suv'
+  | 'berline'
+  | '4x4'
+  | 'crossover'
+  | 'compacte'
+  | 'coupe'
+  | 'monospace';
+
+export type Carburant = 'essence' | 'diesel' | 'hybride' | 'electrique';
+
+export type BoiteVitesse = 'automatique' | 'manuelle';
+
+export type Direction = 'gauche' | 'droite';
+
 export type StatutOffre = 'disponible' | 'reservee' | 'vendue' | 'expiree';
 
 export type TypeOffre = 'neuf' | 'occasion';
@@ -184,6 +201,22 @@ export interface Vehicule {
   statut: StatutVehicule;
   photos: string[];
   date_ajout: string;
+  // Caractéristiques
+  etat?: EtatVehicule;
+  type_carrosserie?: TypeCarrosserie;
+  carburant?: Carburant;
+  boite?: BoiteVitesse;
+  motorisation?: string;
+  puissance_cv?: number;
+  cylindree_cc?: number;
+  kilometrage?: number;
+  portes?: number;
+  places?: number;
+  direction?: Direction;
+  couleur_interieur?: string;
+  options?: string[];
+  equipements?: string[];
+  garantie?: string;
 }
 
 export interface Offre {
@@ -287,6 +320,18 @@ export interface Tache {
   commentaires: string;
 }
 
+export interface Preuve {
+  id: string;
+  dossier_id: string;
+  etape: StatutDossier;
+  type: 'photo' | 'video';
+  nom: string;
+  url: string;
+  taille: string;
+  upload_par: string;
+  date: string;
+}
+
 export interface Dossier {
   id: string;
   reference: string;
@@ -318,6 +363,7 @@ export interface Dossier {
   taches: Tache[];
   timeline: TimelineEntry[];
   notes: Note[];
+  preuves?: Preuve[];
 }
 
 export interface Utilisateur {
