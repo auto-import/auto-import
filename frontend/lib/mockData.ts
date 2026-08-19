@@ -16,8 +16,21 @@ import type {
   TypeDossier,
   Notification,
   TypeNotification,
+  TypeDocumentDossier,
+  StatutDossier,
+  EtatVehicule,
+  TypeCarrosserie,
+  Carburant,
+  BoiteVitesse,
+  Direction,
+  SourceVehicule,
 } from '@/types';
-import { DOSSIER_STATUTS_BY_TYPE, DOSSIER_STATUT_LABELS } from './constants';
+import {
+  DOSSIER_STATUTS_BY_TYPE,
+  DOSSIER_STATUT_LABELS,
+  DOCUMENT_TYPE_LABELS,
+  getPreuveRequise,
+} from './constants';
 import { creerEntreeTimeline } from './timeline';
 
 // ─── Clients ─────────────────────────────────────────────────────────
@@ -165,15 +178,45 @@ export const vehicules: Vehicule[] = [
     marque: 'BMW',
     modele: 'X5',
     annee: 2023,
-    couleur: 'Noir',
+    couleur: 'Noir métallisé',
     prix_achat_cny: 350000,
     prix_achat_dzd: 6500000,
     fournisseur_id: 'four-001',
     fournisseur_nom: 'Sino Auto Ltd',
     source: 'offre',
     statut: 'en_mer',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?w=1200&q=80',
+      'https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=1200&q=80',
+      'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=1200&q=80',
+    ],
     date_ajout: '2026-06-15',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '3.0L BMW TwinPower Turbo 6 cylindres',
+    puissance_cv: 286,
+    cylindree_cc: 2998,
+    kilometrage: 42000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir noir',
+    options: [
+      'Cuir Nappa',
+      'Toit ouvrant panoramique',
+      'Sièges avant ventilés',
+      'Head-Up Display',
+      'Hayon électrique',
+    ],
+    equipements: [
+      'Park Assist Plus',
+      'Caméra 360°',
+      'Apple CarPlay',
+      'Jantes 21 pouces',
+    ],
+    garantie: '12 mois / 20 000 km',
   },
   {
     id: 'veh-002',
@@ -181,15 +224,44 @@ export const vehicules: Vehicule[] = [
     marque: 'Audi',
     modele: 'Q7',
     annee: 2024,
-    couleur: 'Blanc',
+    couleur: 'Blanc glacier',
     prix_achat_cny: 420000,
     prix_achat_dzd: 7800000,
     fournisseur_id: 'four-002',
     fournisseur_nom: 'Dragon Motors Co.',
     source: 'corapide',
     statut: 'disponible',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=1200&q=80',
+      'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=1200&q=80',
+      'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1200&q=80',
+    ],
     date_ajout: '2026-05-20',
+    etat: 'neuf',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '3.0 TFSI V6 340',
+    puissance_cv: 340,
+    cylindree_cc: 2995,
+    kilometrage: 8000,
+    portes: 5,
+    places: 7,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir Valcona noir',
+    options: [
+      'Transmission quattro',
+      'Suspension pneumatique adaptative',
+      'Intérieur Valcona',
+      'Toit ouvrant panoramique',
+    ],
+    equipements: [
+      'Virtual Cockpit',
+      'Bang & Olufsen Premium',
+      'Caméra 360°',
+      'Jantes 20 pouces',
+    ],
+    garantie: '24 mois',
   },
   {
     id: 'veh-003',
@@ -197,15 +269,44 @@ export const vehicules: Vehicule[] = [
     marque: 'Mercedes-Benz',
     modele: 'GLE 350',
     annee: 2024,
-    couleur: 'Gris',
+    couleur: 'Gris sélénite',
     prix_achat_cny: 480000,
     prix_achat_dzd: 8900000,
     fournisseur_id: 'four-001',
     fournisseur_nom: 'Sino Auto Ltd',
     source: 'offre',
     statut: 'reserve',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=1200&q=80',
+      'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=1200&q=80',
+      'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1200&q=80',
+    ],
     date_ajout: '2026-04-10',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '3.0L Turbo 6 cylindres + micro-hybride',
+    puissance_cv: 367,
+    cylindree_cc: 2999,
+    kilometrage: 15000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir marron',
+    options: [
+      'Pack AMG Line',
+      'Toit ouvrant',
+      'Pack Confort Plus',
+      'Système audio Burmester',
+    ],
+    equipements: [
+      'MBUX',
+      'Caméra 360°',
+      'Assistance de freinage actif',
+      'Jantes AMG 20 pouces',
+    ],
+    garantie: '24 mois',
   },
   {
     id: 'veh-004',
@@ -220,8 +321,37 @@ export const vehicules: Vehicule[] = [
     fournisseur_nom: 'Pacific Vehicle Trading',
     source: 'offre',
     statut: 'en_douane',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=1200&q=80',
+      'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=1200&q=80',
+      'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1200&q=80',
+    ],
     date_ajout: '2026-03-25',
+    etat: 'occasion',
+    type_carrosserie: '4x4',
+    carburant: 'diesel',
+    boite: 'automatique',
+    motorisation: '4.5L V8 Turbo Diesel',
+    puissance_cv: 272,
+    cylindree_cc: 4461,
+    kilometrage: 35000,
+    portes: 5,
+    places: 7,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir beige',
+    options: [
+      'Différentiel arrière',
+      'Suspension adaptative',
+      'Sièges chauffants',
+      'Système Crawl Control',
+    ],
+    equipements: [
+      'Caméra off-road',
+      'Jantes 18 pouces',
+      'Hayon électrique',
+      'Multimédia 9 pouces',
+    ],
+    garantie: '12 mois',
   },
   {
     id: 'veh-005',
@@ -229,15 +359,44 @@ export const vehicules: Vehicule[] = [
     marque: 'Range Rover',
     modele: 'Sport',
     annee: 2024,
-    couleur: 'Vert',
+    couleur: 'Vert Santorin',
     prix_achat_cny: 620000,
     prix_achat_dzd: 11500000,
     fournisseur_id: 'four-004',
     fournisseur_nom: 'Golden Star Auto Export',
     source: 'offre',
     statut: 'livre',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1542362567-b07e54358753?w=1200&q=80',
+      'https://images.unsplash.com/photo-1519643381401-22c77e60520e?w=1200&q=80',
+      'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=1200&q=80',
+    ],
     date_ajout: '2026-02-18',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'diesel',
+    boite: 'automatique',
+    motorisation: '3.0L D300 MHEV',
+    puissance_cv: 300,
+    cylindree_cc: 2996,
+    kilometrage: 12000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir noir perforé',
+    options: [
+      'Pack Noir',
+      'Système audio Meridian 3D',
+      'Sièges massants',
+      'Toit panoramique',
+    ],
+    equipements: [
+      'Caméra 360°',
+      'Terrain Response',
+      'Adaptive Dynamics',
+      'Jantes 21 pouces',
+    ],
+    garantie: '24 mois',
   },
   {
     id: 'veh-006',
@@ -245,15 +404,44 @@ export const vehicules: Vehicule[] = [
     marque: 'Porsche',
     modele: 'Cayenne',
     annee: 2024,
-    couleur: 'Rouge',
+    couleur: 'Rouge Carmin',
     prix_achat_cny: 750000,
     prix_achat_dzd: 13900000,
     fournisseur_id: 'four-005',
     fournisseur_nom: 'Yangtze Auto Group',
     source: 'offre',
     statut: 'vendu',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1200&q=80',
+      'https://images.unsplash.com/photo-1553440569-bcc63803a83d?w=1200&q=80',
+      'https://images.unsplash.com/photo-1502161254066-6c74afbf07aa?w=1200&q=80',
+    ],
     date_ajout: '2026-01-10',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '3.0L V6 Turbo',
+    puissance_cv: 340,
+    cylindree_cc: 2995,
+    kilometrage: 9000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir rouge/noir',
+    options: [
+      'Pack Sport Chrono',
+      'Échappement sport',
+      'Bose Surround',
+      'Sièges sport adaptatifs',
+    ],
+    equipements: [
+      'Porsche Connect',
+      'Caméra 360°',
+      'PDLS',
+      'Jantes 21 pouces Carrera',
+    ],
+    garantie: '24 mois',
   },
   {
     id: 'veh-007',
@@ -268,8 +456,26 @@ export const vehicules: Vehicule[] = [
     fournisseur_nom: 'Externe — client',
     source: 'external',
     statut: 'disponible',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1200&q=80',
+      'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1200&q=80',
+    ],
     date_ajout: '2026-07-10',
+    etat: 'occasion',
+    type_carrosserie: 'berline',
+    carburant: 'hybride',
+    boite: 'automatique',
+    motorisation: '1.8L hybride',
+    puissance_cv: 122,
+    cylindree_cc: 1798,
+    kilometrage: 60000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Tissu gris',
+    options: ['Toit panoramique', 'Radar de stationnement', 'Navigation'],
+    equipements: ['Caméra de recul', 'Toyota Safety Sense', 'Climatisation bizone'],
+    garantie: '6 mois',
   },
   {
     id: 'veh-008',
@@ -277,15 +483,39 @@ export const vehicules: Vehicule[] = [
     marque: 'Volkswagen',
     modele: 'Touareg',
     annee: 2022,
-    couleur: 'Bleu',
+    couleur: 'Bleu R-Line',
     prix_achat_cny: 0,
     prix_achat_dzd: 0,
     fournisseur_id: '',
     fournisseur_nom: 'Externe — client',
     source: 'external',
     statut: 'reserve',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=1200&q=80',
+      'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=1200&q=80',
+      'https://images.unsplash.com/photo-1542362567-b07e54358753?w=1200&q=80',
+    ],
     date_ajout: '2026-07-22',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'diesel',
+    boite: 'automatique',
+    motorisation: '3.0L V6 TDI',
+    puissance_cv: 231,
+    cylindree_cc: 2967,
+    kilometrage: 45000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir noir',
+    options: [
+      'Innovision Cockpit',
+      'Suspension pneumatique',
+      'Toit ouvrant',
+      'Pack Assistant',
+    ],
+    equipements: ['Caméra 360°', 'Discovery Pro', 'Jantes 20 pouces Braga'],
+    garantie: '12 mois',
   },
   {
     id: 'veh-009',
@@ -293,15 +523,34 @@ export const vehicules: Vehicule[] = [
     marque: 'Hyundai',
     modele: 'Tucson',
     annee: 2023,
-    couleur: 'Gris',
+    couleur: 'Gris quartz',
     prix_achat_cny: 260000,
     prix_achat_dzd: 4800000,
     fournisseur_id: 'four-006',
     fournisseur_nom: 'Eastern Horizon Motors',
     source: 'corapide',
     statut: 'en_mer',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=1200&q=80',
+      'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=1200&q=80',
+      'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1200&q=80',
+    ],
     date_ajout: '2026-08-01',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '1.6L T-GDi',
+    puissance_cv: 180,
+    cylindree_cc: 1598,
+    kilometrage: 20000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Tissu noir',
+    options: ['Toit panoramique', 'Pack Smart Sense', 'Sièges ventilés'],
+    equipements: ['Caméra 360°', 'Blind Spot', 'Jantes 19 pouces', 'Apple CarPlay'],
+    garantie: '12 mois',
   },
   {
     id: 'veh-010',
@@ -309,15 +558,33 @@ export const vehicules: Vehicule[] = [
     marque: 'Mercedes-Benz',
     modele: 'GLC 300',
     annee: 2022,
-    couleur: 'Noir',
+    couleur: 'Noir obsidienne',
     prix_achat_cny: 0,
     prix_achat_dzd: 0,
     fournisseur_id: '',
     fournisseur_nom: 'Externe — client',
     source: 'external',
     statut: 'disponible',
-    photos: [],
+    photos: [
+      'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=1200&q=80',
+      'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=1200&q=80',
+    ],
     date_ajout: '2026-08-05',
+    etat: 'occasion',
+    type_carrosserie: 'suv',
+    carburant: 'essence',
+    boite: 'automatique',
+    motorisation: '2.0L Turbo',
+    puissance_cv: 258,
+    cylindree_cc: 1991,
+    kilometrage: 38000,
+    portes: 5,
+    places: 5,
+    direction: 'gauche',
+    couleur_interieur: 'Cuir noir',
+    options: ['Pack AMG', 'Toit panoramique', 'Burmester'],
+    equipements: ['MBUX', 'Caméra 360°', 'Jantes 19 pouces AMG'],
+    garantie: '12 mois',
   },
 ];
 
@@ -1352,6 +1619,41 @@ export const dossiers: Dossier[] = [
     taches: tachesDossier001,
     timeline: timelineDossier001,
     notes: notesDossier001,
+    preuves: [
+      {
+        id: 'prv-001',
+        dossier_id: 'dos-001',
+        etape: 'inspection',
+        type: 'photo',
+        nom: 'inspection_avant.jpg',
+        url: '#',
+        taille: '1.4 Mo',
+        upload_par: 'W. Liu',
+        date: '2026-07-24',
+      },
+      {
+        id: 'prv-002',
+        dossier_id: 'dos-001',
+        etape: 'chargement',
+        type: 'photo',
+        nom: 'chargement_conteneur.jpg',
+        url: '#',
+        taille: '2.1 Mo',
+        upload_par: 'W. Liu',
+        date: '2026-07-27',
+      },
+      {
+        id: 'prv-003',
+        dossier_id: 'dos-001',
+        etape: 'chargement',
+        type: 'video',
+        nom: 'chargement_video.mp4',
+        url: '#',
+        taille: '18.5 Mo',
+        upload_par: 'W. Liu',
+        date: '2026-07-27',
+      },
+    ],
   },
   {
     id: 'dos-002',
@@ -2580,6 +2882,91 @@ export const dossiers: Dossier[] = [
     ],
     notes: [],
   },
+  {
+    id: 'dos-011',
+    reference: 'CA-2026-0073',
+    type: 'cif',
+    client_id: 'cli-006',
+    client_nom: 'M. Khelifi',
+    fournisseur_nom: 'Dragon Motors Co.',
+    statut: 'contrat_signe',
+    origine: 'client',
+    date_creation: '2026-08-12',
+    date_mise_a_jour: '2026-08-16',
+    responsable_chine_id: 'usr-003',
+    responsable_algerie_id: 'usr-002',
+    offre_id: 'off-003',
+    supplier_id: 'four-002',
+    contrat_statut: 'signe',
+    contrat_date: null,
+    client: clients[5],
+    vehicles: [vehicules[1]],
+    paiements_client: [],
+    couts: [],
+    documents: [
+      {
+        id: 'doc-911',
+        dossier_id: 'dos-011',
+        type: 'id_client',
+        nom: 'Passeport_client.pdf',
+        taille: '2.0 Mo',
+        url: '#',
+        upload_par: 'S. Mansouri',
+        date: '2026-08-12',
+        version: 1,
+        statut: 'recu',
+        notes: '',
+      },
+      {
+        id: 'doc-912',
+        dossier_id: 'dos-011',
+        type: 'contrat',
+        nom: 'Contrat_signe.pdf',
+        taille: '1.3 Mo',
+        url: '#',
+        upload_par: 'S. Mansouri',
+        date: '2026-08-15',
+        version: 1,
+        statut: 'manquant',
+        notes: 'En attente de la version signée et scannée par le client',
+      },
+    ],
+    taches: [
+      {
+        id: 'tac-911',
+        dossier_id: 'dos-011',
+        titre: 'Récupérer le contrat signé scanné',
+        assigne_a: 'S. Mansouri',
+        departement: 'Commercial',
+        date_echeance: '2026-08-20',
+        priorite: 'haute',
+        statut: 'en_cours',
+        description: 'Uploadez le PDF du contrat signé par le client pour débloquer l\u2019avancement.',
+        commentaires: '',
+      },
+    ],
+    timeline: [
+      {
+        id: 'tim-911',
+        dossier_id: 'dos-011',
+        date: '2026-08-12T09:00:00',
+        utilisateur: 'A. Djelloul',
+        action: 'Dossier créé',
+        type: 'systeme',
+        details: 'Dossier ouvert pour M. Khelifi — Audi Q7 2024',
+      },
+      {
+        id: 'tim-912',
+        dossier_id: 'dos-011',
+        date: '2026-08-15T14:00:00',
+        utilisateur: 'S. Mansouri',
+        action: 'Contrat signé',
+        type: 'statut',
+        details: 'Client en attente — contrat signé non encore uploadé',
+      },
+    ],
+    notes: [],
+  },
 ];
 
 // ─── Helper: find entities ───────────────────────────────────────────
@@ -2680,6 +3067,70 @@ export function vehiculeExterne(infos: VehiculeExterneInfos): Vehicule {
   };
 }
 
+export interface CreateVehiculeInfos {
+  marque: string;
+  modele: string;
+  annee: number;
+  couleur: string;
+  vin: string;
+  etat?: EtatVehicule;
+  type_carrosserie?: TypeCarrosserie;
+  carburant?: Carburant;
+  boite?: BoiteVitesse;
+  motorisation?: string;
+  puissance_cv?: number;
+  cylindree_cc?: number;
+  kilometrage?: number;
+  portes?: number;
+  places?: number;
+  direction?: Direction;
+  couleur_interieur?: string;
+  prix_achat_cny: number;
+  prix_achat_dzd: number;
+  fournisseur_nom: string;
+  source: SourceVehicule;
+  garantie?: string;
+  options?: string[];
+  equipements?: string[];
+  photos: string[];
+}
+
+export function createVehicule(infos: CreateVehiculeInfos): Vehicule {
+  const vehicule: Vehicule = {
+    id: `veh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    vin: infos.vin,
+    marque: infos.marque,
+    modele: infos.modele,
+    annee: infos.annee,
+    couleur: infos.couleur,
+    prix_achat_cny: infos.prix_achat_cny,
+    prix_achat_dzd: infos.prix_achat_dzd,
+    fournisseur_id: '',
+    fournisseur_nom: infos.fournisseur_nom,
+    source: infos.source,
+    statut: 'disponible',
+    photos: infos.photos,
+    date_ajout: new Date().toISOString().slice(0, 10),
+    etat: infos.etat,
+    type_carrosserie: infos.type_carrosserie,
+    carburant: infos.carburant,
+    boite: infos.boite,
+    motorisation: infos.motorisation,
+    puissance_cv: infos.puissance_cv,
+    cylindree_cc: infos.cylindree_cc,
+    kilometrage: infos.kilometrage,
+    portes: infos.portes,
+    places: infos.places,
+    direction: infos.direction,
+    couleur_interieur: infos.couleur_interieur,
+    options: infos.options,
+    equipements: infos.equipements,
+    garantie: infos.garantie,
+  };
+  vehicules.push(vehicule);
+  return vehicule;
+}
+
 export interface CreateDossierDraft {
   type: TypeDossier;
   clientId: string;
@@ -2735,6 +3186,7 @@ export function createDossier(draft: CreateDossierDraft): Dossier {
     couts: [],
     documents: [],
     taches: [],
+    preuves: [],
     timeline: [
       {
         id: `tim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2765,13 +3217,52 @@ export function createDossier(draft: CreateDossierDraft): Dossier {
 
 // ─── Actions sur dossier ─────────────────────────────────────────────
 
-export function avancerStatutDossier(id: string): Dossier | undefined {
+export interface ResultatAvancerStatut {
+  ok: boolean;
+  message?: string;
+  dossier?: Dossier;
+}
+
+export function aContratSigneValide(dossierId: string): boolean {
+  const dossier = getDossierById(dossierId);
+  if (!dossier) return false;
+  const contrat = dossier.documents.find((d) => d.type === 'contrat');
+  return !!contrat && (contrat.statut === 'recu' || contrat.statut === 'valide');
+}
+
+export function aPreuveEtape(dossierId: string, etape: StatutDossier): boolean {
+  const dossier = getDossierById(dossierId);
+  if (!dossier) return false;
+  return (dossier.preuves ?? []).some((p) => p.etape === etape);
+}
+
+export function avancerStatutDossier(id: string): ResultatAvancerStatut {
   const dossier = getDossierById(id);
-  if (!dossier) return undefined;
+  if (!dossier) return { ok: false, message: 'Dossier introuvable.' };
   const steps = DOSSIER_STATUTS_BY_TYPE[dossier.type];
   const currentIndex = steps.indexOf(dossier.statut);
   const next = steps[currentIndex + 1];
-  if (!next) return dossier;
+  if (!next) return { ok: false, message: 'Statut final atteint.', dossier };
+
+  if (dossier.statut === 'contrat_signe') {
+    if (!aContratSigneValide(dossier.id)) {
+      return {
+        ok: false,
+        message:
+          'Impossible de passer à l\u2019étape suivante : le contrat signé et scanné (PDF) doit d\u2019abord être uploadé dans l\u2019onglet Documents.',
+      };
+    }
+  }
+
+  const preuveRequise = getPreuveRequise(dossier.statut);
+  if (preuveRequise) {
+    if (!aPreuveEtape(dossier.id, dossier.statut)) {
+      return {
+        ok: false,
+        message: `Impossible de passer à l\u2019étape suivante : preuve requise pour « ${DOSSIER_STATUT_LABELS[dossier.statut]} » (${preuveRequise}). Uploadez une photo ou vidéo dans l\u2019onglet « Photos & preuves ».`,
+      };
+    }
+  }
 
   const prevStatut = dossier.statut;
   dossier.statut = next;
@@ -2783,6 +3274,102 @@ export function avancerStatutDossier(id: string): Dossier | undefined {
       'statut',
       'A. Djelloul',
       `Dossier passé de « ${DOSSIER_STATUT_LABELS[prevStatut]} » à « ${DOSSIER_STATUT_LABELS[next]} »`,
+    ),
+  );
+  return { ok: true, dossier };
+}
+
+export interface UploadDocumentInfos {
+  type: TypeDocumentDossier;
+  nom: string;
+  taille: string;
+}
+
+export function uploadDocumentDossier(
+  dossierId: string,
+  data: UploadDocumentInfos,
+  replaceId?: string,
+): Dossier | undefined {
+  const dossier = getDossierById(dossierId);
+  if (!dossier) return undefined;
+  const now = new Date();
+  const existing = dossier.documents.find((d) => d.id === replaceId);
+  const notes = data.type === 'contrat' ? 'Contrat signé et scanné (PDF) uploadé' : '';
+  if (existing) {
+    existing.nom = data.nom;
+    existing.taille = data.taille;
+    existing.upload_par = 'A. Djelloul';
+    existing.date = now.toISOString().slice(0, 10);
+    existing.version += 1;
+    existing.statut = 'recu';
+    existing.notes = data.type === 'contrat' ? notes : existing.notes;
+  } else {
+    dossier.documents.push({
+      id: `doc-${now.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+      dossier_id: dossierId,
+      type: data.type,
+      nom: data.nom,
+      taille: data.taille,
+      url: '#',
+      upload_par: 'A. Djelloul',
+      date: now.toISOString().slice(0, 10),
+      version: 1,
+      statut: 'recu',
+      notes,
+    });
+  }
+  dossier.date_mise_a_jour = now.toISOString().slice(0, 10);
+  if (data.type === 'contrat') {
+    dossier.contrat_statut = 'signe';
+    dossier.contrat_date = now.toISOString().slice(0, 10);
+  }
+  dossier.timeline.push(
+    creerEntreeTimeline(
+      dossierId,
+      'Document uploadé',
+      'document',
+      'A. Djelloul',
+      `${data.nom} — ${data.type === 'contrat' ? 'contrat signé' : DOCUMENT_TYPE_LABELS[data.type]}`,
+    ),
+  );
+  return dossier;
+}
+
+export interface UploadPreuveInfos {
+  etape: StatutDossier;
+  type: 'photo' | 'video';
+  nom: string;
+  url: string;
+  taille: string;
+}
+
+export function uploadPreuveDossier(
+  dossierId: string,
+  data: UploadPreuveInfos,
+): Dossier | undefined {
+  const dossier = getDossierById(dossierId);
+  if (!dossier) return undefined;
+  const now = new Date();
+  if (!dossier.preuves) dossier.preuves = [];
+  dossier.preuves.push({
+    id: `prv-${now.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+    dossier_id: dossierId,
+    etape: data.etape,
+    type: data.type,
+    nom: data.nom,
+    url: data.url,
+    taille: data.taille,
+    upload_par: 'A. Djelloul',
+    date: now.toISOString().slice(0, 10),
+  });
+  dossier.date_mise_a_jour = now.toISOString().slice(0, 10);
+  dossier.timeline.push(
+    creerEntreeTimeline(
+      dossierId,
+      'Preuve ajoutée',
+      'note',
+      'A. Djelloul',
+      `${data.type === 'photo' ? 'Photo' : 'Vidéo'} : ${data.nom} — ${DOSSIER_STATUT_LABELS[data.etape]}`,
     ),
   );
   return dossier;
@@ -2949,7 +3536,7 @@ export const notifications: Notification[] = [
     date: '2026-08-10T09:00:00',
     lu: true,
     destinataire: UTILISATEUR_COURANT_ID,
-    dossier_id: 'dossier001',
+    dossier_id: 'dos-001',
   },
   {
     id: 'ntf-004',
@@ -2959,7 +3546,7 @@ export const notifications: Notification[] = [
     date: '2026-08-14T11:00:00',
     lu: true,
     destinataire: UTILISATEUR_COURANT_ID,
-    dossier_id: 'dossier009',
+    dossier_id: 'dos-009',
   },
   {
     id: 'ntf-005',
@@ -2978,7 +3565,7 @@ export const notifications: Notification[] = [
     date: '2026-08-16T08:20:00',
     lu: false,
     destinataire: UTILISATEUR_COURANT_ID,
-    dossier_id: 'dossier005',
+    dossier_id: 'dos-005',
   },
 ];
 

@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { FileWarning } from 'lucide-react';
 import { Topbar, StatusBadge, Stepper, Tabs } from '@/components';
 import {
   clients,
@@ -13,6 +14,8 @@ import {
   avancerStatutDossier,
   updateDossier,
   addNoteDossier,
+  aContratSigneValide,
+  aPreuveEtape,
 } from '@/lib/mockData';
 import {
   DOSSIER_STATUT_LABELS,
@@ -22,6 +25,7 @@ import {
   DOSSIER_TYPE_VARIANTS,
   DOSSIER_TABS,
   dossierVehiculesSummary,
+  getPreuveRequise,
 } from '@/lib/constants';
 import DossierTabOverview from './tabs/TabOverview';
 import DossierTabClient from './tabs/TabClient';
@@ -33,6 +37,7 @@ import DossierTabDocuments from './tabs/TabDocuments';
 import DossierTabTasks from './tabs/TabTasks';
 import DossierTabTimeline from './tabs/TabTimeline';
 import DossierTabNotes from './tabs/TabNotes';
+import DossierTabPreuves from './tabs/TabPreuves';
 
 interface DossierDetailPageProps {
   params: Promise<{ id: string }>;
@@ -50,6 +55,7 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
   const [editResAlgerie, setEditResAlgerie] = useState('');
   const [editFournisseur, setEditFournisseur] = useState('');
   const [editNote, setEditNote] = useState('');
+  const [actionError, setActionError] = useState('');
 
   if (!dossier) {
     return (
@@ -81,7 +87,12 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
   );
 
   const handleAvancerStatut = () => {
-    avancerStatutDossier(dossier.id);
+    const result = avancerStatutDossier(dossier.id);
+    if (!result.ok) {
+      setActionError(result.message ?? 'Action impossible.');
+    } else {
+      setActionError('');
+    }
     setRefresh((v) => v + 1);
   };
 
@@ -136,7 +147,13 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
       case 'finance':
         return <DossierTabFinance dossier={dossier} />;
       case 'documents':
-        return <DossierTabDocuments dossier={dossier} />;
+        return (
+          <DossierTabDocuments dossier={dossier} onChange={() => setRefresh((v) => v + 1)} />
+        );
+      case 'preuves':
+        return (
+          <DossierTabPreuves dossier={dossier} onChange={() => setRefresh((v) => v + 1)} />
+        );
       case 'tasks':
         return <DossierTabTasks dossier={dossier} />;
       case 'timeline':
@@ -217,6 +234,65 @@ export default function DossierDetailPage({ params }: DossierDetailPageProps) {
               </button>
             </div>
           </div>
+
+          {/* Error feedback */}
+          {actionError && (
+            <div className="mt-4 px-4 py-3 rounded-card bg-status-red-bg text-status-red-text text-sm">
+              {actionError}
+            </div>
+          )}
+
+          {/* Contrat requis */}
+          {dossier.statut === 'contrat_signe' && !aContratSigneValide(dossier.id) && (
+            <div className="mt-4 px-4 py-3 rounded-card bg-status-amber-bg border border-status-amber-text/30 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <FileWarning className="w-5 h-5 text-status-amber-text shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Contrat signé requis</p>
+                  <p className="text-sm text-muted">
+                    Uploadez le PDF du contrat signé et scanné par le client pour débloquer
+                    l&apos;avancement du statut.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('documents');
+                  setActionError('');
+                }}
+                className="px-4 py-2 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity shrink-0"
+              >
+                Uploadez le contrat
+              </button>
+            </div>
+          )}
+
+          {/* Preuve requise */}
+          {getPreuveRequise(dossier.statut) &&
+            !aPreuveEtape(dossier.id, dossier.statut) && (
+              <div className="mt-4 px-4 py-3 rounded-card bg-status-amber-bg border border-status-amber-text/30 flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <FileWarning className="w-5 h-5 text-status-amber-text shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Preuve requise : {DOSSIER_STATUT_LABELS[dossier.statut]}
+                    </p>
+                    <p className="text-sm text-muted">
+                      {getPreuveRequise(dossier.statut)} — à ajouter avant d&apos;avancer.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab('preuves');
+                    setActionError('');
+                  }}
+                  className="px-4 py-2 text-sm font-medium bg-foreground text-white rounded-button hover:opacity-90 transition-opacity shrink-0"
+                >
+                  Ajouter photos / vidéos
+                </button>
+              </div>
+            )}
 
           {/* Edit panel */}
           {editing && (

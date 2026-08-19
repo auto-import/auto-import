@@ -22,6 +22,11 @@ import type {
   PaiementClient,
   Cout,
   RoleUtilisateur,
+  EtatVehicule,
+  TypeCarrosserie,
+  Carburant,
+  BoiteVitesse,
+  Direction,
 } from '@/types';
 
 // ─── Dossier Statuts (per workflow type) ─────────────────────────────
@@ -89,6 +94,28 @@ export const ROLE_LABELS: Record<RoleUtilisateur, string> = {
   client: 'Client',
   fournisseur: 'Fournisseur',
 };
+
+// Preuves (photos/vidéos) requises avant d'avancer — étapes physiques
+export const PREUVE_REQUISE_PAR_ETAPE: Partial<Record<StatutDossier, string>> = {
+  inspection: 'Photos/vidéos du véhicule lors de l\u2019inspection',
+  chargement: 'Photos/vidéos du véhicule au chargement (conteneur)',
+  arrivee_port: 'Photos/vidéos du véhicule au port d\u2019arrivée',
+  douane: 'Photos/vidéos du véhicule en douane',
+  mainlevee: 'Photos/vidéos du véhicule après mainlevée',
+  sortie_port: 'Photos/vidéos du véhicule à la sortie du port',
+  transport_local: 'Photos/vidéos du véhicule en transport local',
+  livraison_client: 'Photos/vidéos du véhicule à la livraison client',
+  reception_pickup: 'Photos/vidéos du véhicule à la réception / pick-up',
+  arrivee: 'Photos/vidéos du véhicule à l\u2019arrivée',
+};
+
+export function getPreuveRequise(statut: StatutDossier): string | undefined {
+  return PREUVE_REQUISE_PAR_ETAPE[statut];
+}
+
+export function etapeRequiertPreuve(statut: StatutDossier): boolean {
+  return statut in PREUVE_REQUISE_PAR_ETAPE;
+}
 
 export const DOSSIER_STATUTS_BY_TYPE: Record<TypeDossier, StatutDossier[]> = {
   cif: DOSSIER_STATUTS_CIF,
@@ -213,6 +240,40 @@ export const VEHICLE_SOURCE_VARIANTS: Record<SourceVehicule, string> = {
   offre: 'blue',
   corapide: 'green',
   external: 'gray',
+};
+
+// ─── Caractéristiques Véhicule ───────────────────────────────────────
+
+export const VEHICULE_ETAT_LABELS: Record<EtatVehicule, string> = {
+  neuf: 'Neuf',
+  occasion: 'Occasion',
+};
+
+export const CARROSSERIE_LABELS: Record<TypeCarrosserie, string> = {
+  suv: 'SUV',
+  berline: 'Berline',
+  '4x4': '4x4',
+  crossover: 'Crossover',
+  compacte: 'Compacte',
+  coupe: 'Coupé',
+  monospace: 'Monospace',
+};
+
+export const CARBURANT_LABELS: Record<Carburant, string> = {
+  essence: 'Essence',
+  diesel: 'Diesel',
+  hybride: 'Hybride',
+  electrique: 'Électrique',
+};
+
+export const BOITE_LABELS: Record<BoiteVitesse, string> = {
+  automatique: 'Automatique',
+  manuelle: 'Manuelle',
+};
+
+export const DIRECTION_LABELS: Record<Direction, string> = {
+  gauche: 'Volant à gauche',
+  droite: 'Volant à droite',
 };
 
 // ─── Offres ──────────────────────────────────────────────────────────
@@ -444,6 +505,7 @@ export const DOSSIER_TABS: TabItem[] = [
   { key: 'shipping', label: 'Shipping' },
   { key: 'finance', label: 'Finance' },
   { key: 'documents', label: 'Documents' },
+  { key: 'preuves', label: 'Photos & preuves' },
   { key: 'tasks', label: 'Tâches' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'notes', label: 'Notes' },
