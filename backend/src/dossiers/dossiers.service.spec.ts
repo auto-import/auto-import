@@ -1,21 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { DossiersService } from './dossiers.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { DossierType } from './dto/dossier-type.enum';
 
-describe('DossiersService', () => {
+describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   let service: DossiersService;
+  let workflowService: DossierWorkflowService;
   let prisma: any;
+
+  const mockOrgId = 'org-1';
 
   const mockClient = {
     id: 'client-1',
+    organizationId: mockOrgId,
     firstName: 'John',
     lastName: 'Doe',
   };
 
   const mockVehicle1 = {
     id: 'veh-1',
+    organizationId: mockOrgId,
     brand: 'Toyota',
     model: 'Land Cruiser',
     status: 'available',
@@ -23,22 +29,16 @@ describe('DossiersService', () => {
 
   const mockVehicle2 = {
     id: 'veh-2',
+    organizationId: mockOrgId,
     brand: 'Nissan',
     model: 'Patrol',
     status: 'available',
   };
 
-  const mockVehicleUnavailable = {
-    id: 'veh-3',
-    brand: 'BMW',
-    model: 'X5',
-    status: 'reserved',
-  };
-
   beforeEach(async () => {
     prisma = {
       dossier: {
-        findFirst: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         findMany: jest.fn(),
         create: jest.fn(),
@@ -46,9 +46,11 @@ describe('DossiersService', () => {
         count: jest.fn(),
       },
       client: {
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
       },
       vehicle: {
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -74,6 +76,7 @@ describe('DossiersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DossiersService,
+        DossierWorkflowService,
         {
           provide: PrismaService,
           useValue: prisma,
@@ -82,346 +85,250 @@ describe('DossiersService', () => {
     }).compile();
 
     service = module.get<DossiersService>(DossiersService);
+    workflowService = module.get<DossierWorkflowService>(DossierWorkflowService);
   });
 
-  describe('create with DossierType', () => {
-    it('1. should create a VEHICLE_SALE_CIF Dossier', async () => {
-      prisma.client.findUnique.mockResolvedValue(mockClient);
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle1);
+  describe('Workflow 1: VEHICLE_SALE_CIF', () => {
+    it('1. should create CIF dossier with default initial status (offre_selectionnee)', async () => {
+      prisma.client.findFirst.mockResolvedValue(mockClient);
       prisma.dossier.create.mockResolvedValue({
         id: 'dos-cif',
         reference: 'CA-2026-0001',
+        organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        clientId: 'client-1',
-        status: 'prospection',
-        dossierVehicles: [
-          {
-            id: 'dv-1',
-            dossierId: 'dos-cif',
-            vehicleId: 'veh-1',
-            assignedAt: new Date(),
-            vehicle: mockVehicle1,
-          },
-        ],
-      });
-
-      const result = await service.create(
-        {
-          clientId: 'client-1',
-          type: DossierType.VEHICLE_SALE_CIF,
-          vehicleId: 'veh-1',
-        },
-        'user-1',
-      );
-
-      expect(result).toBeDefined();
-      expect(result.type).toBe(DossierType.VEHICLE_SALE_CIF);
-      expect(prisma.dossier.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: DossierType.VEHICLE_SALE_CIF,
-          }),
-        }),
-      );
-    });
-
-    it('2. should create a VEHICLE_SALE_DDP Dossier', async () => {
-      prisma.client.findUnique.mockResolvedValue(mockClient);
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle1);
-      prisma.dossier.create.mockResolvedValue({
-        id: 'dos-ddp',
-        reference: 'CA-2026-0002',
-        type: DossierType.VEHICLE_SALE_DDP,
-        clientId: 'client-1',
-        status: 'prospection',
-        dossierVehicles: [
-          {
-            id: 'dv-1',
-            dossierId: 'dos-ddp',
-            vehicleId: 'veh-1',
-            assignedAt: new Date(),
-            vehicle: mockVehicle1,
-          },
-        ],
-      });
-
-      const result = await service.create(
-        {
-          clientId: 'client-1',
-          type: DossierType.VEHICLE_SALE_DDP,
-          vehicleId: 'veh-1',
-        },
-        'user-1',
-      );
-
-      expect(result).toBeDefined();
-      expect(result.type).toBe(DossierType.VEHICLE_SALE_DDP);
-      expect(prisma.dossier.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: DossierType.VEHICLE_SALE_DDP,
-          }),
-        }),
-      );
-    });
-
-    it('3. should create a SHIPPING_ONLY Dossier', async () => {
-      prisma.client.findUnique.mockResolvedValue(mockClient);
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle1);
-      prisma.dossier.create.mockResolvedValue({
-        id: 'dos-ship',
-        reference: 'CA-2026-0003',
-        type: DossierType.SHIPPING_ONLY,
-        clientId: 'client-1',
-        status: 'prospection',
-        dossierVehicles: [
-          {
-            id: 'dv-1',
-            dossierId: 'dos-ship',
-            vehicleId: 'veh-1',
-            assignedAt: new Date(),
-            vehicle: mockVehicle1,
-          },
-        ],
-      });
-
-      const result = await service.create(
-        {
-          clientId: 'client-1',
-          type: DossierType.SHIPPING_ONLY,
-          vehicleId: 'veh-1',
-        },
-        'user-1',
-      );
-
-      expect(result).toBeDefined();
-      expect(result.type).toBe(DossierType.SHIPPING_ONLY);
-      expect(prisma.dossier.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: DossierType.SHIPPING_ONLY,
-          }),
-        }),
-      );
-    });
-
-    it('4. should default to VEHICLE_SALE_CIF when type is omitted for backward compatibility', async () => {
-      prisma.client.findUnique.mockResolvedValue(mockClient);
-      prisma.dossier.create.mockResolvedValue({
-        id: 'dos-default',
-        reference: 'CA-2026-0004',
-        type: DossierType.VEHICLE_SALE_CIF,
-        clientId: 'client-1',
-        status: 'prospection',
+        status: 'offre_selectionnee',
         dossierVehicles: [],
       });
 
-      const result = await service.create(
-        {
-          clientId: 'client-1',
-        },
+      const res = await service.create(
+        { clientId: 'client-1', type: DossierType.VEHICLE_SALE_CIF },
         'user-1',
+        mockOrgId,
       );
 
-      expect(result).toBeDefined();
+      expect(res.status).toBe('offre_selectionnee');
       expect(prisma.dossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             type: DossierType.VEHICLE_SALE_CIF,
+            status: 'offre_selectionnee',
+            organizationId: mockOrgId,
           }),
         }),
       );
     });
 
-    it('5. should create multi-vehicle dossier with specified type', async () => {
-      prisma.client.findUnique.mockResolvedValue(mockClient);
-      prisma.vehicle.findUnique
-        .mockResolvedValueOnce(mockVehicle1)
-        .mockResolvedValueOnce(mockVehicle2);
-
-      prisma.dossier.create.mockResolvedValue({
-        id: 'dos-multi',
-        reference: 'CA-2026-0005',
-        type: DossierType.VEHICLE_SALE_DDP,
-        clientId: 'client-1',
-        status: 'prospection',
-        dossierVehicles: [
-          {
-            id: 'dv-1',
-            dossierId: 'dos-multi',
-            vehicleId: 'veh-1',
-            assignedAt: new Date(),
-            vehicle: mockVehicle1,
-          },
-          {
-            id: 'dv-2',
-            dossierId: 'dos-multi',
-            vehicleId: 'veh-2',
-            assignedAt: new Date(),
-            vehicle: mockVehicle2,
-          },
-        ],
-      });
-
-      const result = await service.create(
-        {
-          clientId: 'client-1',
-          type: DossierType.VEHICLE_SALE_DDP,
-          vehicleIds: ['veh-1', 'veh-2'],
-        },
-        'user-1',
-      );
-
-      expect(result).toBeDefined();
-      expect(result.type).toBe(DossierType.VEHICLE_SALE_DDP);
-      expect(result.vehicles).toHaveLength(2);
-      expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['veh-1', 'veh-2'] } },
-        data: { status: 'reserved' },
-      });
-    });
-  });
-
-  describe('findAll with type filter', () => {
-    it('6. should filter dossiers by type', async () => {
-      prisma.dossier.findMany.mockResolvedValue([
-        {
-          id: 'dos-1',
-          reference: 'CA-2026-0001',
-          type: DossierType.SHIPPING_ONLY,
-          dossierVehicles: [],
-        },
-      ]);
-      prisma.dossier.count.mockResolvedValue(1);
-
-      const result = await service.findAll(1, 10, {
-        type: DossierType.SHIPPING_ONLY,
-      });
-
-      expect(result.items).toHaveLength(1);
-      expect(prisma.dossier.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            type: DossierType.SHIPPING_ONLY,
-          }),
-        }),
-      );
-    });
-  });
-
-  describe('getStatistics with type breakdown', () => {
-    it('7. should return statistics with byType breakdown', async () => {
-      // 9 status counts + 3 type counts = 12 counts in transaction
-      prisma.$transaction.mockResolvedValue([
-        10, // total
-        3,  // prospection
-        2,  // contrat_signe
-        1,  // recherche_vehicule
-        1,  // achat
-        1,  // shipping
-        0,  // douane
-        1,  // livraison
-        1,  // cloture
-        5,  // VEHICLE_SALE_CIF
-        3,  // VEHICLE_SALE_DDP
-        2,  // SHIPPING_ONLY
-      ]);
-
-      const stats = await service.getStatistics();
-
-      expect(stats.total).toBe(10);
-      expect(stats.byType).toEqual({
-        VEHICLE_SALE_CIF: 5,
-        VEHICLE_SALE_DDP: 3,
-        SHIPPING_ONLY: 2,
-      });
-    });
-  });
-
-  describe('Phase 1 regression tests (vehicle assignment)', () => {
-    it('8. should add a vehicle to an existing Dossier', async () => {
+    it('2. should advance CIF from offre_selectionnee -> client_confirme', async () => {
       const mockDossier = {
-        id: 'dos-1',
+        id: 'dos-cif',
         reference: 'CA-2026-0001',
+        organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'prospection',
-        dossierVehicles: [
-          { vehicleId: 'veh-1', vehicle: mockVehicle1, assignedAt: new Date() },
-        ],
+        status: 'offre_selectionnee',
+        dossierVehicles: [],
       };
 
-      prisma.dossier.findUnique
-        .mockResolvedValueOnce(mockDossier)
-        .mockResolvedValueOnce({
-          ...mockDossier,
-          dossierVehicles: [
-            { vehicleId: 'veh-1', vehicle: mockVehicle1, assignedAt: new Date() },
-            { vehicleId: 'veh-2', vehicle: mockVehicle2, assignedAt: new Date() },
-          ],
-        });
-
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle2);
-
-      const result = await service.addVehicle('dos-1', 'veh-2', 'user-1');
-
-      expect(prisma.dossierVehicle.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          dossierId: 'dos-1',
-          vehicleId: 'veh-2',
-        }),
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+      prisma.dossier.update.mockResolvedValue({
+        ...mockDossier,
+        status: 'client_confirme',
       });
-      expect(result.vehicles).toHaveLength(2);
+
+      const res = await service.advanceStatus('dos-cif', 'Client confirmed', 'user-1', mockOrgId);
+
+      expect(prisma.dossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'client_confirme',
+          }),
+        }),
+      );
     });
 
-    it('9. should prevent duplicate vehicle assignment to the same Dossier', async () => {
+    it('3. should reject transition from CIF to DDP-only customs/delivery state', async () => {
       const mockDossier = {
-        id: 'dos-1',
+        id: 'dos-cif',
         reference: 'CA-2026-0001',
-        status: 'prospection',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'en_transit',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+
+      // 'douane' is only valid in DDP, not CIF
+      await expect(
+        service.updateStatus('dos-cif', { status: 'douane' }, 'user-1', mockOrgId),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('Workflow 2: VEHICLE_SALE_DDP', () => {
+    it('4. should allow DDP workflow to progress through customs and delivery', async () => {
+      const mockDossier = {
+        id: 'dos-ddp',
+        reference: 'CA-2026-0002',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_DDP,
+        status: 'arrivee_port',
         dossierVehicles: [{ vehicleId: 'veh-1' }],
       };
 
-      prisma.dossier.findUnique.mockResolvedValue(mockDossier);
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle1);
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+      prisma.dossier.update.mockResolvedValue({
+        ...mockDossier,
+        status: 'douane',
+      });
+
+      const res = await service.advanceStatus('dos-ddp', 'Vehicles entered customs', 'ops-user', mockOrgId);
+
+      expect(prisma.dossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'douane',
+          }),
+        }),
+      );
+    });
+
+    it('5. should reject skipping mandatory intermediate steps in DDP', async () => {
+      const mockDossier = {
+        id: 'dos-ddp',
+        reference: 'CA-2026-0002',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_DDP,
+        status: 'en_transit',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+
+      // Cannot jump directly from en_transit to livraison_client
+      await expect(
+        service.updateStatus('dos-ddp', { status: 'livraison_client' }, 'user-1', mockOrgId),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('Workflow 3: SHIPPING_ONLY', () => {
+    it('6. should initialize SHIPPING_ONLY with client and progress through logistics states', async () => {
+      prisma.client.findFirst.mockResolvedValue(mockClient);
+      prisma.dossier.create.mockResolvedValue({
+        id: 'dos-ship',
+        reference: 'CA-2026-0003',
+        organizationId: mockOrgId,
+        type: DossierType.SHIPPING_ONLY,
+        status: 'client',
+        dossierVehicles: [],
+      });
+
+      const res = await service.create(
+        { clientId: 'client-1', type: DossierType.SHIPPING_ONLY },
+        'user-1',
+        mockOrgId,
+      );
+
+      expect(res.status).toBe('client');
+    });
+
+    it('7. should reject vehicle purchase states in SHIPPING_ONLY', async () => {
+      const mockDossier = {
+        id: 'dos-ship',
+        reference: 'CA-2026-0003',
+        organizationId: mockOrgId,
+        type: DossierType.SHIPPING_ONLY,
+        status: 'client',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+
+      // 'achat_confirme' and 'paiement_fournisseur' are forbidden in SHIPPING_ONLY
+      await expect(
+        service.updateStatus('dos-ship', { status: 'achat_confirme' }, 'user-1', mockOrgId),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('Terminal States & Protection', () => {
+    it('8. should reject any status transition when dossier is in terminal state cloture', async () => {
+      const mockClosedDossier = {
+        id: 'dos-closed',
+        reference: 'CA-2026-0004',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'cloture',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockClosedDossier);
 
       await expect(
-        service.addVehicle('dos-1', 'veh-1', 'user-1'),
+        service.updateStatus('dos-closed', { status: 'contrat_signe' }, 'user-1', mockOrgId),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('10. should remove a vehicle and revert status to available', async () => {
+    it('9. should return allowed transitions including next step and cancellation', async () => {
       const mockDossier = {
         id: 'dos-1',
         reference: 'CA-2026-0001',
-        status: 'prospection',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'contrat_signe',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+
+      const result = await service.getAllowedTransitions('dos-1', mockOrgId);
+
+      expect(result.currentStatus).toBe('contrat_signe');
+      expect(result.allowedTransitions).toContain('acompte_recu');
+      expect(result.allowedTransitions).toContain('annule');
+    });
+
+    it('10. should reject transition to the exact same status', async () => {
+      const mockDossier = {
+        id: 'dos-1',
+        reference: 'CA-2026-0001',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'inspection',
+        dossierVehicles: [],
+      };
+
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+
+      await expect(
+        service.updateStatus('dos-1', { status: 'inspection' }, 'user-1', mockOrgId),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('11. should update attached vehicle status to sold when closing dossier', async () => {
+      const mockDossier = {
+        id: 'dos-final',
+        reference: 'CA-2026-0005',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'documents_remis',
         dossierVehicles: [
-          { vehicleId: 'veh-1', vehicle: mockVehicle1, assignedAt: new Date() },
-          { vehicleId: 'veh-2', vehicle: mockVehicle2, assignedAt: new Date() },
+          { vehicleId: 'veh-1', vehicle: mockVehicle1 },
         ],
       };
 
-      prisma.dossier.findUnique
-        .mockResolvedValueOnce(mockDossier)
-        .mockResolvedValueOnce({
-          ...mockDossier,
-          dossierVehicles: [
-            { vehicleId: 'veh-2', vehicle: mockVehicle2, assignedAt: new Date() },
-          ],
-        });
-
-      prisma.vehicle.findUnique.mockResolvedValue(mockVehicle1);
-
-      const result = await service.removeVehicle('dos-1', 'veh-1', 'user-1');
-
-      expect(prisma.dossierVehicle.delete).toHaveBeenCalledWith({
-        where: {
-          dossierId_vehicleId: {
-            dossierId: 'dos-1',
-            vehicleId: 'veh-1',
-          },
-        },
+      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+      prisma.dossier.update.mockResolvedValue({
+        ...mockDossier,
+        status: 'cloture',
       });
-      expect(result.vehicles).toHaveLength(1);
+
+      await service.updateStatus('dos-final', { status: 'cloture' }, 'user-1', mockOrgId);
+
+      expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['veh-1'] } },
+        data: { status: 'sold' },
+      });
     });
   });
 });

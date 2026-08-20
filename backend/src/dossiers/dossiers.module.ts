@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { DossiersService } from './dossiers.service';
 import { DossiersController } from './dossiers.controller';
+import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 
 @Module({
   controllers: [DossiersController],
-  providers: [DossiersService],
-  exports: [DossiersService],
+  providers: [DossiersService, DossierWorkflowService],
+  exports: [DossiersService, DossierWorkflowService],
 })
 export class DossiersModule {}

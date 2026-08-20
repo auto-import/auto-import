@@ -32,26 +32,26 @@ export class OrdersService {
     return `ORD-${year}-${String(sequence).padStart(6, '0')}`;
   }
 
-  async create(createOrderDto: CreateOrderDto, userId: string) {
+  async create(createOrderDto: CreateOrderDto, userId: string, organizationId: string) {
     const { clientId, prospectId, dossierId, items, currency, status } = createOrderDto;
 
-    // Check if client exists
-    const client = await this.prisma.client.findUnique({
-      where: { id: clientId },
+    // Check if client exists and belongs to same organization
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, organizationId },
     });
 
     if (!client) {
-      throw new NotFoundException(`Client with ID ${clientId} not found`);
+      throw new NotFoundException(`Client with ID ${clientId} not found in your organization`);
     }
 
-    // Check if dossier exists and link it
+    // Check if dossier exists and belongs to same organization
     if (dossierId) {
-      const dossier = await this.prisma.dossier.findUnique({
-        where: { id: dossierId },
+      const dossier = await this.prisma.dossier.findFirst({
+        where: { id: dossierId, organizationId },
       });
 
       if (!dossier) {
-        throw new NotFoundException(`Dossier with ID ${dossierId} not found`);
+        throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
       }
 
       if (dossier.orderId) {
@@ -59,17 +59,17 @@ export class OrdersService {
       }
     }
 
-    // Validate vehicles and calculate totals
+    // Validate vehicles belong to organization, are available/not sold, and calculate totals
     let subtotal = 0;
     const validatedItems: any[] = [];
 
     for (const item of items) {
-      const vehicle = await this.prisma.vehicle.findUnique({
-        where: { id: item.vehicleId },
+      const vehicle = await this.prisma.vehicle.findFirst({
+        where: { id: item.vehicleId, organizationId },
       });
 
       if (!vehicle) {
-        throw new NotFoundException(`Vehicle with ID ${item.vehicleId} not found`);
+        throw new NotFoundException(`Vehicle with ID ${item.vehicleId} not found in your organization`);
       }
 
       if (vehicle.status === 'sold') {
@@ -85,10 +85,11 @@ export class OrdersService {
     const total = subtotal;
 
     const order = await this.prisma.$transaction(async (prisma) => {
-      // Create order (dossierId is on the Dossier model, not on Order)
+      // Create order with organizationId
       const newOrder = await prisma.order.create({
         data: {
           orderNumber,
+          organizationId,
           clientId,
           prospectId,
           createdBy: userId,
@@ -154,13 +155,13 @@ export class OrdersService {
     });
 
     this.logger.log(`Order created: ${orderNumber} (${order.id})`);
-    return this.findOne(order.id);
+    return this.findOne(order.id, organizationId);
   }
 
-  async findAll(page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.clientId) where.clientId = filters.clientId;
@@ -223,9 +224,9 @@ export class OrdersService {
     };
   }
 
-  async findOne(id: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         client: {
           include: {
@@ -295,8 +296,8 @@ export class OrdersService {
     };
   }
 
-  async updateStatus(id: string, updateStatusDto: UpdateOrderStatusDto, userId: string) {
-    const order = await this.findOne(id);
+  async updateStatus(id: string, updateStatusDto: UpdateOrderStatusDto, userId: string, organizationId?: string) {
+    const order = await this.findOne(id, organizationId);
     const { status, comment } = updateStatusDto;
 
     // Status transition validation
@@ -359,11 +360,11 @@ export class OrdersService {
     });
 
     this.logger.log(`Order ${order.orderNumber} status updated: ${order.status} -> ${status}`);
-    return this.findOne(id);
+    return this.findOne(id, organizationId);
   }
 
-  async getHistory(id: string) {
-    await this.findOne(id);
+  async getHistory(id: string, organizationId?: string) {
+    await this.findOne(id, organizationId);
 
     return this.prisma.orderStatusHistory.findMany({
       where: { orderId: id },
@@ -371,8 +372,8 @@ export class OrdersService {
     });
   }
 
-  async getReservations(id: string) {
-    await this.findOne(id);
+  async getReservations(id: string, organizationId?: string) {
+    await this.findOne(id, organizationId);
 
     return this.prisma.reservation.findMany({
       where: { orderId: id },
@@ -387,8 +388,8 @@ export class OrdersService {
     });
   }
 
-  async remove(id: string) {
-    const order = await this.findOne(id);
+  async remove(id: string, organizationId: string) {
+    const order = await this.findOne(id, organizationId);
 
     if (order.status !== 'draft' && order.status !== 'cancelled') {
       throw new ConflictException(`Cannot delete order in ${order.status} status`);

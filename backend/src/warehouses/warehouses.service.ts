@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
@@ -15,9 +15,12 @@ export class WarehousesService {
   // Warehouse CRUD
   // ──────────────────────────────────────────────
 
-  async create(createWarehouseDto: CreateWarehouseDto) {
+  async create(createWarehouseDto: CreateWarehouseDto, organizationId: string) {
     const warehouse = await this.prisma.warehouse.create({
-      data: createWarehouseDto,
+      data: {
+        ...createWarehouseDto,
+        organizationId: createWarehouseDto.organizationId || organizationId,
+      },
       include: {
         locations: true,
         organization: {
@@ -30,10 +33,10 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async findAll(page: number = 1, limit: number = 10, search?: string) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, search?: string) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -67,9 +70,9 @@ export class WarehousesService {
     };
   }
 
-  async findOne(id: string) {
-    const warehouse = await this.prisma.warehouse.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const warehouse = await this.prisma.warehouse.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         locations: true,
         organization: {
@@ -85,8 +88,8 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async update(id: string, updateWarehouseDto: UpdateWarehouseDto) {
-    await this.findOne(id);
+  async update(id: string, organizationId: string, updateWarehouseDto: UpdateWarehouseDto) {
+    await this.findOne(id, organizationId);
 
     const warehouse = await this.prisma.warehouse.update({
       where: { id },
@@ -103,8 +106,8 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, organizationId: string) {
+    await this.findOne(id, organizationId);
 
     // Check if warehouse has locations
     const locations = await this.prisma.warehouseLocation.count({
@@ -112,7 +115,7 @@ export class WarehousesService {
     });
 
     if (locations > 0) {
-      throw new Error('Cannot delete warehouse with existing locations. Remove locations first.');
+      throw new ConflictException('Cannot delete warehouse with existing locations. Remove locations first.');
     }
 
     await this.prisma.warehouse.delete({ where: { id } });
@@ -125,8 +128,8 @@ export class WarehousesService {
   // Warehouse Locations
   // ──────────────────────────────────────────────
 
-  async addLocation(warehouseId: string, locationDto: CreateWarehouseLocationDto) {
-    await this.findOne(warehouseId);
+  async addLocation(warehouseId: string, locationDto: CreateWarehouseLocationDto, organizationId?: string) {
+    await this.findOne(warehouseId, organizationId);
 
     const location = await this.prisma.warehouseLocation.create({
       data: {
@@ -139,16 +142,16 @@ export class WarehousesService {
     return location;
   }
 
-  async getLocations(warehouseId: string) {
-    await this.findOne(warehouseId);
+  async getLocations(warehouseId: string, organizationId?: string) {
+    await this.findOne(warehouseId, organizationId);
 
     return this.prisma.warehouseLocation.findMany({
       where: { warehouseId },
     });
   }
 
-  async removeLocation(warehouseId: string, locationId: string) {
-    await this.findOne(warehouseId);
+  async removeLocation(warehouseId: string, locationId: string, organizationId?: string) {
+    await this.findOne(warehouseId, organizationId);
 
     const location = await this.prisma.warehouseLocation.findFirst({
       where: { id: locationId, warehouseId },
@@ -170,10 +173,10 @@ export class WarehousesService {
   // Stock Movements
   // ──────────────────────────────────────────────
 
-  async createStockMovement(dto: CreateStockMovementDto, performedBy: string) {
-    // Verify vehicle exists
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id: dto.vehicleId },
+  async createStockMovement(dto: CreateStockMovementDto, performedBy: string, organizationId?: string) {
+    // Verify vehicle exists in same organization if organizationId provided
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: dto.vehicleId, ...(organizationId && { organizationId }) },
     });
 
     if (!vehicle) {
@@ -208,7 +211,7 @@ export class WarehousesService {
     return movement;
   }
 
-  async getStockMovements(vehicleId?: string, page: number = 1, limit: number = 10) {
+  async getStockMovements(vehicleId?: string, page: number = 1, limit: number = 10, organizationId?: string) {
     const skip = (page - 1) * limit;
 
     const where: any = {};

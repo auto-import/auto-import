@@ -18,16 +18,18 @@ export class ProspectsController {
     @Body() createProspectDto: CreateProspectDto,
     @CurrentUser() user: any,
   ) {
-    return this.prospectsService.create(createProspectDto, user.id);
+    return this.prospectsService.create(createProspectDto, user.id, user.organizationId);
   }
 
   @Get()
   @RequirePermission('clients:read')
   findAll(
     @Query() pagination: PaginationDto,
+    @CurrentUser() user: any,
     @Query() filters?: any,
   ) {
     return this.prospectsService.findAll(
+      user.organizationId,
       pagination.page,
       pagination.limit,
       filters,
@@ -36,14 +38,14 @@ export class ProspectsController {
 
   @Get(':id')
   @RequirePermission('clients:read')
-  findOne(@Param('id') id: string) {
-    return this.prospectsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.prospectsService.findOne(id, user.organizationId);
   }
 
   @Get(':id/activities')
   @RequirePermission('clients:read')
-  getActivities(@Param('id') id: string) {
-    return this.prospectsService.getActivities(id);
+  getActivities(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.prospectsService.getActivities(id, user.organizationId);
   }
 
   @Patch(':id')
@@ -51,8 +53,9 @@ export class ProspectsController {
   update(
     @Param('id') id: string,
     @Body() updateProspectDto: UpdateProspectDto,
+    @CurrentUser() user: any,
   ) {
-    return this.prospectsService.update(id, updateProspectDto);
+    return this.prospectsService.update(id, user.organizationId, updateProspectDto);
   }
 
   @Post(':id/activities')
@@ -65,6 +68,7 @@ export class ProspectsController {
     return this.prospectsService.addActivity(
       { ...createActivityDto, prospectId },
       user.id,
+      user.organizationId,
     );
   }
 
@@ -75,12 +79,12 @@ export class ProspectsController {
     @Body() convertProspectDto: ConvertProspectDto,
     @CurrentUser() user: any,
   ) {
-    return this.prospectsService.convertToClient(id, convertProspectDto, user.id);
+    return this.prospectsService.convertToClient(id, convertProspectDto, user.id, user.organizationId);
   }
 
   @Delete(':id')
   @RequirePermission('clients:write')
-  remove(@Param('id') id: string) {
-    return this.prospectsService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.prospectsService.remove(id, user.organizationId);
   }
 }

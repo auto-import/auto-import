@@ -44,21 +44,7 @@ async function main() {
     console.log('Created User:', user.email);
   }
 
-  // 3. Create Role
-  let role = await prisma.role.findFirst({ where: { name: 'Admin' } });
-  if (!role) {
-    role = await prisma.role.create({
-      data: {
-        organizationId: org.id,
-        name: 'Admin',
-        scope: 'tenant',
-        description: 'Administrator role',
-      },
-    });
-    console.log('Created Role:', role.name);
-  }
-
-  // 4. Create All System Permissions and link to Admin
+  // 3. Create All System Permissions
   const allPermissions = [
     { resource: 'users', action: 'read', description: 'Read users list' },
     { resource: 'users', action: 'write', description: 'Create and edit users' },
@@ -82,6 +68,7 @@ async function main() {
     { resource: 'orders', action: 'write', description: 'Create, update and manage orders' },
   ];
 
+  const permissionRecords: Record<string, string> = {};
   for (const p of allPermissions) {
     let perm = await prisma.permission.findFirst({
       where: { resource: p.resource, action: p.action },
@@ -92,43 +79,135 @@ async function main() {
       });
       console.log(`Created Permission: ${p.resource}:${p.action}`);
     }
+    permissionRecords[`${p.resource}:${p.action}`] = perm.id;
+  }
 
-    const rolePerm = await prisma.rolePermission.findUnique({
-      where: {
-        roleId_permissionId: {
-          roleId: role.id,
-          permissionId: perm.id,
-        },
-      },
+  // 4. Create Standard Roles and link permissions
+  const roleDefinitions = [
+    {
+      name: 'Admin',
+      description: 'System Administrator (full access)',
+      permissions: Object.keys(permissionRecords),
+    },
+    {
+      name: 'Direction',
+      description: 'Executive Management (full business and management access)',
+      permissions: Object.keys(permissionRecords),
+    },
+    {
+      name: 'Manager',
+      description: 'Operations Manager (all business operations)',
+      permissions: [
+        'prospects:read', 'prospects:write',
+        'clients:read', 'clients:write',
+        'dossiers:read', 'dossiers:write',
+        'vehicles:read', 'vehicles:write',
+        'warehouses:read', 'warehouses:write',
+        'vehicle-requests:read', 'vehicle-requests:write',
+        'orders:read', 'orders:write',
+        'users:read', 'roles:read',
+      ],
+    },
+    {
+      name: 'Commercial',
+      description: 'Sales Agent (leads, clients, dossiers, vehicle requests, orders)',
+      permissions: [
+        'prospects:read', 'prospects:write',
+        'clients:read', 'clients:write',
+        'dossiers:read', 'dossiers:write',
+        'vehicles:read',
+        'vehicle-requests:read', 'vehicle-requests:write',
+        'orders:read', 'orders:write',
+      ],
+    },
+    {
+      name: 'Logistics',
+      description: 'Logistics & Fleet Manager (vehicles, warehouses, shipping)',
+      permissions: [
+        'vehicles:read', 'vehicles:write',
+        'warehouses:read', 'warehouses:write',
+        'dossiers:read',
+        'orders:read',
+      ],
+    },
+    {
+      name: 'Finance',
+      description: 'Accountant & Finance (orders, invoices, payments, dossier view)',
+      permissions: [
+        'orders:read', 'orders:write',
+        'dossiers:read',
+        'clients:read',
+        'vehicles:read',
+      ],
+    },
+  ];
+
+  let adminRole: any = null;
+
+  for (const roleDef of roleDefinitions) {
+    let role = await prisma.role.findFirst({
+      where: { name: roleDef.name, organizationId: org.id },
     });
-    if (!rolePerm) {
-      await prisma.rolePermission.create({
+
+    if (!role) {
+      role = await prisma.role.create({
         data: {
-          roleId: role.id,
-          permissionId: perm.id,
+          organizationId: org.id,
+          name: roleDef.name,
+          scope: 'tenant',
+          description: roleDef.description,
         },
       });
-      console.log(`Linked ${p.resource}:${p.action} to Admin Role`);
+      console.log(`Created Role: ${role.name}`);
+    }
+
+    if (roleDef.name === 'Admin') {
+      adminRole = role;
+    }
+
+    // Link permissions to role
+    for (const permKey of roleDef.permissions) {
+      const permId = permissionRecords[permKey];
+      if (permId) {
+        const rolePerm = await prisma.rolePermission.findUnique({
+          where: {
+            roleId_permissionId: {
+              roleId: role.id,
+              permissionId: permId,
+            },
+          },
+        });
+        if (!rolePerm) {
+          await prisma.rolePermission.create({
+            data: {
+              roleId: role.id,
+              permissionId: permId,
+            },
+          });
+        }
+      }
     }
   }
 
-  // 5. Link UserRole
-  const userRole = await prisma.userRole.findUnique({
-    where: {
-      userId_roleId: {
-        userId: user.id,
-        roleId: role.id,
-      },
-    },
-  });
-  if (!userRole) {
-    await prisma.userRole.create({
-      data: {
-        userId: user.id,
-        roleId: role.id,
+  // 5. Link UserRole for admin
+  if (adminRole) {
+    const userRole = await prisma.userRole.findUnique({
+      where: {
+        userId_roleId: {
+          userId: user.id,
+          roleId: adminRole.id,
+        },
       },
     });
-    console.log('Linked UserRole');
+    if (!userRole) {
+      await prisma.userRole.create({
+        data: {
+          userId: user.id,
+          roleId: adminRole.id,
+        },
+      });
+      console.log('Linked Admin UserRole');
+    }
   }
 
   console.log('✅ Seeding completed successfully!');

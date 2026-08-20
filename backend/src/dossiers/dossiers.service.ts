@@ -1,14 +1,19 @@
 import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
+import { DossierType } from './dto/dossier-type.enum';
 
 @Injectable()
 export class DossiersService {
   private readonly logger = new Logger(DossiersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private workflowService: DossierWorkflowService,
+  ) {}
 
   private async generateReference(): Promise<string> {
     const year = new Date().getFullYear();
@@ -49,16 +54,16 @@ export class DossiersService {
     };
   }
 
-  async create(createDossierDto: CreateDossierDto, salesUserId: string) {
+  async create(createDossierDto: CreateDossierDto, salesUserId: string, organizationId: string) {
     const { clientId, type, vehicleId, vehicleIds, orderId, status } = createDossierDto;
 
-    // Check if client exists
-    const client = await this.prisma.client.findUnique({
-      where: { id: clientId },
+    // Check if client exists AND belongs to same organization
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, organizationId },
     });
 
     if (!client) {
-      throw new NotFoundException(`Client with ID ${clientId} not found`);
+      throw new NotFoundException(`Client with ID ${clientId} not found in your organization`);
     }
 
     // Collect all requested vehicle IDs (support both vehicleId and vehicleIds)
@@ -72,14 +77,14 @@ export class DossiersService {
 
     const uniqueVehicleIds = [...new Set(rawVehicleIds)];
 
-    // Validate all vehicles exist and are available
+    // Validate all vehicles exist, belong to same org, and are available
     for (const vId of uniqueVehicleIds) {
-      const vehicle = await this.prisma.vehicle.findUnique({
-        where: { id: vId },
+      const vehicle = await this.prisma.vehicle.findFirst({
+        where: { id: vId, organizationId },
       });
 
       if (!vehicle) {
-        throw new NotFoundException(`Vehicle with ID ${vId} not found`);
+        throw new NotFoundException(`Vehicle with ID ${vId} not found in your organization`);
       }
 
       if (vehicle.status !== 'available') {
@@ -89,7 +94,8 @@ export class DossiersService {
 
     // Generate reference
     const reference = await this.generateReference();
-    const dossierType = type || 'VEHICLE_SALE_CIF';
+    const dossierType = (type || DossierType.VEHICLE_SALE_CIF) as DossierType;
+    const initialStatus = status || this.workflowService.getInitialStatus(dossierType);
 
     const dossier = await this.prisma.$transaction(async (prisma) => {
       // Create dossier
@@ -97,10 +103,11 @@ export class DossiersService {
         data: {
           reference,
           type: dossierType,
+          organizationId,
           clientId,
           vehicleRequestId: createDossierDto.vehicleRequestId,
           orderId,
-          status: status || 'prospection',
+          status: initialStatus,
           salesUserId,
           openedAt: new Date(),
           dossierVehicles: uniqueVehicleIds.length > 0 ? {
@@ -149,13 +156,13 @@ export class DossiersService {
       return newDossier;
     });
 
-    this.logger.log(`Dossier created: ${reference} (${dossier.id}) with ${uniqueVehicleIds.length} vehicle(s)`);
+    this.logger.log(`Dossier created: ${reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`);
     return this.mapDossierWithVehicles(dossier);
   }
 
-  async addVehicle(dossierId: string, vehicleId: string, userId?: string) {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id: dossierId },
+  async addVehicle(dossierId: string, vehicleId: string, organizationId: string, userId?: string) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id: dossierId, organizationId },
       include: { dossierVehicles: true },
     });
 
@@ -163,16 +170,16 @@ export class DossiersService {
       throw new NotFoundException(`Dossier with ID ${dossierId} not found`);
     }
 
-    if (dossier.status === 'cloture' || dossier.status === 'annule') {
-      throw new ConflictException(`Cannot add vehicles to a dossier in '${dossier.status}' status`);
+    if (this.workflowService.isTerminalStatus(dossier.status)) {
+      throw new ConflictException(`Cannot add vehicles to a dossier in terminal status '${dossier.status}'`);
     }
 
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id: vehicleId },
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: vehicleId, organizationId },
     });
 
     if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID ${vehicleId} not found`);
+      throw new NotFoundException(`Vehicle with ID ${vehicleId} not found in your organization`);
     }
 
     // Check if vehicle is already attached to this dossier
@@ -211,12 +218,12 @@ export class DossiersService {
     });
 
     this.logger.log(`Vehicle ${vehicleId} added to dossier ${dossier.reference}`);
-    return this.findOne(dossierId);
+    return this.findOne(dossierId, organizationId);
   }
 
-  async removeVehicle(dossierId: string, vehicleId: string, userId?: string) {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id: dossierId },
+  async removeVehicle(dossierId: string, vehicleId: string, organizationId: string, userId?: string) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id: dossierId, organizationId },
       include: { dossierVehicles: true },
     });
 
@@ -261,12 +268,12 @@ export class DossiersService {
     });
 
     this.logger.log(`Vehicle ${vehicleId} removed from dossier ${dossier.reference}`);
-    return this.findOne(dossierId);
+    return this.findOne(dossierId, organizationId);
   }
 
-  async getVehicles(dossierId: string) {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id: dossierId },
+  async getVehicles(dossierId: string, organizationId: string) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id: dossierId, organizationId },
       include: {
         dossierVehicles: {
           include: {
@@ -295,10 +302,10 @@ export class DossiersService {
     }));
   }
 
-  async findAll(page: number = 1, limit: number = 10, filters?: FilterDossierDto) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: FilterDossierDto) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
 
     if (filters?.type) where.type = filters.type;
     if (filters?.status) where.status = filters.status;
@@ -357,9 +364,9 @@ export class DossiersService {
     };
   }
 
-  async findOne(id: string) {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         client: {
           include: {
@@ -430,29 +437,20 @@ export class DossiersService {
     return { ...mapped, stats };
   }
 
-  async updateStatus(id: string, updateStatusDto: UpdateStatusDto, userId: string) {
-    const dossier = await this.findOne(id);
-
+  async updateStatus(id: string, updateStatusDto: UpdateStatusDto, userId: string, organizationId?: string) {
+    const dossier = await this.findOne(id, organizationId);
     const { status, comment } = updateStatusDto;
 
-    // Status transition validation
-    const validTransitions: Record<string, string[]> = {
-      prospection: ['contrat_signe', 'cloture'],
-      contrat_signe: ['recherche_vehicule', 'cloture'],
-      recherche_vehicule: ['achat', 'cloture'],
-      achat: ['shipping', 'cloture'],
-      shipping: ['douane', 'cloture'],
-      douane: ['livraison', 'cloture'],
-      livraison: ['cloture'],
-      cloture: [],
-    };
-
     const currentStatus = dossier.status;
-    if (!validTransitions[currentStatus]?.includes(status)) {
-      throw new ConflictException(
-        `Invalid status transition from ${currentStatus} to ${status}`
-      );
-    }
+
+    // Validate transition through workflow state machine
+    this.workflowService.validateTransition(
+      dossier.type as DossierType,
+      currentStatus,
+      status,
+    );
+
+    const isClosing = status === 'cloture' || status === 'service_termine' || status === 'annule';
 
     const updatedDossier = await this.prisma.$transaction(async (prisma) => {
       // Update dossier status
@@ -460,7 +458,7 @@ export class DossiersService {
         where: { id },
         data: {
           status,
-          closedAt: status === 'cloture' ? new Date() : undefined,
+          closedAt: isClosing ? new Date() : undefined,
         },
         include: {
           client: true,
@@ -479,13 +477,13 @@ export class DossiersService {
           dossierId: id,
           fromStatus: currentStatus,
           toStatus: status,
-          changedBy: userId,
-          comment: comment || `Status changed to ${status}`,
+          changedBy: userId || 'system',
+          comment: comment || `Status changed from '${currentStatus}' to '${status}'`,
         },
       });
 
-      // If closing dossier, update all attached vehicles to 'sold'
-      if (status === 'cloture') {
+      // If closing dossier successfully, update attached vehicles to 'sold'
+      if (status === 'cloture' || status === 'service_termine') {
         const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
         if (vehicleIds.length > 0) {
           await prisma.vehicle.updateMany({
@@ -499,11 +497,52 @@ export class DossiersService {
     });
 
     this.logger.log(`Dossier ${dossier.reference} status updated: ${currentStatus} -> ${status} (by ${userId})`);
-    return this.findOne(id);
+    return this.findOne(id, organizationId);
   }
 
-  async getHistory(id: string) {
-    await this.findOne(id);
+  async advanceStatus(id: string, comment?: string, userId?: string, organizationId?: string) {
+    const dossier = await this.findOne(id, organizationId);
+    const nextStatus = this.workflowService.getNextStatus(
+      dossier.type as DossierType,
+      dossier.status,
+    );
+
+    if (!nextStatus) {
+      throw new ConflictException(
+        `Dossier ${dossier.reference} is in status '${dossier.status}' and has reached its final workflow step.`,
+      );
+    }
+
+    return this.updateStatus(
+      id,
+      {
+        status: nextStatus,
+        comment: comment || `Workflow advanced to '${nextStatus}'`,
+      },
+      userId || 'system',
+      organizationId,
+    );
+  }
+
+  async getAllowedTransitions(id: string, organizationId?: string) {
+    const dossier = await this.findOne(id, organizationId);
+    const allowed = this.workflowService.getAllowedTransitions(
+      dossier.type as DossierType,
+      dossier.status,
+    );
+
+    return {
+      dossierId: dossier.id,
+      reference: dossier.reference,
+      type: dossier.type,
+      currentStatus: dossier.status,
+      isTerminal: this.workflowService.isTerminalStatus(dossier.status),
+      allowedTransitions: allowed,
+    };
+  }
+
+  async getHistory(id: string, organizationId?: string) {
+    await this.findOne(id, organizationId);
 
     return this.prisma.dossierStatusHistory.findMany({
       where: { dossierId: id },
@@ -511,41 +550,41 @@ export class DossiersService {
     });
   }
 
-  async getStatistics() {
+  async getStatistics(organizationId: string) {
     const stats = await this.prisma.$transaction([
-      this.prisma.dossier.count(),
+      this.prisma.dossier.count({ where: { organizationId } }),
       this.prisma.dossier.count({
-        where: { status: 'prospection' },
+        where: { organizationId, status: 'prospection' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'contrat_signe' },
+        where: { organizationId, status: 'contrat_signe' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'recherche_vehicule' },
+        where: { organizationId, status: 'recherche_vehicule' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'achat' },
+        where: { organizationId, status: 'achat' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'shipping' },
+        where: { organizationId, status: 'shipping' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'douane' },
+        where: { organizationId, status: 'douane' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'livraison' },
+        where: { organizationId, status: 'livraison' },
       }),
       this.prisma.dossier.count({
-        where: { status: 'cloture' },
+        where: { organizationId, status: 'cloture' },
       }),
       this.prisma.dossier.count({
-        where: { type: 'VEHICLE_SALE_CIF' },
+        where: { organizationId, type: 'VEHICLE_SALE_CIF' },
       }),
       this.prisma.dossier.count({
-        where: { type: 'VEHICLE_SALE_DDP' },
+        where: { organizationId, type: 'VEHICLE_SALE_DDP' },
       }),
       this.prisma.dossier.count({
-        where: { type: 'SHIPPING_ONLY' },
+        where: { organizationId, type: 'SHIPPING_ONLY' },
       }),
     ]);
 

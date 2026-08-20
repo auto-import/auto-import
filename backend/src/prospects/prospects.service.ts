@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProspectDto } from './dto/create-prospect.dto';
 import { UpdateProspectDto } from './dto/update-prospect.dto';
@@ -11,10 +11,11 @@ export class ProspectsService {
 
   constructor(private prisma: PrismaService) {}
 
-  async create(createProspectDto: CreateProspectDto, userId: string) {
+  async create(createProspectDto: CreateProspectDto, userId: string, organizationId: string) {
     const prospect = await this.prisma.prospect.create({
       data: {
         ...createProspectDto,
+        organizationId,
         assignedTo: createProspectDto.assignedTo || userId,
       },
       include: {
@@ -27,10 +28,10 @@ export class ProspectsService {
     return prospect;
   }
 
-  async findAll(page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
     if (filters?.status) where.status = filters.status;
     if (filters?.assignedTo) where.assignedTo = filters.assignedTo;
     if (filters?.search) {
@@ -68,9 +69,9 @@ export class ProspectsService {
     };
   }
 
-  async findOne(id: string) {
-    const prospect = await this.prisma.prospect.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const prospect = await this.prisma.prospect.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         activities: {
           orderBy: { activityDate: 'desc' },
@@ -86,8 +87,8 @@ export class ProspectsService {
     return prospect;
   }
 
-  async update(id: string, updateProspectDto: UpdateProspectDto) {
-    await this.findOne(id);
+  async update(id: string, organizationId: string, updateProspectDto: UpdateProspectDto) {
+    await this.findOne(id, organizationId);
 
     const prospect = await this.prisma.prospect.update({
       where: { id },
@@ -102,17 +103,11 @@ export class ProspectsService {
     return prospect;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-
-    // Check if prospect has a client
-    const prospect = await this.prisma.prospect.findUnique({
-      where: { id },
-      include: { client: true },
-    });
+  async remove(id: string, organizationId: string) {
+    const prospect = await this.findOne(id, organizationId);
 
     if (prospect?.client) {
-      throw new Error('Cannot delete prospect that has been converted to a client');
+      throw new ConflictException('Cannot delete prospect that has been converted to a client');
     }
 
     await this.prisma.prospect.delete({
@@ -123,8 +118,8 @@ export class ProspectsService {
     return { message: 'Prospect deleted successfully' };
   }
 
-  async addActivity(createActivityDto: CreateActivityDto, userId: string) {
-    const prospect = await this.findOne(createActivityDto.prospectId);
+  async addActivity(createActivityDto: CreateActivityDto, userId: string, organizationId: string) {
+    const prospect = await this.findOne(createActivityDto.prospectId, organizationId);
 
     const activity = await this.prisma.prospectActivity.create({
       data: {
@@ -138,17 +133,18 @@ export class ProspectsService {
     return activity;
   }
 
-  async convertToClient(id: string, convertProspectDto: ConvertProspectDto, userId: string) {
-    const prospect = await this.findOne(id);
+  async convertToClient(id: string, convertProspectDto: ConvertProspectDto, userId: string, organizationId: string) {
+    const prospect = await this.findOne(id, organizationId);
 
     if (prospect.client) {
-      throw new Error('Prospect already converted to a client');
+      throw new ConflictException('Prospect already converted to a client');
     }
 
     const client = await this.prisma.$transaction(async (prisma) => {
-      // Create client
+      // Create client with same organizationId
       const newClient = await prisma.client.create({
         data: {
+          organizationId: prospect.organizationId,
           prospectId: id,
           firstName: convertProspectDto.firstName || prospect.firstName,
           lastName: convertProspectDto.lastName || prospect.lastName,
@@ -174,8 +170,8 @@ export class ProspectsService {
     return client;
   }
 
-  async getActivities(prospectId: string) {
-    await this.findOne(prospectId);
+  async getActivities(prospectId: string, organizationId: string) {
+    await this.findOne(prospectId, organizationId);
 
     return this.prisma.prospectActivity.findMany({
       where: { prospectId },

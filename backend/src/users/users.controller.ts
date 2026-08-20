@@ -48,7 +48,7 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() user: any,
   ) {
-    return this.usersService.update(id, user.organizationId, updateUserDto);
+    return this.usersService.update(id, user.organizationId, updateUserDto, user.id);
   }
 
   @Patch(':id/password')
@@ -67,6 +67,6 @@ export class UsersController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
-    return this.usersService.remove(id, user.organizationId);
+    return this.usersService.remove(id, user.organizationId, user.id);
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateClientDto } from './dto/update-client.dto';
 
@@ -8,10 +8,10 @@ export class ClientsService {
 
   constructor(private prisma: PrismaService) {}
 
-  async findAll(page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
     if (filters?.search) {
       where.OR = [
         { firstName: { contains: filters.search, mode: 'insensitive' } },
@@ -37,6 +37,7 @@ export class ClientsService {
             },
           },
           dossiers: {
+            where: { organizationId },
             select: {
               id: true,
               reference: true,
@@ -45,6 +46,7 @@ export class ClientsService {
             },
           },
           orders: {
+            where: { organizationId },
             select: {
               id: true,
               orderNumber: true,
@@ -68,9 +70,9 @@ export class ClientsService {
     };
   }
 
-  async findOne(id: string) {
-    const client = await this.prisma.client.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const client = await this.prisma.client.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         prospect: {
           include: {
@@ -80,6 +82,7 @@ export class ClientsService {
           },
         },
         dossiers: {
+          where: organizationId ? { organizationId } : undefined,
           include: {
             dossierVehicles: {
               include: { vehicle: true },
@@ -89,6 +92,7 @@ export class ClientsService {
           orderBy: { createdAt: 'desc' },
         },
         orders: {
+          where: organizationId ? { organizationId } : undefined,
           include: {
             items: true,
             invoices: true,
@@ -114,14 +118,14 @@ export class ClientsService {
     const stats = {
       totalDossiers: client.dossiers.length,
       totalOrders: client.orders.length,
-      activeDossiers: client.dossiers.filter(d => d.status !== 'cloture').length,
+      activeDossiers: client.dossiers.filter(d => d.status !== 'cloture' && d.status !== 'service_termine' && d.status !== 'annule').length,
     };
 
     return { ...client, dossiers: formattedDossiers, stats };
   }
 
-  async update(id: string, updateClientDto: UpdateClientDto) {
-    await this.findOne(id);
+  async update(id: string, organizationId: string, updateClientDto: UpdateClientDto) {
+    await this.findOne(id, organizationId);
 
     const client = await this.prisma.client.update({
       where: { id },
@@ -137,20 +141,11 @@ export class ClientsService {
     return client;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-
-    // Check if client has dossiers
-    const client = await this.prisma.client.findUnique({
-      where: { id },
-      include: {
-        dossiers: true,
-        orders: true,
-      },
-    });
+  async remove(id: string, organizationId: string) {
+    const client = await this.findOne(id, organizationId);
 
     if ((client?.dossiers?.length ?? 0) > 0 || (client?.orders?.length ?? 0) > 0) {
-      throw new Error('Cannot delete client with existing dossiers or orders');
+      throw new ConflictException('Cannot delete client with existing dossiers or orders');
     }
 
     await this.prisma.client.delete({
@@ -161,11 +156,11 @@ export class ClientsService {
     return { message: 'Client deleted successfully' };
   }
 
-  async getDossiers(clientId: string) {
-    await this.findOne(clientId);
+  async getDossiers(clientId: string, organizationId: string) {
+    await this.findOne(clientId, organizationId);
 
     const dossiers = await this.prisma.dossier.findMany({
-      where: { clientId },
+      where: { clientId, organizationId },
       include: {
         dossierVehicles: {
           include: { vehicle: true },
@@ -186,11 +181,11 @@ export class ClientsService {
     }));
   }
 
-  async getOrders(clientId: string) {
-    await this.findOne(clientId);
+  async getOrders(clientId: string, organizationId: string) {
+    await this.findOne(clientId, organizationId);
 
     return this.prisma.order.findMany({
-      where: { clientId },
+      where: { clientId, organizationId },
       include: {
         items: true,
         invoices: true,

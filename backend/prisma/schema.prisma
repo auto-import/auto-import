@@ -29,10 +29,17 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  offices    Office[]
-  users      User[]
-  warehouses Warehouse[]
-  roles      Role[]
+  offices         Office[]
+  users           User[]
+  warehouses      Warehouse[]
+  roles           Role[]
+  prospects       Prospect[]
+  clients         Client[]
+  vehicles        Vehicle[]
+  dossiers        Dossier[]
+  orders          Order[]
+  vehicleRequests VehicleRequest[]
+  partners        Partner[]
 }
 
 model Office {
@@ -112,18 +119,20 @@ model RolePermission {
 // ──────────────────────────────────────────────
 
 model Prospect {
-  id         String   @id @default(uuid())
-  firstName  String
-  lastName   String
-  phone      String?
-  email      String?
-  wilaya     String?
-  source     String?
-  status     String   @default("new")
-  assignedTo String?
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  firstName      String
+  lastName       String
+  phone          String?
+  email          String?
+  wilaya         String?
+  source         String?
+  status         String       @default("new")
+  assignedTo     String?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   activities ProspectActivity[]
   client     Client?
@@ -142,9 +151,11 @@ model ProspectActivity {
 }
 
 model Client {
-  id             String    @id @default(uuid())
-  prospectId     String?   @unique
-  prospect       Prospect? @relation(fields: [prospectId], references: [id])
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  prospectId     String?      @unique
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
   firstName      String
   lastName       String
   phone          String?
@@ -153,26 +164,28 @@ model Client {
   passportExpiry DateTime?
   nationality    String?
   address        String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   dossiers Dossier[]
   orders   Order[]
 }
 
 model Partner {
-  id            String   @id @default(uuid())
-  name          String
-  type          String // "supplier" | "carrier" | "other"
-  country       String?
-  city          String?
-  contactPerson String?
-  phone         String?
-  email         String?
-  address       String?
-  status        String   @default("active")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  type           String // "supplier" | "carrier" | "other"
+  country        String?
+  city           String?
+  contactPerson  String?
+  phone          String?
+  email          String?
+  address        String?
+  status         String       @default("active")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 // ──────────────────────────────────────────────
@@ -187,6 +200,8 @@ enum DossierType {
 
 model Dossier {
   id               String          @id @default(uuid())
+  organizationId   String
+  organization     Organization    @relation(fields: [organizationId], references: [id])
   reference        String          @unique // CA-2026-0001
   type             DossierType     @default(VEHICLE_SALE_CIF)
   clientId         String
@@ -230,23 +245,25 @@ model DossierStatusHistory {
 }
 
 model Vehicle {
-  id                String    @id @default(uuid())
-  vin               String?   @unique
+  id                String       @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  vin               String?      @unique
   brand             String
   model             String
   year              Int?
   mileage           Int?
   condition         String?
-  purchasePrice     Decimal?  @db.Decimal(12, 2)
-  sellingPrice      Decimal?  @db.Decimal(12, 2)
+  purchasePrice     Decimal?     @db.Decimal(12, 2)
+  sellingPrice      Decimal?     @db.Decimal(12, 2)
   currency          String?
-  status            String    @default("available")
+  status            String       @default("available")
   acquisitionType   String // "stock" | "client_request"
   supplierId        String?
   currentLocationId String?
   acquiredAt        DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   specs           VehicleSpec?
   photos          VehiclePhoto[]
@@ -340,7 +357,9 @@ model StockMovement {
 // ──────────────────────────────────────────────
 
 model VehicleRequest {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
   prospectId     String?
   clientId       String?
   assignedTo     String?
@@ -348,14 +367,14 @@ model VehicleRequest {
   model          String?
   minYear        Int?
   maxYear        Int?
-  budgetMin      Decimal? @db.Decimal(12, 2)
-  budgetMax      Decimal? @db.Decimal(12, 2)
+  budgetMin      Decimal?     @db.Decimal(12, 2)
+  budgetMax      Decimal?     @db.Decimal(12, 2)
   currency       String?
   preferredColor String?
   requirements   String?
-  status         String   @default("open")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  status         String       @default("open")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   candidates VehicleCandidate[]
   dossier    Dossier?
@@ -378,21 +397,23 @@ model VehicleCandidate {
 }
 
 model Order {
-  id          String    @id @default(uuid())
-  orderNumber String    @unique
-  clientId    String
-  client      Client    @relation(fields: [clientId], references: [id])
-  prospectId  String?
-  createdBy   String
-  status      String    @default("draft")
-  subtotal    Decimal   @db.Decimal(12, 2)
-  discount    Decimal   @default(0) @db.Decimal(12, 2)
-  total       Decimal   @db.Decimal(12, 2)
-  currency    String
-  orderDate   DateTime  @default(now())
-  confirmedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  orderNumber    String       @unique
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id])
+  prospectId     String?
+  createdBy      String
+  status         String       @default("draft")
+  subtotal       Decimal      @db.Decimal(12, 2)
+  discount       Decimal      @default(0) @db.Decimal(12, 2)
+  total          Decimal      @db.Decimal(12, 2)
+  currency       String
+  orderDate      DateTime     @default(now())
+  confirmedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   items        OrderItem[]
   history      OrderStatusHistory[]

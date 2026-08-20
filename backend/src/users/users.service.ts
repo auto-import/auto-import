@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -20,6 +20,23 @@ export class UsersService {
 
     if (existingUser) {
       throw new ConflictException('User with this email already exists');
+    }
+
+    // Verify roleIds belong to the organization or are platform roles
+    if (roleIds && roleIds.length > 0) {
+      const validRoles = await this.prisma.role.findMany({
+        where: {
+          id: { in: roleIds },
+          OR: [
+            { organizationId },
+            { organizationId: null },
+          ],
+        },
+      });
+
+      if (validRoles.length !== roleIds.length) {
+        throw new ForbiddenException('One or more role IDs are invalid for this organization');
+      }
     }
 
     // Hash password
@@ -113,11 +130,28 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, organizationId: string, updateUserDto: UpdateUserDto) {
+  async update(id: string, organizationId: string, updateUserDto: UpdateUserDto, currentUserId?: string) {
     const { roleIds, ...userData } = updateUserDto;
 
     // Check if user exists
-    await this.findOne(id, organizationId);
+    const targetUser = await this.findOne(id, organizationId);
+
+    // Verify roleIds belong to the organization
+    if (roleIds && roleIds.length > 0) {
+      const validRoles = await this.prisma.role.findMany({
+        where: {
+          id: { in: roleIds },
+          OR: [
+            { organizationId },
+            { organizationId: null },
+          ],
+        },
+      });
+
+      if (validRoles.length !== roleIds.length) {
+        throw new ForbiddenException('One or more role IDs are invalid for this organization');
+      }
+    }
 
     // Update user
     const user = await this.prisma.user.update({
@@ -145,8 +179,33 @@ export class UsersService {
     return user;
   }
 
-  async remove(id: string, organizationId: string) {
-    await this.findOne(id, organizationId);
+  async remove(id: string, organizationId: string, currentUserId?: string) {
+    if (currentUserId && id === currentUserId) {
+      throw new ForbiddenException('You cannot delete your own account');
+    }
+
+    const user = await this.findOne(id, organizationId);
+
+    // Check if user is the last active admin/Direction user in the organization
+    const isAdmin = user.userRoles.some(ur => 
+      ur.role.name.toLowerCase() === 'admin' || 
+      ur.role.name.toLowerCase() === 'direction'
+    );
+
+    if (isAdmin) {
+      const adminUsersCount = await this.prisma.userRole.count({
+        where: {
+          user: { organizationId, status: 'active', id: { not: id } },
+          role: {
+            name: { in: ['Admin', 'admin', 'Direction', 'direction'] },
+          },
+        },
+      });
+
+      if (adminUsersCount === 0) {
+        throw new ConflictException('Cannot delete the last administrator of the organization');
+      }
+    }
 
     await this.prisma.user.delete({
       where: { id },

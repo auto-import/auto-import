@@ -11,7 +11,7 @@ export class VehiclesService {
 
   constructor(private prisma: PrismaService) {}
 
-  async create(createVehicleDto: CreateVehicleDto) {
+  async create(createVehicleDto: CreateVehicleDto, organizationId: string) {
     // Check VIN uniqueness if provided
     if (createVehicleDto.vin) {
       const existing = await this.prisma.vehicle.findUnique({
@@ -23,7 +23,10 @@ export class VehiclesService {
     }
 
     const vehicle = await this.prisma.vehicle.create({
-      data: createVehicleDto,
+      data: {
+        ...createVehicleDto,
+        organizationId,
+      },
       include: {
         specs: true,
         photos: true,
@@ -34,12 +37,12 @@ export class VehiclesService {
     return vehicle;
   }
 
-  async findAll(filters: FilterVehicleDto) {
+  async findAll(organizationId: string, filters: FilterVehicleDto) {
     const page = filters.page || 1;
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
 
     if (filters.search) {
       where.OR = [
@@ -90,9 +93,9 @@ export class VehiclesService {
     };
   }
 
-  async findOne(id: string) {
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         specs: true,
         photos: {
@@ -130,8 +133,8 @@ export class VehiclesService {
     return { ...vehicle, dossiers };
   }
 
-  async update(id: string, updateVehicleDto: UpdateVehicleDto) {
-    await this.findOne(id);
+  async update(id: string, organizationId: string, updateVehicleDto: UpdateVehicleDto) {
+    await this.findOne(id, organizationId);
 
     // Check VIN uniqueness if updating
     if (updateVehicleDto.vin) {
@@ -159,12 +162,12 @@ export class VehiclesService {
     return vehicle;
   }
 
-  async remove(id: string) {
-    const vehicle = await this.findOne(id);
+  async remove(id: string, organizationId: string) {
+    const vehicle = await this.findOne(id, organizationId);
 
     // Check if vehicle has active dossiers
     const activeDossiers = vehicle.dossierVehicles?.filter(
-      (dv) => dv.dossier.status !== 'cloture' && dv.dossier.status !== 'annule',
+      (dv) => dv.dossier.status !== 'cloture' && dv.dossier.status !== 'service_termine' && dv.dossier.status !== 'annule',
     );
     if (activeDossiers && activeDossiers.length > 0) {
       throw new ConflictException('Cannot delete vehicle with active dossiers');
@@ -180,8 +183,8 @@ export class VehiclesService {
   // Vehicle Specs
   // ──────────────────────────────────────────────
 
-  async upsertSpecs(vehicleId: string, specsDto: CreateVehicleSpecDto) {
-    await this.findOne(vehicleId);
+  async upsertSpecs(vehicleId: string, specsDto: CreateVehicleSpecDto, organizationId?: string) {
+    await this.findOne(vehicleId, organizationId);
 
     const specs = await this.prisma.vehicleSpec.upsert({
       where: { vehicleId },
@@ -196,8 +199,8 @@ export class VehiclesService {
     return specs;
   }
 
-  async getSpecs(vehicleId: string) {
-    await this.findOne(vehicleId);
+  async getSpecs(vehicleId: string, organizationId?: string) {
+    await this.findOne(vehicleId, organizationId);
 
     const specs = await this.prisma.vehicleSpec.findUnique({
       where: { vehicleId },
@@ -214,7 +217,7 @@ export class VehiclesService {
   // Stock Summary
   // ──────────────────────────────────────────────
 
-  async getStockSummary() {
+  async getStockSummary(organizationId: string) {
     const [
       totalVehicles,
       availableCount,
@@ -223,17 +226,18 @@ export class VehiclesService {
       inTransitCount,
       inCustomsCount,
     ] = await Promise.all([
-      this.prisma.vehicle.count(),
-      this.prisma.vehicle.count({ where: { status: 'available' } }),
-      this.prisma.vehicle.count({ where: { status: 'reserved' } }),
-      this.prisma.vehicle.count({ where: { status: 'sold' } }),
-      this.prisma.vehicle.count({ where: { status: 'in_transit' } }),
-      this.prisma.vehicle.count({ where: { status: 'in_customs' } }),
+      this.prisma.vehicle.count({ where: { organizationId } }),
+      this.prisma.vehicle.count({ where: { organizationId, status: 'available' } }),
+      this.prisma.vehicle.count({ where: { organizationId, status: 'reserved' } }),
+      this.prisma.vehicle.count({ where: { organizationId, status: 'sold' } }),
+      this.prisma.vehicle.count({ where: { organizationId, status: 'in_transit' } }),
+      this.prisma.vehicle.count({ where: { organizationId, status: 'in_customs' } }),
     ]);
 
     // Group by brand
     const byBrand = await this.prisma.vehicle.groupBy({
       by: ['brand'],
+      where: { organizationId },
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
     });
@@ -241,6 +245,7 @@ export class VehiclesService {
     // Group by acquisition type
     const byAcquisition = await this.prisma.vehicle.groupBy({
       by: ['acquisitionType'],
+      where: { organizationId },
       _count: { id: true },
     });
 

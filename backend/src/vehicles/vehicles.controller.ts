@@ -15,6 +15,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { CreateVehicleSpecDto } from './dto/create-vehicle-spec.dto';
 import { FilterVehicleDto } from './dto/filter-vehicle.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('vehicles')
 export class VehiclesController {
@@ -22,26 +23,26 @@ export class VehiclesController {
 
   @Post()
   @RequirePermission('vehicles:write')
-  create(@Body() createVehicleDto: CreateVehicleDto) {
-    return this.vehiclesService.create(createVehicleDto);
+  create(@Body() createVehicleDto: CreateVehicleDto, @CurrentUser() user: any) {
+    return this.vehiclesService.create(createVehicleDto, user.organizationId);
   }
 
   @Get()
   @RequirePermission('vehicles:read')
-  findAll(@Query() filters: FilterVehicleDto) {
-    return this.vehiclesService.findAll(filters);
+  findAll(@Query() filters: FilterVehicleDto, @CurrentUser() user: any) {
+    return this.vehiclesService.findAll(user.organizationId, filters);
   }
 
   @Get('stock-summary')
   @RequirePermission('vehicles:read')
-  getStockSummary() {
-    return this.vehiclesService.getStockSummary();
+  getStockSummary(@CurrentUser() user: any) {
+    return this.vehiclesService.getStockSummary(user.organizationId);
   }
 
   @Get(':id')
   @RequirePermission('vehicles:read')
-  findOne(@Param('id') id: string) {
-    return this.vehiclesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.vehiclesService.findOne(id, user.organizationId);
   }
 
   @Patch(':id')
@@ -49,14 +50,15 @@ export class VehiclesController {
   update(
     @Param('id') id: string,
     @Body() updateVehicleDto: UpdateVehicleDto,
+    @CurrentUser() user: any,
   ) {
-    return this.vehiclesService.update(id, updateVehicleDto);
+    return this.vehiclesService.update(id, user.organizationId, updateVehicleDto);
   }
 
   @Delete(':id')
   @RequirePermission('vehicles:write')
-  remove(@Param('id') id: string) {
-    return this.vehiclesService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.vehiclesService.remove(id, user.organizationId);
   }
 
   // ──────────────────────────────────────────────
@@ -68,13 +70,14 @@ export class VehiclesController {
   upsertSpecs(
     @Param('id') id: string,
     @Body() specsDto: CreateVehicleSpecDto,
+    @CurrentUser() user: any,
   ) {
-    return this.vehiclesService.upsertSpecs(id, specsDto);
+    return this.vehiclesService.upsertSpecs(id, specsDto, user.organizationId);
   }
 
   @Get(':id/specs')
   @RequirePermission('vehicles:read')
-  getSpecs(@Param('id') id: string) {
-    return this.vehiclesService.getSpecs(id);
+  getSpecs(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.vehiclesService.getSpecs(id, user.organizationId);
   }
 }

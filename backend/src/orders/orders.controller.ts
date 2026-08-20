@@ -16,16 +16,18 @@ export class OrdersController {
     @Body() createOrderDto: CreateOrderDto,
     @CurrentUser() user: any,
   ) {
-    return this.ordersService.create(createOrderDto, user.id);
+    return this.ordersService.create(createOrderDto, user.id, user.organizationId);
   }
 
   @Get()
   @RequirePermission('orders:read')
   findAll(
     @Query() pagination: PaginationDto,
+    @CurrentUser() user: any,
     @Query() filters?: any,
   ) {
     return this.ordersService.findAll(
+      user.organizationId,
       pagination.page,
       pagination.limit,
       filters,
@@ -34,20 +36,20 @@ export class OrdersController {
 
   @Get(':id')
   @RequirePermission('orders:read')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ordersService.findOne(id, user.organizationId);
   }
 
   @Get(':id/history')
   @RequirePermission('orders:read')
-  getHistory(@Param('id') id: string) {
-    return this.ordersService.getHistory(id);
+  getHistory(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ordersService.getHistory(id, user.organizationId);
   }
 
   @Get(':id/reservations')
   @RequirePermission('orders:read')
-  getReservations(@Param('id') id: string) {
-    return this.ordersService.getReservations(id);
+  getReservations(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ordersService.getReservations(id, user.organizationId);
   }
 
   @Patch(':id/status')
@@ -57,12 +59,12 @@ export class OrdersController {
     @Body() updateStatusDto: UpdateOrderStatusDto,
     @CurrentUser() user: any,
   ) {
-    return this.ordersService.updateStatus(id, updateStatusDto, user.id);
+    return this.ordersService.updateStatus(id, updateStatusDto, user.id, user.organizationId);
   }
 
   @Delete(':id')
   @RequirePermission('orders:write')
-  remove(@Param('id') id: string) {
-    return this.ordersService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ordersService.remove(id, user.organizationId);
   }
 }

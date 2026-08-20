@@ -16,34 +16,35 @@ export class VehicleRequestsService {
   // Vehicle Requests CRUD
   // ──────────────────────────────────────────────
 
-  async create(dto: CreateVehicleRequestDto) {
+  async create(dto: CreateVehicleRequestDto, organizationId: string) {
     if (!dto.prospectId && !dto.clientId) {
       throw new ConflictException('Either prospectId or clientId must be provided');
     }
 
-    // Verify prospect exists if provided
+    // Verify prospect exists and belongs to same org if provided
     if (dto.prospectId) {
-      const prospect = await this.prisma.prospect.findUnique({
-        where: { id: dto.prospectId },
+      const prospect = await this.prisma.prospect.findFirst({
+        where: { id: dto.prospectId, organizationId },
       });
       if (!prospect) {
-        throw new NotFoundException(`Prospect with ID ${dto.prospectId} not found`);
+        throw new NotFoundException(`Prospect with ID ${dto.prospectId} not found in your organization`);
       }
     }
 
-    // Verify client exists if provided
+    // Verify client exists and belongs to same org if provided
     if (dto.clientId) {
-      const client = await this.prisma.client.findUnique({
-        where: { id: dto.clientId },
+      const client = await this.prisma.client.findFirst({
+        where: { id: dto.clientId, organizationId },
       });
       if (!client) {
-        throw new NotFoundException(`Client with ID ${dto.clientId} not found`);
+        throw new NotFoundException(`Client with ID ${dto.clientId} not found in your organization`);
       }
     }
 
     const request = await this.prisma.vehicleRequest.create({
       data: {
         ...dto,
+        organizationId,
         status: 'open',
       },
       include: {
@@ -56,10 +57,10 @@ export class VehicleRequestsService {
     return request;
   }
 
-  async findAll(page: number = 1, limit: number = 10, filters?: FilterVehicleRequestDto) {
+  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: FilterVehicleRequestDto) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { organizationId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.assignedTo) where.assignedTo = filters.assignedTo;
@@ -116,9 +117,9 @@ export class VehicleRequestsService {
     };
   }
 
-  async findOne(id: string) {
-    const request = await this.prisma.vehicleRequest.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId?: string) {
+    const request = await this.prisma.vehicleRequest.findFirst({
+      where: { id, ...(organizationId && { organizationId }) },
       include: {
         candidates: {
           include: {
@@ -148,11 +149,11 @@ export class VehicleRequestsService {
       throw new NotFoundException(`Vehicle request with ID ${id} not found`);
     }
 
-    // Fetch prospect separately (no Prisma relation defined on VehicleRequest)
+    // Fetch prospect separately (scoped by organizationId if provided)
     let prospect: any = null;
     if (request.prospectId) {
-      prospect = await this.prisma.prospect.findUnique({
-        where: { id: request.prospectId },
+      prospect = await this.prisma.prospect.findFirst({
+        where: { id: request.prospectId, ...(organizationId && { organizationId }) },
         include: {
           activities: {
             orderBy: { activityDate: 'desc' },
@@ -162,11 +163,11 @@ export class VehicleRequestsService {
       });
     }
 
-    // Fetch client separately (no Prisma relation defined on VehicleRequest)
+    // Fetch client separately (scoped by organizationId if provided)
     let client: any = null;
     if (request.clientId) {
-      client = await this.prisma.client.findUnique({
-        where: { id: request.clientId },
+      client = await this.prisma.client.findFirst({
+        where: { id: request.clientId, ...(organizationId && { organizationId }) },
         include: {
           dossiers: {
             select: { id: true, reference: true, status: true, createdAt: true },
@@ -197,8 +198,8 @@ export class VehicleRequestsService {
     };
   }
 
-  async update(id: string, dto: UpdateVehicleRequestDto) {
-    await this.findOne(id);
+  async update(id: string, organizationId: string, dto: UpdateVehicleRequestDto) {
+    await this.findOne(id, organizationId);
 
     const request = await this.prisma.vehicleRequest.update({
       where: { id },
@@ -213,8 +214,8 @@ export class VehicleRequestsService {
     return request;
   }
 
-  async remove(id: string) {
-    const request = await this.findOne(id);
+  async remove(id: string, organizationId: string) {
+    const request = await this.findOne(id, organizationId);
 
     // Block if request has a dossier
     if (request.dossier) {
@@ -245,21 +246,21 @@ export class VehicleRequestsService {
   // Vehicle Candidates
   // ──────────────────────────────────────────────
 
-  async addCandidate(dto: CreateCandidateDto) {
-    // Verify request exists
-    const request = await this.prisma.vehicleRequest.findUnique({
-      where: { id: dto.vehicleRequestId },
+  async addCandidate(dto: CreateCandidateDto, organizationId: string) {
+    // Verify request exists in same organization
+    const request = await this.prisma.vehicleRequest.findFirst({
+      where: { id: dto.vehicleRequestId, organizationId },
     });
     if (!request) {
-      throw new NotFoundException(`Vehicle request with ID ${dto.vehicleRequestId} not found`);
+      throw new NotFoundException(`Vehicle request with ID ${dto.vehicleRequestId} not found in your organization`);
     }
 
-    // Verify vehicle exists
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id: dto.vehicleId },
+    // Verify vehicle exists in same organization
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: dto.vehicleId, organizationId },
     });
     if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID ${dto.vehicleId} not found`);
+      throw new NotFoundException(`Vehicle with ID ${dto.vehicleId} not found in your organization`);
     }
 
     try {
@@ -294,9 +295,14 @@ export class VehicleRequestsService {
     }
   }
 
-  async updateCandidate(candidateId: string, dto: UpdateCandidateDto) {
-    const candidate = await this.prisma.vehicleCandidate.findUnique({
-      where: { id: candidateId },
+  async updateCandidate(candidateId: string, dto: UpdateCandidateDto, organizationId?: string) {
+    const candidate = await this.prisma.vehicleCandidate.findFirst({
+      where: {
+        id: candidateId,
+        ...(organizationId && {
+          vehicleRequest: { organizationId },
+        }),
+      },
     });
 
     if (!candidate) {
@@ -318,11 +324,16 @@ export class VehicleRequestsService {
     return updated;
   }
 
-  async validateCandidate(candidateId: string) {
+  async validateCandidate(candidateId: string, organizationId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      // 1. Fetch candidate with all needed relations
-      const candidate = await tx.vehicleCandidate.findUnique({
-        where: { id: candidateId },
+      // 1. Fetch candidate with all needed relations and verify org
+      const candidate = await tx.vehicleCandidate.findFirst({
+        where: {
+          id: candidateId,
+          ...(organizationId && {
+            vehicleRequest: { organizationId },
+          }),
+        },
         include: {
           vehicleRequest: {
             include: { dossier: true },
@@ -392,7 +403,7 @@ export class VehicleRequestsService {
         await tx.dossier.update({
           where: { id: candidate.vehicleRequest.dossier.id },
           data: {
-            status: 'achat',
+            status: 'achat_confirme',
           },
         });
 
@@ -401,7 +412,7 @@ export class VehicleRequestsService {
           data: {
             dossierId: candidate.vehicleRequest.dossier.id,
             fromStatus: candidate.vehicleRequest.dossier.status,
-            toStatus: 'achat',
+            toStatus: 'achat_confirme',
             changedBy: 'system',
             comment: `Vehicle candidate ${candidateId} validated — vehicle ${candidate.vehicleId} assigned`,
           },
@@ -416,9 +427,14 @@ export class VehicleRequestsService {
     });
   }
 
-  async rejectCandidate(candidateId: string) {
-    const candidate = await this.prisma.vehicleCandidate.findUnique({
-      where: { id: candidateId },
+  async rejectCandidate(candidateId: string, organizationId?: string) {
+    const candidate = await this.prisma.vehicleCandidate.findFirst({
+      where: {
+        id: candidateId,
+        ...(organizationId && {
+          vehicleRequest: { organizationId },
+        }),
+      },
     });
 
     if (!candidate) {
@@ -446,9 +462,9 @@ export class VehicleRequestsService {
     return rejected;
   }
 
-  async getCandidates(requestId: string) {
-    // Verify request exists
-    await this.findOne(requestId);
+  async getCandidates(requestId: string, organizationId: string) {
+    // Verify request exists in same organization
+    await this.findOne(requestId, organizationId);
 
     return this.prisma.vehicleCandidate.findMany({
       where: { vehicleRequestId: requestId },
@@ -471,12 +487,12 @@ export class VehicleRequestsService {
   // Statistics
   // ──────────────────────────────────────────────
 
-  async getStatistics() {
+  async getStatistics(organizationId: string) {
     const [total, open, validated, closed] = await this.prisma.$transaction([
-      this.prisma.vehicleRequest.count(),
-      this.prisma.vehicleRequest.count({ where: { status: 'open' } }),
-      this.prisma.vehicleRequest.count({ where: { status: 'validated' } }),
-      this.prisma.vehicleRequest.count({ where: { status: 'closed' } }),
+      this.prisma.vehicleRequest.count({ where: { organizationId } }),
+      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'open' } }),
+      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'validated' } }),
+      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'closed' } }),
     ]);
 
     return {

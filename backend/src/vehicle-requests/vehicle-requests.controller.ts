@@ -28,14 +28,14 @@ export class VehicleRequestsController {
 
   @Get('statistics')
   @RequirePermission('vehicles:read')
-  getStatistics() {
-    return this.vehicleRequestsService.getStatistics();
+  getStatistics(@CurrentUser() user: any) {
+    return this.vehicleRequestsService.getStatistics(user.organizationId);
   }
 
   @Post('candidates')
   @RequirePermission('vehicles:write')
-  addCandidate(@Body() dto: CreateCandidateDto) {
-    return this.vehicleRequestsService.addCandidate(dto);
+  addCandidate(@Body() dto: CreateCandidateDto, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.addCandidate(dto, user.organizationId);
   }
 
   @Patch('candidates/:id')
@@ -43,20 +43,21 @@ export class VehicleRequestsController {
   updateCandidate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCandidateDto,
+    @CurrentUser() user: any,
   ) {
-    return this.vehicleRequestsService.updateCandidate(id, dto);
+    return this.vehicleRequestsService.updateCandidate(id, dto, user.organizationId);
   }
 
   @Post('candidates/:id/validate')
   @RequirePermission('dossiers:write')
-  validateCandidate(@Param('id', ParseUUIDPipe) id: string) {
-    return this.vehicleRequestsService.validateCandidate(id);
+  validateCandidate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.validateCandidate(id, user.organizationId);
   }
 
   @Post('candidates/:id/reject')
   @RequirePermission('vehicles:write')
-  rejectCandidate(@Param('id', ParseUUIDPipe) id: string) {
-    return this.vehicleRequestsService.rejectCandidate(id);
+  rejectCandidate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.rejectCandidate(id, user.organizationId);
   }
 
   // ──────────────────────────────────────────────
@@ -65,14 +66,15 @@ export class VehicleRequestsController {
 
   @Post()
   @RequirePermission('dossiers:write')
-  create(@Body() dto: CreateVehicleRequestDto) {
-    return this.vehicleRequestsService.create(dto);
+  create(@Body() dto: CreateVehicleRequestDto, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.create(dto, user.organizationId);
   }
 
   @Get()
   @RequirePermission('vehicles:read')
-  findAll(@Query() query: FilterVehicleRequestDto) {
+  findAll(@Query() query: FilterVehicleRequestDto, @CurrentUser() user: any) {
     return this.vehicleRequestsService.findAll(
+      user.organizationId,
       query.page,
       query.limit,
       query,
@@ -81,14 +83,14 @@ export class VehicleRequestsController {
 
   @Get(':id')
   @RequirePermission('vehicles:read')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.vehicleRequestsService.findOne(id);
+  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.findOne(id, user.organizationId);
   }
 
   @Get(':id/candidates')
   @RequirePermission('vehicles:read')
-  getCandidates(@Param('id', ParseUUIDPipe) id: string) {
-    return this.vehicleRequestsService.getCandidates(id);
+  getCandidates(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.getCandidates(id, user.organizationId);
   }
 
   @Patch(':id')
@@ -96,13 +98,14 @@ export class VehicleRequestsController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateVehicleRequestDto,
+    @CurrentUser() user: any,
   ) {
-    return this.vehicleRequestsService.update(id, dto);
+    return this.vehicleRequestsService.update(id, user.organizationId, dto);
   }
 
   @Delete(':id')
   @RequirePermission('dossiers:write')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.vehicleRequestsService.remove(id);
+  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.vehicleRequestsService.remove(id, user.organizationId);
   }
 }
