@@ -179,15 +179,20 @@ model Partner {
 // Dossier & Vehicle Models
 // ──────────────────────────────────────────────
 
+enum DossierType {
+  VEHICLE_SALE_CIF
+  VEHICLE_SALE_DDP
+  SHIPPING_ONLY
+}
+
 model Dossier {
   id               String          @id @default(uuid())
   reference        String          @unique // CA-2026-0001
+  type             DossierType     @default(VEHICLE_SALE_CIF)
   clientId         String
   client           Client          @relation(fields: [clientId], references: [id])
   vehicleRequestId String?         @unique
   vehicleRequest   VehicleRequest? @relation(fields: [vehicleRequestId], references: [id])
-  vehicleId        String?
-  vehicle          Vehicle?        @relation(fields: [vehicleId], references: [id])
   orderId          String?         @unique
   order            Order?          @relation(fields: [orderId], references: [id])
   status           String          @default("prospection")
@@ -198,7 +203,19 @@ model Dossier {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  history DossierStatusHistory[]
+  history         DossierStatusHistory[]
+  dossierVehicles DossierVehicle[]
+}
+
+model DossierVehicle {
+  id         String   @id @default(uuid())
+  dossierId  String
+  dossier    Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  assignedAt DateTime @default(now())
+
+  @@unique([dossierId, vehicleId])
 }
 
 model DossierStatusHistory {
@@ -231,12 +248,12 @@ model Vehicle {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  specs        VehicleSpec?
-  photos       VehiclePhoto[]
-  dossiers     Dossier[]
-  candidates   VehicleCandidate[]
-  orderItems   OrderItem[]
-  reservations Reservation[]
+  specs           VehicleSpec?
+  photos          VehiclePhoto[]
+  dossierVehicles DossierVehicle[]
+  candidates      VehicleCandidate[]
+  orderItems      OrderItem[]
+  reservations    Reservation[]
 }
 
 model VehicleSpec {

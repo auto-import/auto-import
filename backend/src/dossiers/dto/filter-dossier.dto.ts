@@ -1,7 +1,12 @@
-import { IsOptional, IsString, IsUUID, IsDateString } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsDateString, IsEnum } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { DossierType } from './dossier-type.enum';
 
 export class FilterDossierDto extends PaginationDto {
+  @IsOptional()
+  @IsEnum(DossierType)
+  type?: DossierType;
+
   @IsOptional()
   @IsString()
   status?: string;

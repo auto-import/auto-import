@@ -136,7 +136,9 @@ export class VehicleRequestsService {
         dossier: {
           include: {
             client: true,
-            vehicle: true,
+            dossierVehicles: {
+              include: { vehicle: true },
+            },
           },
         },
       },
@@ -373,10 +375,23 @@ export class VehicleRequestsService {
 
       // 6. If request has a linked dossier, bind vehicle and advance status
       if (candidate.vehicleRequest.dossier) {
+        await tx.dossierVehicle.upsert({
+          where: {
+            dossierId_vehicleId: {
+              dossierId: candidate.vehicleRequest.dossier.id,
+              vehicleId: candidate.vehicleId,
+            },
+          },
+          create: {
+            dossierId: candidate.vehicleRequest.dossier.id,
+            vehicleId: candidate.vehicleId,
+          },
+          update: {},
+        });
+
         await tx.dossier.update({
           where: { id: candidate.vehicleRequest.dossier.id },
           data: {
-            vehicleId: candidate.vehicleId,
             status: 'achat',
           },
         });

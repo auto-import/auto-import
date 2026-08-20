@@ -99,12 +99,16 @@ export class VehiclesService {
           include: { file: true },
           orderBy: { sortOrder: 'asc' },
         },
-        dossiers: {
-          select: {
-            id: true,
-            reference: true,
-            status: true,
-            createdAt: true,
+        dossierVehicles: {
+          include: {
+            dossier: {
+              select: {
+                id: true,
+                reference: true,
+                status: true,
+                createdAt: true,
+              },
+            },
           },
         },
         candidates: {
@@ -122,7 +126,8 @@ export class VehiclesService {
       throw new NotFoundException(`Vehicle with ID ${id} not found`);
     }
 
-    return vehicle;
+    const dossiers = vehicle.dossierVehicles ? vehicle.dossierVehicles.map((dv) => dv.dossier) : [];
+    return { ...vehicle, dossiers };
   }
 
   async update(id: string, updateVehicleDto: UpdateVehicleDto) {
@@ -158,8 +163,8 @@ export class VehiclesService {
     const vehicle = await this.findOne(id);
 
     // Check if vehicle has active dossiers
-    const activeDossiers = vehicle.dossiers?.filter(
-      (d) => d.status !== 'cloture' && d.status !== 'annule',
+    const activeDossiers = vehicle.dossierVehicles?.filter(
+      (dv) => dv.dossier.status !== 'cloture' && dv.dossier.status !== 'annule',
     );
     if (activeDossiers && activeDossiers.length > 0) {
       throw new ConflictException('Cannot delete vehicle with active dossiers');

@@ -246,7 +246,9 @@ export class OrdersService {
         },
         dossier: {
           include: {
-            vehicle: true,
+            dossierVehicles: {
+              include: { vehicle: true },
+            },
             history: {
               orderBy: { createdAt: 'desc' },
               take: 5,

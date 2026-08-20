@@ -1,0 +1,5 @@
+-- CreateEnum
+CREATE TYPE "DossierType" AS ENUM ('VEHICLE_SALE_CIF', 'VEHICLE_SALE_DDP', 'SHIPPING_ONLY');
+
+-- AlterTable
+ALTER TABLE "Dossier" ADD COLUMN "type" "DossierType" NOT NULL DEFAULT 'VEHICLE_SALE_CIF';

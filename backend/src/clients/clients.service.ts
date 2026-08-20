@@ -81,7 +81,9 @@ export class ClientsService {
         },
         dossiers: {
           include: {
-            vehicle: true,
+            dossierVehicles: {
+              include: { vehicle: true },
+            },
             order: true,
           },
           orderBy: { createdAt: 'desc' },
@@ -100,6 +102,14 @@ export class ClientsService {
       throw new NotFoundException(`Client with ID ${id} not found`);
     }
 
+    // Format dossiers with vehicles for backward compatibility
+    const formattedDossiers = client.dossiers.map((d: any) => ({
+      ...d,
+      vehicles: d.dossierVehicles ? d.dossierVehicles.map((dv: any) => dv.vehicle) : [],
+      vehicle: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicle : null,
+      vehicleId: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicleId : null,
+    }));
+
     // Add summary stats
     const stats = {
       totalDossiers: client.dossiers.length,
@@ -107,7 +117,7 @@ export class ClientsService {
       activeDossiers: client.dossiers.filter(d => d.status !== 'cloture').length,
     };
 
-    return { ...client, stats };
+    return { ...client, dossiers: formattedDossiers, stats };
   }
 
   async update(id: string, updateClientDto: UpdateClientDto) {
@@ -154,10 +164,12 @@ export class ClientsService {
   async getDossiers(clientId: string) {
     await this.findOne(clientId);
 
-    return this.prisma.dossier.findMany({
+    const dossiers = await this.prisma.dossier.findMany({
       where: { clientId },
       include: {
-        vehicle: true,
+        dossierVehicles: {
+          include: { vehicle: true },
+        },
         order: true,
         history: {
           orderBy: { createdAt: 'desc' },
@@ -165,6 +177,13 @@ export class ClientsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return dossiers.map((d: any) => ({
+      ...d,
+      vehicles: d.dossierVehicles ? d.dossierVehicles.map((dv: any) => dv.vehicle) : [],
+      vehicle: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicle : null,
+      vehicleId: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicleId : null,
+    }));
   }
 
   async getOrders(clientId: string) {
