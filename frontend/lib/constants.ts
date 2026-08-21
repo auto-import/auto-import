@@ -31,6 +31,7 @@ import type {
   StatutLead,
   TypeClient,
   TypeActivite,
+  Permission,
 } from '@/types';
 
 // ─── Dossier Statuts (per workflow type) ─────────────────────────────
@@ -341,6 +342,108 @@ export const LEAD_PIPELINE_STAGES: StatutLead[] = [
   'negociation',
   'gagne',
   'perdu',
+];
+
+// ─── Permissions & Roles ──────────────────────────────────────────────
+
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  dashboard: 'Tableau de bord',
+  dossiers_lecture: 'Dossiers — Lecture',
+  dossiers_ecriture: 'Dossiers — Écriture',
+  vehicules_lecture: 'Véhicules — Lecture',
+  vehicules_ecriture: 'Véhicules — Écriture',
+  offres_lecture: 'Offres — Lecture',
+  offres_ecriture: 'Offres — Écriture',
+  offres_prix_achat: 'Offres — Prix d\'achat',
+  offres_marge: 'Offres — Marge',
+  fournisseurs_lecture: 'Fournisseurs — Lecture',
+  fournisseurs_ecriture: 'Fournisseurs — Écriture',
+  expeditions_lecture: 'Expéditions — Lecture',
+  expeditions_ecriture: 'Expéditions — Écriture',
+  facturation_lecture: 'Facturation — Lecture',
+  facturation_ecriture: 'Facturation — Écriture',
+  crm_lecture: 'CRM / Clients — Lecture',
+  crm_ecriture: 'CRM / Clients — Écriture',
+  documents_lecture: 'Documents — Lecture',
+  documents_ecriture: 'Documents — Écriture',
+  taches_lecture: 'Tâches — Lecture',
+  taches_ecriture: 'Tâches — Écriture',
+  rapports: 'Rapports',
+  utilisateurs: 'Gestion utilisateurs',
+  parametres: 'Paramètres',
+};
+
+export interface PermissionGroup {
+  label: string;
+  permissions: Permission[];
+}
+
+export const PERMISSION_GROUPS: PermissionGroup[] = [
+  {
+    label: 'Tableau de bord',
+    permissions: ['dashboard'],
+  },
+  {
+    label: 'Dossiers',
+    permissions: ['dossiers_lecture', 'dossiers_ecriture'],
+  },
+  {
+    label: 'Véhicules',
+    permissions: ['vehicules_lecture', 'vehicules_ecriture'],
+  },
+  {
+    label: 'Offres Chine',
+    permissions: ['offres_lecture', 'offres_ecriture', 'offres_prix_achat', 'offres_marge'],
+  },
+  {
+    label: 'Fournisseurs',
+    permissions: ['fournisseurs_lecture', 'fournisseurs_ecriture'],
+  },
+  {
+    label: 'Expéditions',
+    permissions: ['expeditions_lecture', 'expeditions_ecriture'],
+  },
+  {
+    label: 'Facturation',
+    permissions: ['facturation_lecture', 'facturation_ecriture'],
+  },
+  {
+    label: 'CRM / Clients',
+    permissions: ['crm_lecture', 'crm_ecriture'],
+  },
+  {
+    label: 'Documents',
+    permissions: ['documents_lecture', 'documents_ecriture'],
+  },
+  {
+    label: 'Tâches',
+    permissions: ['taches_lecture', 'taches_ecriture'],
+  },
+  {
+    label: 'Rapports',
+    permissions: ['rapports'],
+  },
+  {
+    label: 'Gestion utilisateurs',
+    permissions: ['utilisateurs'],
+  },
+  {
+    label: 'Paramètres',
+    permissions: ['parametres'],
+  },
+];
+
+export const ALL_PERMISSIONS: Permission[] = [
+  'dashboard', 'dossiers_lecture', 'dossiers_ecriture',
+  'vehicules_lecture', 'vehicules_ecriture',
+  'offres_lecture', 'offres_ecriture', 'offres_prix_achat', 'offres_marge',
+  'fournisseurs_lecture', 'fournisseurs_ecriture',
+  'expeditions_lecture', 'expeditions_ecriture',
+  'facturation_lecture', 'facturation_ecriture',
+  'crm_lecture', 'crm_ecriture',
+  'documents_lecture', 'documents_ecriture',
+  'taches_lecture', 'taches_ecriture',
+  'rapports', 'utilisateurs', 'parametres',
 ];
 
 // ─── Offres ──────────────────────────────────────────────────────────

@@ -4,131 +4,235 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Topbar, StatusBadge, DataTable } from '@/components';
 import { offres } from '@/lib/mockData';
-import { OFFRE_STATUT_LABELS, OFFRE_STATUT_VARIANTS, formatOffrePrix } from '@/lib/constants';
-import type { Offre, Column, StatutOffre } from '@/types';
-import { Search, FilePlus2 } from 'lucide-react';
-
-const ALL_STATUTS: StatutOffre[] = ['disponible', 'reservee', 'vendue', 'expiree'];
-
-const OFFRE_COLUMNS: Column<Offre>[] = [
-  {
-    key: 'marque',
-    header: 'Marque / Modèle',
-    render: (row) => (
-      <span className="font-medium">
-        {row.marque} {row.modele}
-      </span>
-    ),
-  },
-  {
-    key: 'annee',
-    header: 'Année',
-  },
-  {
-    key: 'fournisseur_nom',
-    header: 'Fournisseur',
-  },
-  {
-    key: 'prix_cif',
-    header: 'Prix CIF',
-    render: (row) => <span className="font-medium">{formatOffrePrix(row.prix_cif, row.devise)}</span>,
-  },
-  {
-    key: 'prix_ddp',
-    header: 'Prix DDP',
-    render: (row) => <span className="font-medium">{formatOffrePrix(row.prix_ddp, row.devise)}</span>,
-  },
-  {
-    key: 'disponibilite',
-    header: 'Disponibilité',
-  },
-  {
-    key: 'statut',
-    header: 'Statut',
-    render: (row) => (
-      <StatusBadge
-        variant={OFFRE_STATUT_VARIANTS[row.statut]}
-        label={OFFRE_STATUT_LABELS[row.statut]}
-        size="sm"
-      />
-    ),
-  },
-];
+import { useAuth } from '@/components/AuthProvider';
+import { OFFRE_STATUT_LABELS, OFFRE_STATUT_VARIANTS } from '@/lib/constants';
+import type { Offre, Column } from '@/types';
+import { Search, Plus, Eye, FolderOpen, Package } from 'lucide-react';
+import OffreFormModal from '@/components/OffreFormModal';
 
 export default function OffresChinePage() {
   const router = useRouter();
+  const { hasPermission } = useAuth();
   const [search, setSearch] = useState('');
-  const [statutFilter, setStatutFilter] = useState<StatutOffre | 'tous'>('tous');
+  const [statutFilter, setStatutFilter] = useState<string>('tous');
+  const [conditionFilter, setConditionFilter] = useState<string>('tous');
+  const [showFormModal, setShowFormModal] = useState(false);
+
+  const canViewPrixAchat = hasPermission('offres_prix_achat');
+
+  const kpis = useMemo(() => {
+    const total = offres.length;
+    const disponibles = offres.filter(o => o.statut === 'disponible').length;
+    const reservees = offres.filter(o => o.statut === 'reservee').length;
+    const vendues = offres.filter(o => o.statut === 'vendue').length;
+    const expirees = offres.filter(o => o.statut === 'expiree').length;
+    return { total, disponibles, reservees, vendues, expirees };
+  }, []);
 
   const filtered = useMemo(() => {
-    return offres.filter((o) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          o.marque.toLowerCase().includes(q) ||
-          o.modele.toLowerCase().includes(q) ||
-          o.fournisseur_nom.toLowerCase().includes(q);
-        if (!match) return false;
-      }
-      if (statutFilter !== 'tous' && o.statut !== statutFilter) return false;
-      return true;
+    return offres.filter(o => {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        !q ||
+        o.marque.toLowerCase().includes(q) ||
+        o.modele.toLowerCase().includes(q) ||
+        o.reference.toLowerCase().includes(q) ||
+        o.fournisseur_nom.toLowerCase().includes(q);
+      const matchesStatut = statutFilter === 'tous' || o.statut === statutFilter;
+      const matchesCondition = conditionFilter === 'tous' || o.type === conditionFilter;
+      return matchesSearch && matchesStatut && matchesCondition;
     });
-  }, [search, statutFilter]);
+  }, [search, statutFilter, conditionFilter]);
+
+  const columns: Column<Offre>[] = useMemo(() => {
+    const cols: Column<Offre>[] = [
+      {
+        key: 'photo',
+        header: 'Photo',
+        render: (o) => (
+          <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex items-center justify-center">
+            {o.photos && o.photos.length > 0 ? (
+              <img src={o.photos[0]} alt={`${o.marque} ${o.modele}`} className="w-full h-full object-cover" />
+            ) : (
+              <Package className="w-5 h-5 text-muted-foreground" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'vehicule',
+        header: 'Véhicule',
+        render: (o) => (
+          <div>
+            <p className="font-medium text-foreground">{o.marque} {o.modele}{o.version ? ` ${o.version}` : ''}</p>
+            <p className="text-xs text-muted-foreground">{o.reference}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'fournisseur',
+        header: 'Fournisseur',
+        render: (o) => (
+          <div>
+            <p className="text-sm text-foreground">{o.fournisseur_nom}</p>
+            {o.ville_fournisseur && <p className="text-xs text-muted-foreground">{o.ville_fournisseur}</p>}
+          </div>
+        ),
+      },
+      { key: 'annee', header: 'Année', render: (o) => <span className="text-sm">{o.annee}</span> },
+      {
+        key: 'type',
+        header: 'État',
+        render: (o) => (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${o.type === 'neuf' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+            {o.type === 'neuf' ? 'Neuf' : 'Occasion'}
+          </span>
+        ),
+      },
+      {
+        key: 'prix_cif',
+        header: 'Prix CIF',
+        render: (o) => <span className="text-sm font-medium">{o.prix_cif.toLocaleString('fr-FR')} {o.devise}</span>,
+      },
+      {
+        key: 'prix_ddp',
+        header: 'Prix DDP',
+        render: (o) => <span className="text-sm font-medium">{o.prix_ddp.toLocaleString('fr-FR')} {o.devise}</span>,
+      },
+    ];
+
+    if (canViewPrixAchat) {
+      cols.push({
+        key: 'prix_achat',
+        header: 'Prix achat',
+        render: (o) => (
+          <span className="text-sm font-medium">
+            {o.prix_achat_interne ? `${o.prix_achat_interne.toLocaleString('fr-FR')} ${o.devise}` : '—'}
+          </span>
+        ),
+      });
+    }
+
+    cols.push(
+      {
+        key: 'quantite',
+        header: 'Disponibilité',
+        render: (o) => <span className="text-sm">{o.quantite_disponible}</span>,
+      },
+      {
+        key: 'statut',
+        header: 'Statut',
+        render: (o) => <StatusBadge label={OFFRE_STATUT_LABELS[o.statut]} variant={OFFRE_STATUT_VARIANTS[o.statut]} />,
+      },
+      {
+        key: 'validite',
+        header: 'Validité',
+        render: (o) => (
+          <span className="text-sm">
+            {o.date_validite ? new Date(o.date_validite).toLocaleDateString('fr-FR') : '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        render: (o) => (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); router.push(`/offres/${o.id}`); }}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Voir"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); router.push(`/dossiers/new?offre_id=${o.id}`); }}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Créer dossier"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+          </div>
+        ),
+      }
+    );
+
+    return cols;
+  }, [canViewPrixAchat, router]);
 
   return (
-    <>
-      <Topbar title="Offres Chine" subtitle="Offres des fournisseurs chinois" />
-      <div className="p-8 space-y-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 min-w-[240px] max-w-md">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher par marque, modèle, fournisseur..."
-              className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
-            />
+    <div className="flex flex-col h-full">
+      <Topbar title="Offres Chine" subtitle="Catalogue véhicules fournisseurs chinois" />
+
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {[
+            { label: 'Total offres', value: kpis.total, color: 'text-foreground' },
+            { label: 'Disponibles', value: kpis.disponibles, color: 'text-emerald-600' },
+            { label: 'Réservées', value: kpis.reservees, color: 'text-amber-600' },
+            { label: 'Vendues', value: kpis.vendues, color: 'text-blue-600' },
+            { label: 'Expirées', value: kpis.expirees, color: 'text-red-600' },
+          ].map((kpi) => (
+            <div key={kpi.label} className="card p-4">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">{kpi.label}</p>
+              <p className={`text-2xl font-bold mt-1 ${kpi.color}`}>{kpi.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="card p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="relative flex-1 w-full sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Rechercher..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="inputCls pl-9 w-full"
+              />
+            </div>
+            <select
+              value={statutFilter}
+              onChange={(e) => setStatutFilter(e.target.value)}
+              className="inputCls"
+            >
+              <option value="tous">Tous les statuts</option>
+              <option value="disponible">Disponible</option>
+              <option value="reservee">Réservée</option>
+              <option value="vendue">Vendue</option>
+              <option value="expiree">Expirée</option>
+            </select>
+            <select
+              value={conditionFilter}
+              onChange={(e) => setConditionFilter(e.target.value)}
+              className="inputCls"
+            >
+              <option value="tous">Toutes conditions</option>
+              <option value="neuf">Neuf</option>
+              <option value="occasion">Occasion</option>
+            </select>
+            <button onClick={() => setShowFormModal(true)} className="btn-primary ml-auto">
+              <Plus className="w-4 h-4 mr-1.5" />
+              Nouvelle offre
+            </button>
           </div>
-          <select
-            value={statutFilter}
-            onChange={(e) => setStatutFilter(e.target.value as StatutOffre | 'tous')}
-            className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
-          >
-            <option value="tous">Tous les statuts</option>
-            {ALL_STATUTS.map((s) => (
-              <option key={s} value={s}>{OFFRE_STATUT_LABELS[s]}</option>
-            ))}
-          </select>
         </div>
 
-        <p className="text-sm text-muted">
-          {filtered.length} offre{filtered.length !== 1 ? 's' : ''}
-        </p>
-
-        <div className="card p-0 overflow-hidden">
-          <DataTable
-            columns={[
-              ...OFFRE_COLUMNS,
-              {
-                key: 'actions',
-                header: '',
-                render: (row) => (
-                  <button
-                    onClick={() => router.push(`/dossiers/creer?offre=${row.id}`)}
-                    className="flex items-center gap-1.5 text-sm font-medium text-status-blue-text hover:underline whitespace-nowrap"
-                  >
-                    <FilePlus2 className="w-4 h-4" />
-                    Créer dossier
-                  </button>
-                ),
-              },
-            ]}
-            data={filtered}
-            emptyMessage="Aucune offre trouvée"
-          />
-        </div>
+        <DataTable
+          columns={columns}
+          data={filtered}
+          onRowClick={(o) => router.push(`/offres/${o.id}`)}
+          emptyMessage="Aucune offre trouvée"
+        />
       </div>
-    </>
+
+      {showFormModal && (
+        <OffreFormModal
+          onClose={() => setShowFormModal(false)}
+          onSaved={() => setShowFormModal(false)}
+        />
+      )}
+    </div>
   );
 }

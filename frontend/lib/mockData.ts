@@ -27,6 +27,8 @@ import type {
   Lead,
   ClientCRM,
   Activite,
+  Role,
+  Permission,
 } from '@/types';
 import {
   DOSSIER_STATUTS_BY_TYPE,
@@ -1118,123 +1120,332 @@ export const vehicules: Vehicule[] = [
 export const offres: Offre[] = [
   {
     id: 'off-001',
+    reference: 'OFF-2026-0001',
     marque: 'BMW',
     modele: 'X5',
+    version: 'xDrive40i',
     annee: 2023,
     type: 'occasion',
     kilometrage: 42000,
-    photos: [],
+    motorisation: '3.0L Turbo',
+    couleur: 'Noir Saphir',
+    photos: [
+      'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800&h=500&fit=crop',
+      'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=800&h=500&fit=crop',
+    ],
+    fournisseur_id: 'four-001',
     fournisseur_nom: 'Sino Auto Ltd',
+    ville_fournisseur: 'Shanghai',
+    prix_achat_interne: 38000,
     prix_cif: 48500,
     prix_ddp: 55200,
     devise: 'USD',
+    date_validite: '2026-09-15',
+    quantite_disponible: 2,
     disponibilite: 'En stock Shanghai',
+    delai_estime_jours: 30,
     statut: 'disponible',
+    date_creation: '2026-08-01',
+    notes_internes: 'Bon état, entretien BMW suivi.',
   },
   {
     id: 'off-002',
+    reference: 'OFF-2026-0002',
     marque: 'Mercedes-Benz',
     modele: 'GLE 350',
+    version: '4MATIC',
     annee: 2024,
     type: 'occasion',
     kilometrage: 15000,
-    photos: [],
+    motorisation: '2.0L Turbo',
+    couleur: 'Blanc Opal',
+    photos: ['https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-001',
     fournisseur_nom: 'Sino Auto Ltd',
+    ville_fournisseur: 'Shanghai',
+    prix_achat_interne: 46000,
     prix_cif: 58500,
     prix_ddp: 66500,
     devise: 'USD',
+    date_validite: '2026-08-30',
+    quantite_disponible: 1,
     disponibilite: 'En stock Shanghai',
+    delai_estime_jours: 28,
     statut: 'reservee',
+    date_creation: '2026-07-20',
+    dossier_id: 'dos-003',
   },
   {
     id: 'off-003',
+    reference: 'OFF-2026-0003',
     marque: 'Audi',
     modele: 'Q7',
+    version: '55 TFSI',
     annee: 2024,
     type: 'occasion',
     kilometrage: 28000,
-    photos: [],
+    motorisation: '3.0L V6 Turbo',
+    couleur: 'Gris Daytona',
+    photos: ['https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-002',
     fournisseur_nom: 'Dragon Motors Co.',
+    ville_fournisseur: 'Guangzhou',
+    prix_achat_interne: 40000,
     prix_cif: 51200,
     prix_ddp: 58200,
     devise: 'USD',
+    date_validite: '2026-09-10',
+    quantite_disponible: 2,
     disponibilite: 'En stock Guangzhou',
+    delai_estime_jours: 35,
     statut: 'disponible',
+    date_creation: '2026-08-05',
   },
   {
     id: 'off-004',
+    reference: 'OFF-2026-0004',
     marque: 'Toyota',
     modele: 'Land Cruiser',
+    version: '300 VX-R',
     annee: 2023,
     type: 'occasion',
     kilometrage: 35000,
-    photos: [],
+    motorisation: '3.3L V6 Diesel Twin-Turbo',
+    couleur: 'Blanc',
+    photos: [
+      'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?w=800&h=500&fit=crop',
+      'https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=800&h=500&fit=crop',
+    ],
+    fournisseur_id: 'four-003',
     fournisseur_nom: 'Pacific Vehicle Trading',
+    ville_fournisseur: 'Shenzhen',
+    prix_achat_interne: 50000,
     prix_cif: 62500,
     prix_ddp: 71200,
     devise: 'USD',
+    date_validite: '2026-09-20',
+    quantite_disponible: 3,
     disponibilite: 'Disponible sous 2 semaines',
+    delai_estime_jours: 21,
     statut: 'disponible',
+    date_creation: '2026-08-10',
+    notes_internes: 'Très demandé. LC 300 en forte demande en Algérie.',
   },
   {
     id: 'off-005',
+    reference: 'OFF-2026-0005',
     marque: 'Range Rover',
     modele: 'Sport',
+    version: 'P400',
     annee: 2024,
     type: 'occasion',
     kilometrage: 12000,
-    photos: [],
+    motorisation: '3.0L Inline-6 Turbo',
+    couleur: 'Vert British',
+    photos: ['https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-004',
     fournisseur_nom: 'Golden Star Auto Export',
+    ville_fournisseur: 'Beijing',
+    prix_achat_interne: 55000,
     prix_cif: 69800,
     prix_ddp: 79200,
     devise: 'USD',
+    date_validite: '2026-08-25',
+    quantite_disponible: 1,
     disponibilite: 'En stock Beijing',
+    delai_estime_jours: 30,
     statut: 'vendue',
+    date_creation: '2026-07-15',
+    dossier_id: 'dos-002',
   },
   {
     id: 'off-006',
+    reference: 'OFF-2026-0006',
     marque: 'Porsche',
     modele: 'Cayenne',
+    version: 'E-Hybrid',
     annee: 2024,
     type: 'occasion',
     kilometrage: 9000,
-    photos: [],
+    motorisation: '4.0L V8 Hybrid',
+    couleur: 'Rouge Flamme',
+    photos: [
+      'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&h=500&fit=crop',
+      'https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=800&h=500&fit=crop',
+    ],
+    fournisseur_id: 'four-005',
     fournisseur_nom: 'Yangtze Auto Group',
+    ville_fournisseur: 'Chongqing',
+    prix_achat_interne: 68000,
     prix_cif: 84200,
     prix_ddp: 94500,
     devise: 'USD',
+    date_validite: '2026-09-05',
+    quantite_disponible: 1,
     disponibilite: 'En stock Chongqing',
+    delai_estime_jours: 35,
     statut: 'disponible',
+    date_creation: '2026-08-12',
   },
   {
     id: 'off-007',
+    reference: 'OFF-2026-0007',
     marque: 'Hyundai',
     modele: 'Tucson',
-    annee: 2023,
+    version: '1.6T Hybrid Premium',
+    annee: 2025,
     type: 'neuf',
     kilometrage: 0,
-    photos: [],
+    motorisation: '1.6L Turbo Hybrid',
+    couleur: 'Gris Shadow',
+    photos: ['https://images.unsplash.com/photo-1633789242441-8a4206345e32?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-006',
     fournisseur_nom: 'Eastern Horizon Motors',
+    ville_fournisseur: 'Tianjin',
+    prix_achat_interne: 24000,
     prix_cif: 32500,
     prix_ddp: 38200,
     devise: 'USD',
+    date_validite: '2026-10-01',
+    quantite_disponible: 5,
     disponibilite: 'Neuf — sous 3 semaines',
+    delai_estime_jours: 21,
     statut: 'disponible',
+    date_creation: '2026-08-15',
+    notes_internes: 'Nouveau modèle, bonne marge.',
   },
   {
     id: 'off-008',
+    reference: 'OFF-2026-0008',
     marque: 'BMW',
     modele: 'X6',
+    version: 'xDrive40i M Sport',
     annee: 2022,
     type: 'occasion',
     kilometrage: 51000,
-    photos: [],
+    motorisation: '3.0L Turbo',
+    couleur: 'Bleu Phytonic',
+    photos: ['https://images.unsplash.com/photo-1580274455191-1c62238fa333?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-001',
     fournisseur_nom: 'Sino Auto Ltd',
+    ville_fournisseur: 'Shanghai',
+    prix_achat_interne: 36000,
     prix_cif: 46500,
     prix_ddp: 53400,
     devise: 'USD',
+    date_validite: '2026-08-01',
+    quantite_disponible: 0,
     disponibilite: 'Expirée',
+    delai_estime_jours: 30,
     statut: 'expiree',
+    date_creation: '2026-06-01',
+  },
+  {
+    id: 'off-009',
+    reference: 'OFF-2026-0009',
+    marque: 'BYD',
+    modele: 'Seal',
+    version: 'Excellence AWD',
+    annee: 2025,
+    type: 'neuf',
+    kilometrage: 0,
+    motorisation: 'Électrique 82.5kWh',
+    couleur: 'Blanc',
+    photos: ['https://images.unsplash.com/photo-1619767886558-efdc259cde1a?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-006',
+    fournisseur_nom: 'Eastern Horizon Motors',
+    ville_fournisseur: 'Tianjin',
+    prix_achat_interne: 22000,
+    prix_cif: 29500,
+    prix_ddp: 34800,
+    devise: 'USD',
+    date_validite: '2026-10-15',
+    quantite_disponible: 8,
+    disponibilite: 'Neuf — disponible immédiatement',
+    delai_estime_jours: 14,
+    statut: 'disponible',
+    date_creation: '2026-08-20',
+    notes_internes: 'Fort intérêt en Algérie. BYD en plein essor.',
+  },
+  {
+    id: 'off-010',
+    reference: 'OFF-2026-0010',
+    marque: 'Mercedes-Benz',
+    modele: 'Classe C',
+    version: 'C300 AMG Line',
+    annee: 2024,
+    type: 'occasion',
+    kilometrage: 18000,
+    motorisation: '2.0L Turbo',
+    couleur: 'Noir Obsidienne',
+    photos: ['https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-002',
+    fournisseur_nom: 'Dragon Motors Co.',
+    ville_fournisseur: 'Guangzhou',
+    prix_achat_interne: 35000,
+    prix_cif: 44800,
+    prix_ddp: 51200,
+    devise: 'USD',
+    date_validite: '2026-09-10',
+    quantite_disponible: 2,
+    disponibilite: 'En stock Guangzhou',
+    delai_estime_jours: 30,
+    statut: 'disponible',
+    date_creation: '2026-08-18',
+  },
+  {
+    id: 'off-011',
+    reference: 'OFF-2026-0011',
+    marque: 'Zeekr',
+    modele: '001',
+    version: 'WE AWD',
+    annee: 2025,
+    type: 'neuf',
+    kilometrage: 0,
+    motorisation: 'Électrique 100kWh',
+    couleur: 'Gris Tech',
+    photos: ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-010',
+    fournisseur_nom: 'Shanghai EV Solutions',
+    ville_fournisseur: 'Shanghai',
+    prix_achat_interne: 30000,
+    prix_cif: 38500,
+    prix_ddp: 44200,
+    devise: 'USD',
+    date_validite: '2026-10-01',
+    quantite_disponible: 4,
+    disponibilite: 'Neuf — sous 2 semaines',
+    delai_estime_jours: 14,
+    statut: 'disponible',
+    date_creation: '2026-08-19',
+    notes_internes: 'Marque montante. Design premium.',
+  },
+  {
+    id: 'off-012',
+    reference: 'OFF-2026-0012',
+    marque: 'NIO',
+    modele: 'ET7',
+    version: '100kWh Signature',
+    annee: 2025,
+    type: 'neuf',
+    kilometrage: 0,
+    motorisation: 'Électrique 100kWh',
+    couleur: 'Blanc pearl',
+    photos: ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=800&h=500&fit=crop'],
+    fournisseur_id: 'four-010',
+    fournisseur_nom: 'Shanghai EV Solutions',
+    ville_fournisseur: 'Shanghai',
+    prix_achat_interne: 35000,
+    prix_cif: 45000,
+    prix_ddp: 52000,
+    devise: 'USD',
+    date_validite: '2026-10-15',
+    quantite_disponible: 3,
+    disponibilite: 'Neuf — sous 3 semaines',
+    delai_estime_jours: 21,
+    statut: 'disponible',
+    date_creation: '2026-08-21',
+    notes_internes: 'NIO premium. Intéressant pour clientèle luxe.',
   },
 ];
 
@@ -2025,6 +2236,99 @@ export const expeditions: Expedition[] = [
   },
 ];
 
+// ─── Roles & Permissions ──────────────────────────────────────────────
+
+export const roles: Role[] = [
+  {
+    id: 'role-001',
+    nom: 'Super Admin',
+    description: 'Accès complet à toutes les fonctionnalités',
+    permissions: [
+      'dashboard', 'dossiers_lecture', 'dossiers_ecriture',
+      'vehicules_lecture', 'vehicules_ecriture',
+      'offres_lecture', 'offres_ecriture', 'offres_prix_achat', 'offres_marge',
+      'fournisseurs_lecture', 'fournisseurs_ecriture',
+      'expeditions_lecture', 'expeditions_ecriture',
+      'facturation_lecture', 'facturation_ecriture',
+      'crm_lecture', 'crm_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports', 'utilisateurs', 'parametres',
+    ],
+    date_creation: '2025-12-01',
+    est_defaut: true,
+  },
+  {
+    id: 'role-002',
+    nom: 'Commercial',
+    description: 'Gestion des clients, leads et offres',
+    permissions: [
+      'dashboard', 'dossiers_lecture', 'dossiers_ecriture',
+      'vehicules_lecture', 'vehicules_ecriture',
+      'offres_lecture', 'offres_ecriture', 'offres_marge',
+      'crm_lecture', 'crm_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports',
+    ],
+    date_creation: '2025-12-01',
+  },
+  {
+    id: 'role-003',
+    nom: 'Ops Chine',
+    description: 'Opérations achat et fournisseurs en Chine',
+    permissions: [
+      'dashboard', 'dossiers_lecture', 'dossiers_ecriture',
+      'vehicules_lecture', 'vehicules_ecriture',
+      'offres_lecture', 'offres_ecriture', 'offres_prix_achat',
+      'fournisseurs_lecture', 'fournisseurs_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports',
+    ],
+    date_creation: '2025-12-01',
+  },
+  {
+    id: 'role-004',
+    nom: 'Finance',
+    description: 'Gestion facturation et paiements',
+    permissions: [
+      'dashboard', 'dossiers_lecture',
+      'offres_lecture', 'offres_prix_achat', 'offres_marge',
+      'facturation_lecture', 'facturation_ecriture',
+      'documents_lecture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports',
+    ],
+    date_creation: '2025-12-01',
+  },
+  {
+    id: 'role-005',
+    nom: 'Shipping',
+    description: 'Gestion expéditions et transport maritime',
+    permissions: [
+      'dashboard', 'dossiers_lecture',
+      'expeditions_lecture', 'expeditions_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports',
+    ],
+    date_creation: '2025-12-01',
+  },
+  {
+    id: 'role-006',
+    nom: 'Douane',
+    description: 'Gestion dédouanement et livraison',
+    permissions: [
+      'dashboard', 'dossiers_lecture',
+      'facturation_lecture', 'facturation_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+    ],
+    date_creation: '2026-01-15',
+  },
+];
+
 // ─── Utilisateurs ────────────────────────────────────────────────────
 
 export const utilisateurs: Utilisateur[] = [
@@ -2034,9 +2338,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Ahmed',
     email: 'a.djelloul@carimport.dz',
     role: 'super_admin',
+    role_id: 'role-001',
     actif: true,
     date_creation: '2025-12-01',
     avatar_initials: 'AD',
+    telephone: '+213 555 000 001',
+    departement: 'Direction',
   },
   {
     id: 'usr-002',
@@ -2044,9 +2351,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Sara',
     email: 's.mansouri@carimport.dz',
     role: 'sales_algerie',
+    role_id: 'role-002',
     actif: true,
     date_creation: '2026-01-10',
     avatar_initials: 'SM',
+    telephone: '+213 555 000 002',
+    departement: 'Commercial',
   },
   {
     id: 'usr-003',
@@ -2054,9 +2364,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Wei',
     email: 'w.liu@carimport.dz',
     role: 'operations_chine',
+    role_id: 'role-003',
     actif: true,
     date_creation: '2026-01-15',
     avatar_initials: 'LW',
+    telephone: '+86 138 0000 0003',
+    departement: 'Operations',
   },
   {
     id: 'usr-004',
@@ -2064,9 +2377,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Fatima',
     email: 'f.boukhris@carimport.dz',
     role: 'finance',
+    role_id: 'role-004',
     actif: true,
     date_creation: '2026-02-01',
     avatar_initials: 'FB',
+    telephone: '+213 555 000 004',
+    departement: 'Finance',
   },
   {
     id: 'usr-005',
@@ -2074,9 +2390,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Kamel',
     email: 'k.rahmani@carimport.dz',
     role: 'shipping',
+    role_id: 'role-005',
     actif: true,
     date_creation: '2026-02-15',
     avatar_initials: 'KR',
+    telephone: '+213 555 000 005',
+    departement: 'Shipping',
   },
   {
     id: 'usr-006',
@@ -2084,9 +2403,12 @@ export const utilisateurs: Utilisateur[] = [
     prenom: 'Rachid',
     email: 'r.taleb@carimport.dz',
     role: 'dedouanement',
+    role_id: 'role-006',
     actif: false,
     date_creation: '2026-03-01',
     avatar_initials: 'RT',
+    telephone: '+213 555 000 006',
+    departement: 'Douane',
   },
 ];
 
@@ -3558,6 +3880,123 @@ export function getOffreById(id: string): Offre | undefined {
   return offres.find((o) => o.id === id);
 }
 
+export function getOffresBySupplier(supplierId: string): Offre[] {
+  return offres.filter((o) => o.fournisseur_id === supplierId);
+}
+
+export function getOffresByStatut(statut: Offre['statut']): Offre[] {
+  return offres.filter((o) => o.statut === statut);
+}
+
+export function getOffresDisponibles(): Offre[] {
+  return offres.filter((o) => o.statut === 'disponible');
+}
+
+export function aOffreReferenceExiste(ref: string): boolean {
+  return offres.some((o) => o.reference === ref);
+}
+
+export function genererReferenceOffre(): string {
+  const year = new Date().getFullYear();
+  const count = offres.length + 1;
+  return `OFF-${year}-${String(count).padStart(4, '0')}`;
+}
+
+export interface CreateOffreInfos {
+  marque: string;
+  modele: string;
+  version?: string;
+  annee: number;
+  type: Offre['type'];
+  kilometrage: number;
+  motorisation?: string;
+  couleur?: string;
+  photos?: string[];
+  fournisseur_id: string;
+  ville_fournisseur?: string;
+  prix_achat_interne?: number;
+  prix_cif: number;
+  prix_ddp: number;
+  devise: string;
+  date_validite?: string;
+  quantite_disponible: number;
+  delai_estime_jours?: number;
+  notes_internes?: string;
+}
+
+export function createOffre(infos: CreateOffreInfos): Offre {
+  const fournisseur = fournisseurs.find((f) => f.id === infos.fournisseur_id);
+  const reference = genererReferenceOffre();
+  const offre: Offre = {
+    id: `off-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    reference,
+    marque: infos.marque,
+    modele: infos.modele,
+    version: infos.version,
+    annee: infos.annee,
+    type: infos.type,
+    kilometrage: infos.kilometrage,
+    motorisation: infos.motorisation,
+    couleur: infos.couleur,
+    photos: infos.photos || [],
+    fournisseur_id: infos.fournisseur_id,
+    fournisseur_nom: fournisseur?.nom || 'Inconnu',
+    ville_fournisseur: infos.ville_fournisseur || fournisseur?.ville,
+    prix_achat_interne: infos.prix_achat_interne,
+    prix_cif: infos.prix_cif,
+    prix_ddp: infos.prix_ddp,
+    devise: infos.devise,
+    date_validite: infos.date_validite,
+    quantite_disponible: infos.quantite_disponible,
+    disponibilite: `${infos.quantite_disponible} unité(s) disponible(s)`,
+    delai_estime_jours: infos.delai_estime_jours,
+    statut: 'disponible',
+    date_creation: new Date().toISOString().slice(0, 10),
+    notes_internes: infos.notes_internes,
+  };
+  offres.push(offre);
+  return offre;
+}
+
+export function updateOffre(id: string, infos: Partial<CreateOffreInfos & { statut: Offre['statut']; notes_internes: string }>): void {
+  const offre = offres.find((o) => o.id === id);
+  if (!offre) return;
+  if (infos.marque !== undefined) offre.marque = infos.marque;
+  if (infos.modele !== undefined) offre.modele = infos.modele;
+  if (infos.version !== undefined) offre.version = infos.version;
+  if (infos.annee !== undefined) offre.annee = infos.annee;
+  if (infos.type !== undefined) offre.type = infos.type;
+  if (infos.kilometrage !== undefined) offre.kilometrage = infos.kilometrage;
+  if (infos.motorisation !== undefined) offre.motorisation = infos.motorisation;
+  if (infos.couleur !== undefined) offre.couleur = infos.couleur;
+  if (infos.photos !== undefined) offre.photos = infos.photos;
+  if (infos.fournisseur_id !== undefined) {
+    offre.fournisseur_id = infos.fournisseur_id;
+    const fournisseur = fournisseurs.find((f) => f.id === infos.fournisseur_id);
+    if (fournisseur) {
+      offre.fournisseur_nom = fournisseur.nom;
+      offre.ville_fournisseur = fournisseur.ville;
+    }
+  }
+  if (infos.prix_achat_interne !== undefined) offre.prix_achat_interne = infos.prix_achat_interne;
+  if (infos.prix_cif !== undefined) offre.prix_cif = infos.prix_cif;
+  if (infos.prix_ddp !== undefined) offre.prix_ddp = infos.prix_ddp;
+  if (infos.devise !== undefined) offre.devise = infos.devise;
+  if (infos.date_validite !== undefined) offre.date_validite = infos.date_validite;
+  if (infos.quantite_disponible !== undefined) {
+    offre.quantite_disponible = infos.quantite_disponible;
+    offre.disponibilite = `${infos.quantite_disponible} unité(s) disponible(s)`;
+  }
+  if (infos.delai_estime_jours !== undefined) offre.delai_estime_jours = infos.delai_estime_jours;
+  if (infos.statut !== undefined) offre.statut = infos.statut;
+  if (infos.notes_internes !== undefined) offre.notes_internes = infos.notes_internes;
+  offre.date_modification = new Date().toISOString().slice(0, 10);
+}
+
+export function archiveOffre(id: string): void {
+  updateOffre(id, { statut: 'expiree' });
+}
+
 export function getUtilisateurById(id: string): Utilisateur | undefined {
   return utilisateurs.find((u) => u.id === id);
 }
@@ -4334,4 +4773,135 @@ export function getVehiculesByClient(clientId: string): Vehicule[] {
 export function getPaiementsByClient(clientId: string): PaiementClient[] {
   const clientDossiers = getDossiersByClient(clientId);
   return clientDossiers.flatMap((d) => d.paiements_client);
+}
+
+// ─── Roles & Permissions helpers ──────────────────────────────────────
+
+export function getRoleById(id: string): Role | undefined {
+  return roles.find((r) => r.id === id);
+}
+
+export function getRoleByNom(nom: string): Role | undefined {
+  return roles.find((r) => r.nom.toLowerCase() === nom.toLowerCase());
+}
+
+export function aRoleExiste(nom: string): boolean {
+  return roles.some((r) => r.nom.toLowerCase() === nom.toLowerCase());
+}
+
+export interface CreateRoleInfos {
+  nom: string;
+  description: string;
+  permissions: Permission[];
+}
+
+export function createRole(infos: CreateRoleInfos): Role {
+  const role: Role = {
+    id: `role-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: infos.nom,
+    description: infos.description,
+    permissions: infos.permissions,
+    date_creation: new Date().toISOString().slice(0, 10),
+  };
+  roles.push(role);
+  return role;
+}
+
+export function updateRole(id: string, infos: Partial<CreateRoleInfos>): void {
+  const role = roles.find((r) => r.id === id);
+  if (role) {
+    if (infos.nom !== undefined) role.nom = infos.nom;
+    if (infos.description !== undefined) role.description = infos.description;
+    if (infos.permissions !== undefined) role.permissions = infos.permissions;
+  }
+}
+
+export function deleteRole(id: string): boolean {
+  const idx = roles.findIndex((r) => r.id === id);
+  if (idx === -1) return false;
+  const role = roles[idx];
+  if (role.est_defaut) return false;
+  const isUsed = utilisateurs.some((u) => u.role_id === id);
+  if (isUsed) return false;
+  roles.splice(idx, 1);
+  return true;
+}
+
+export function hasPermission(userId: string, permission: Permission): boolean {
+  const user = utilisateurs.find((u) => u.id === userId);
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  const role = roles.find((r) => r.id === user.role_id);
+  if (!role) return false;
+  return role.permissions.includes(permission);
+}
+
+export function getUserPermissions(userId: string): Permission[] {
+  const user = utilisateurs.find((u) => u.id === userId);
+  if (!user) return [];
+  if (user.role === 'super_admin') {
+    return [
+      'dashboard', 'dossiers_lecture', 'dossiers_ecriture',
+      'vehicules_lecture', 'vehicules_ecriture',
+      'offres_lecture', 'offres_ecriture', 'offres_prix_achat', 'offres_marge',
+      'fournisseurs_lecture', 'fournisseurs_ecriture',
+      'expeditions_lecture', 'expeditions_ecriture',
+      'facturation_lecture', 'facturation_ecriture',
+      'crm_lecture', 'crm_ecriture',
+      'documents_lecture', 'documents_ecriture',
+      'taches_lecture', 'taches_ecriture',
+      'rapports', 'utilisateurs', 'parametres',
+    ];
+  }
+  const role = roles.find((r) => r.id === user.role_id);
+  return role?.permissions || [];
+}
+
+export function createUser(infos: {
+  nom: string;
+  prenom: string;
+  email: string;
+  role_id: string;
+  telephone?: string;
+  departement?: string;
+}): Utilisateur {
+  const user: Utilisateur = {
+    id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: infos.nom,
+    prenom: infos.prenom,
+    email: infos.email,
+    role: 'client',
+    role_id: infos.role_id,
+    actif: true,
+    date_creation: new Date().toISOString().slice(0, 10),
+    avatar_initials: `${infos.prenom[0]}${infos.nom[0]}`.toUpperCase(),
+    telephone: infos.telephone,
+    departement: infos.departement,
+  };
+  utilisateurs.push(user);
+  return user;
+}
+
+export function updateUser(id: string, infos: Partial<{
+  nom: string;
+  prenom: string;
+  email: string;
+  role_id: string;
+  actif: boolean;
+  telephone: string;
+  departement: string;
+}>): void {
+  const user = utilisateurs.find((u) => u.id === id);
+  if (user) {
+    if (infos.nom !== undefined) user.nom = infos.nom;
+    if (infos.prenom !== undefined) user.prenom = infos.prenom;
+    if (infos.email !== undefined) user.email = infos.email;
+    if (infos.role_id !== undefined) user.role_id = infos.role_id;
+    if (infos.actif !== undefined) user.actif = infos.actif;
+    if (infos.telephone !== undefined) user.telephone = infos.telephone;
+    if (infos.departement !== undefined) user.departement = infos.departement;
+    if (infos.nom !== undefined || infos.prenom !== undefined) {
+      user.avatar_initials = `${user.prenom[0]}${user.nom[0]}`.toUpperCase();
+    }
+  }
 }
