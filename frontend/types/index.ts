@@ -46,6 +46,43 @@ export type RoleUtilisateur =
   | 'client'
   | 'fournisseur';
 
+// ─── Permissions & Roles (dynamic system) ─────────────────────────────
+
+export type Permission =
+  | 'dashboard'
+  | 'dossiers_lecture'
+  | 'dossiers_ecriture'
+  | 'vehicules_lecture'
+  | 'vehicules_ecriture'
+  | 'offres_lecture'
+  | 'offres_ecriture'
+  | 'offres_prix_achat'
+  | 'offres_marge'
+  | 'fournisseurs_lecture'
+  | 'fournisseurs_ecriture'
+  | 'expeditions_lecture'
+  | 'expeditions_ecriture'
+  | 'facturation_lecture'
+  | 'facturation_ecriture'
+  | 'crm_lecture'
+  | 'crm_ecriture'
+  | 'documents_lecture'
+  | 'documents_ecriture'
+  | 'taches_lecture'
+  | 'taches_ecriture'
+  | 'rapports'
+  | 'utilisateurs'
+  | 'parametres';
+
+export interface Role {
+  id: string;
+  nom: string;
+  description: string;
+  permissions: Permission[];
+  date_creation: string;
+  est_defaut?: boolean;
+}
+
 export type StatutVehicule =
   | 'disponible'
   | 'reserve'
@@ -230,18 +267,40 @@ export interface Vehicule {
 
 export interface Offre {
   id: string;
+  reference: string;
   marque: string;
   modele: string;
+  version?: string;
   annee: number;
   type: TypeOffre;
   kilometrage: number;
+  motorisation?: string;
+  couleur?: string;
   photos: string[];
+  videos?: string[];
+  // Supplier relationship
+  fournisseur_id: string;
   fournisseur_nom: string;
+  ville_fournisseur?: string;
+  // Pricing
+  prix_achat_interne?: number;
   prix_cif: number;
   prix_ddp: number;
   devise: string;
+  date_validite?: string;
+  // Availability
+  quantite_disponible: number;
   disponibilite: string;
+  // Logistics
+  delai_estime_jours?: number;
+  // Status & metadata
   statut: StatutOffre;
+  date_creation: string;
+  date_modification?: string;
+  notes_internes?: string;
+  // Associations
+  client_ids?: string[];
+  dossier_id?: string;
 }
 
 export interface ExpeditionInfo {
@@ -381,9 +440,13 @@ export interface Utilisateur {
   prenom: string;
   email: string;
   role: RoleUtilisateur;
+  role_id?: string; // link to dynamic Role system
   actif: boolean;
   date_creation: string;
   avatar_initials: string;
+  telephone?: string;
+  departement?: string;
+  dernier_login?: string;
 }
 
 export interface TypeNotification {
