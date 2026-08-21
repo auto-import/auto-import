@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
@@ -54,8 +60,13 @@ export class DossiersService {
     };
   }
 
-  async create(createDossierDto: CreateDossierDto, salesUserId: string, organizationId: string) {
-    const { clientId, type, vehicleId, vehicleIds, orderId, status } = createDossierDto;
+  async create(
+    createDossierDto: CreateDossierDto,
+    salesUserId: string,
+    organizationId: string,
+  ) {
+    const { clientId, type, vehicleId, vehicleIds, orderId, status } =
+      createDossierDto;
 
     // Check if client exists AND belongs to same organization
     const client = await this.prisma.client.findFirst({
@@ -63,7 +74,9 @@ export class DossiersService {
     });
 
     if (!client) {
-      throw new NotFoundException(`Client with ID ${clientId} not found in your organization`);
+      throw new NotFoundException(
+        `Client with ID ${clientId} not found in your organization`,
+      );
     }
 
     // Collect all requested vehicle IDs (support both vehicleId and vehicleIds)
@@ -84,11 +97,15 @@ export class DossiersService {
       });
 
       if (!vehicle) {
-        throw new NotFoundException(`Vehicle with ID ${vId} not found in your organization`);
+        throw new NotFoundException(
+          `Vehicle with ID ${vId} not found in your organization`,
+        );
       }
 
       if (vehicle.status !== 'available') {
-        throw new ConflictException(`Vehicle ${vehicle.brand} ${vehicle.model} (${vId}) is not available (current status: ${vehicle.status})`);
+        throw new ConflictException(
+          `Vehicle ${vehicle.brand} ${vehicle.model} (${vId}) is not available (current status: ${vehicle.status})`,
+        );
       }
     }
 
@@ -98,7 +115,9 @@ export class DossiersService {
         where: { id: orderId, organizationId },
       });
       if (!order) {
-        throw new NotFoundException(`Order with ID ${orderId} not found in your organization`);
+        throw new NotFoundException(
+          `Order with ID ${orderId} not found in your organization`,
+        );
       }
     }
 
@@ -108,14 +127,17 @@ export class DossiersService {
         where: { id: createDossierDto.vehicleRequestId, organizationId },
       });
       if (!vehicleRequest) {
-        throw new NotFoundException(`Vehicle request with ID ${createDossierDto.vehicleRequestId} not found in your organization`);
+        throw new NotFoundException(
+          `Vehicle request with ID ${createDossierDto.vehicleRequestId} not found in your organization`,
+        );
       }
     }
 
     // Generate reference
     const reference = await this.generateReference();
-    const dossierType = (type || DossierType.VEHICLE_SALE_CIF) as DossierType;
-    const initialStatus = status || this.workflowService.getInitialStatus(dossierType);
+    const dossierType = type || DossierType.VEHICLE_SALE_CIF;
+    const initialStatus =
+      status || this.workflowService.getInitialStatus(dossierType);
 
     const dossier = await this.prisma.$transaction(async (prisma) => {
       // Create dossier
@@ -130,12 +152,15 @@ export class DossiersService {
           status: initialStatus,
           salesUserId,
           openedAt: new Date(),
-          dossierVehicles: uniqueVehicleIds.length > 0 ? {
-            create: uniqueVehicleIds.map((vId) => ({
-              vehicleId: vId,
-              assignedAt: new Date(),
-            })),
-          } : undefined,
+          dossierVehicles:
+            uniqueVehicleIds.length > 0
+              ? {
+                  create: uniqueVehicleIds.map((vId) => ({
+                    vehicleId: vId,
+                    assignedAt: new Date(),
+                  })),
+                }
+              : undefined,
         },
         include: {
           client: true,
@@ -159,9 +184,10 @@ export class DossiersService {
           dossierId: newDossier.id,
           toStatus: newDossier.status,
           changedBy: salesUserId,
-          comment: uniqueVehicleIds.length > 0 
-            ? `Dossier created with ${uniqueVehicleIds.length} vehicle(s)`
-            : 'Dossier created',
+          comment:
+            uniqueVehicleIds.length > 0
+              ? `Dossier created with ${uniqueVehicleIds.length} vehicle(s)`
+              : 'Dossier created',
         },
       });
 
@@ -176,11 +202,18 @@ export class DossiersService {
       return newDossier;
     });
 
-    this.logger.log(`Dossier created: ${reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`);
+    this.logger.log(
+      `Dossier created: ${reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`,
+    );
     return this.mapDossierWithVehicles(dossier);
   }
 
-  async addVehicle(dossierId: string, vehicleId: string, organizationId: string, userId?: string) {
+  async addVehicle(
+    dossierId: string,
+    vehicleId: string,
+    organizationId: string,
+    userId?: string,
+  ) {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
       include: { dossierVehicles: true },
@@ -191,7 +224,9 @@ export class DossiersService {
     }
 
     if (this.workflowService.isTerminalStatus(dossier.status)) {
-      throw new ConflictException(`Cannot add vehicles to a dossier in terminal status '${dossier.status}'`);
+      throw new ConflictException(
+        `Cannot add vehicles to a dossier in terminal status '${dossier.status}'`,
+      );
     }
 
     const vehicle = await this.prisma.vehicle.findFirst({
@@ -199,17 +234,25 @@ export class DossiersService {
     });
 
     if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID ${vehicleId} not found in your organization`);
+      throw new NotFoundException(
+        `Vehicle with ID ${vehicleId} not found in your organization`,
+      );
     }
 
     // Check if vehicle is already attached to this dossier
-    const alreadyAttached = dossier.dossierVehicles.some((dv) => dv.vehicleId === vehicleId);
+    const alreadyAttached = dossier.dossierVehicles.some(
+      (dv) => dv.vehicleId === vehicleId,
+    );
     if (alreadyAttached) {
-      throw new ConflictException(`Vehicle with ID ${vehicleId} is already attached to dossier ${dossier.reference}`);
+      throw new ConflictException(
+        `Vehicle with ID ${vehicleId} is already attached to dossier ${dossier.reference}`,
+      );
     }
 
     if (vehicle.status !== 'available') {
-      throw new ConflictException(`Vehicle ${vehicle.brand} ${vehicle.model} (${vehicleId}) is not available (current status: ${vehicle.status})`);
+      throw new ConflictException(
+        `Vehicle ${vehicle.brand} ${vehicle.model} (${vehicleId}) is not available (current status: ${vehicle.status})`,
+      );
     }
 
     await this.prisma.$transaction(async (prisma) => {
@@ -237,11 +280,18 @@ export class DossiersService {
       });
     });
 
-    this.logger.log(`Vehicle ${vehicleId} added to dossier ${dossier.reference}`);
+    this.logger.log(
+      `Vehicle ${vehicleId} added to dossier ${dossier.reference}`,
+    );
     return this.findOne(dossierId, organizationId);
   }
 
-  async removeVehicle(dossierId: string, vehicleId: string, organizationId: string, userId?: string) {
+  async removeVehicle(
+    dossierId: string,
+    vehicleId: string,
+    organizationId: string,
+    userId?: string,
+  ) {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
       include: { dossierVehicles: true },
@@ -251,9 +301,13 @@ export class DossiersService {
       throw new NotFoundException(`Dossier with ID ${dossierId} not found`);
     }
 
-    const link = dossier.dossierVehicles.find((dv) => dv.vehicleId === vehicleId);
+    const link = dossier.dossierVehicles.find(
+      (dv) => dv.vehicleId === vehicleId,
+    );
     if (!link) {
-      throw new NotFoundException(`Vehicle with ID ${vehicleId} is not attached to dossier ${dossier.reference}`);
+      throw new NotFoundException(
+        `Vehicle with ID ${vehicleId} is not attached to dossier ${dossier.reference}`,
+      );
     }
 
     const vehicle = await this.prisma.vehicle.findUnique({
@@ -287,7 +341,9 @@ export class DossiersService {
       });
     });
 
-    this.logger.log(`Vehicle ${vehicleId} removed from dossier ${dossier.reference}`);
+    this.logger.log(
+      `Vehicle ${vehicleId} removed from dossier ${dossier.reference}`,
+    );
     return this.findOne(dossierId, organizationId);
   }
 
@@ -322,7 +378,12 @@ export class DossiersService {
     }));
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: FilterDossierDto) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    filters?: FilterDossierDto,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -331,7 +392,8 @@ export class DossiersService {
     if (filters?.status) where.status = filters.status;
     if (filters?.salesUserId) where.salesUserId = filters.salesUserId;
     if (filters?.opsUserId) where.opsUserId = filters.opsUserId;
-    if (filters?.reference) where.reference = { contains: filters.reference, mode: 'insensitive' };
+    if (filters?.reference)
+      where.reference = { contains: filters.reference, mode: 'insensitive' };
 
     if (filters?.fromDate || filters?.toDate) {
       where.openedAt = {};
@@ -440,16 +502,24 @@ export class DossiersService {
     // Calculate additional stats
     const stats = {
       totalVehicles: dossier.dossierVehicles.length,
-      totalPayments: dossier.order?.invoices?.reduce((sum, inv) =>
-        sum + inv.payments.reduce((s, p) => s + p.amount.toNumber(), 0), 0
-      ) || 0,
-      totalInvoiceAmount: dossier.order?.invoices?.reduce((sum, inv) =>
-        sum + inv.total.toNumber(), 0
-      ) || 0,
+      totalPayments:
+        dossier.order?.invoices?.reduce(
+          (sum, inv) =>
+            sum + inv.payments.reduce((s, p) => s + p.amount.toNumber(), 0),
+          0,
+        ) || 0,
+      totalInvoiceAmount:
+        dossier.order?.invoices?.reduce(
+          (sum, inv) => sum + inv.total.toNumber(),
+          0,
+        ) || 0,
       isFullyPaid: false,
     };
 
-    if (stats.totalInvoiceAmount > 0 && stats.totalPayments >= stats.totalInvoiceAmount) {
+    if (
+      stats.totalInvoiceAmount > 0 &&
+      stats.totalPayments >= stats.totalInvoiceAmount
+    ) {
       stats.isFullyPaid = true;
     }
 
@@ -457,7 +527,12 @@ export class DossiersService {
     return { ...mapped, stats };
   }
 
-  async updateStatus(id: string, updateStatusDto: UpdateStatusDto, userId: string, organizationId?: string) {
+  async updateStatus(
+    id: string,
+    updateStatusDto: UpdateStatusDto,
+    userId: string,
+    organizationId?: string,
+  ) {
     const dossier = await this.findOne(id, organizationId);
     const { status, comment } = updateStatusDto;
 
@@ -470,7 +545,10 @@ export class DossiersService {
       status,
     );
 
-    const isClosing = status === 'cloture' || status === 'service_termine' || status === 'annule';
+    const isClosing =
+      status === 'cloture' ||
+      status === 'service_termine' ||
+      status === 'annule';
 
     const updatedDossier = await this.prisma.$transaction(async (prisma) => {
       // Update dossier status
@@ -498,7 +576,8 @@ export class DossiersService {
           fromStatus: currentStatus,
           toStatus: status,
           changedBy: userId || 'system',
-          comment: comment || `Status changed from '${currentStatus}' to '${status}'`,
+          comment:
+            comment || `Status changed from '${currentStatus}' to '${status}'`,
         },
       });
 
@@ -516,11 +595,18 @@ export class DossiersService {
       return updated;
     });
 
-    this.logger.log(`Dossier ${dossier.reference} status updated: ${currentStatus} -> ${status} (by ${userId})`);
+    this.logger.log(
+      `Dossier ${dossier.reference} status updated: ${currentStatus} -> ${status} (by ${userId})`,
+    );
     return this.findOne(id, organizationId);
   }
 
-  async advanceStatus(id: string, comment?: string, userId?: string, organizationId?: string) {
+  async advanceStatus(
+    id: string,
+    comment?: string,
+    userId?: string,
+    organizationId?: string,
+  ) {
     const dossier = await this.findOne(id, organizationId);
     const nextStatus = this.workflowService.getNextStatus(
       dossier.type as DossierType,
@@ -644,4 +730,3 @@ export class DossiersService {
     };
   }
 }
-

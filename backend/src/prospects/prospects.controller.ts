@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ProspectsService } from './prospects.service';
 import { CreateProspectDto } from './dto/create-prospect.dto';
 import { UpdateProspectDto } from './dto/update-prospect.dto';
@@ -18,7 +28,11 @@ export class ProspectsController {
     @Body() createProspectDto: CreateProspectDto,
     @CurrentUser() user: any,
   ) {
-    return this.prospectsService.create(createProspectDto, user.id, user.organizationId);
+    return this.prospectsService.create(
+      createProspectDto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Get()
@@ -55,7 +69,11 @@ export class ProspectsController {
     @Body() updateProspectDto: UpdateProspectDto,
     @CurrentUser() user: any,
   ) {
-    return this.prospectsService.update(id, user.organizationId, updateProspectDto);
+    return this.prospectsService.update(
+      id,
+      user.organizationId,
+      updateProspectDto,
+    );
   }
 
   @Post(':id/activities')
@@ -79,7 +97,12 @@ export class ProspectsController {
     @Body() convertProspectDto: ConvertProspectDto,
     @CurrentUser() user: any,
   ) {
-    return this.prospectsService.convertToClient(id, convertProspectDto, user.id, user.organizationId);
+    return this.prospectsService.convertToClient(
+      id,
+      convertProspectDto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Delete(':id')

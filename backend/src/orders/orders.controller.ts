@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+} from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-status.dto';
@@ -12,11 +21,12 @@ export class OrdersController {
 
   @Post()
   @RequirePermission('orders:write')
-  create(
-    @Body() createOrderDto: CreateOrderDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.ordersService.create(createOrderDto, user.id, user.organizationId);
+  create(@Body() createOrderDto: CreateOrderDto, @CurrentUser() user: any) {
+    return this.ordersService.create(
+      createOrderDto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Get()
@@ -59,7 +69,12 @@ export class OrdersController {
     @Body() updateStatusDto: UpdateOrderStatusDto,
     @CurrentUser() user: any,
   ) {
-    return this.ordersService.updateStatus(id, updateStatusDto, user.id, user.organizationId);
+    return this.ordersService.updateStatus(
+      id,
+      updateStatusDto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Delete(':id')

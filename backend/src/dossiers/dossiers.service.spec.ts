@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { DossiersService } from './dossiers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
@@ -85,7 +89,9 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
     }).compile();
 
     service = module.get<DossiersService>(DossiersService);
-    workflowService = module.get<DossierWorkflowService>(DossierWorkflowService);
+    workflowService = module.get<DossierWorkflowService>(
+      DossierWorkflowService,
+    );
   });
 
   describe('Workflow 1: VEHICLE_SALE_CIF', () => {
@@ -134,7 +140,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         status: 'client_confirme',
       });
 
-      const res = await service.advanceStatus('dos-cif', 'Client confirmed', 'user-1', mockOrgId);
+      const res = await service.advanceStatus(
+        'dos-cif',
+        'Client confirmed',
+        'user-1',
+        mockOrgId,
+      );
 
       expect(prisma.dossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -159,7 +170,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
       // 'douane' is only valid in DDP, not CIF
       await expect(
-        service.updateStatus('dos-cif', { status: 'douane' }, 'user-1', mockOrgId),
+        service.updateStatus(
+          'dos-cif',
+          { status: 'douane' },
+          'user-1',
+          mockOrgId,
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -181,7 +197,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         status: 'douane',
       });
 
-      const res = await service.advanceStatus('dos-ddp', 'Vehicles entered customs', 'ops-user', mockOrgId);
+      const res = await service.advanceStatus(
+        'dos-ddp',
+        'Vehicles entered customs',
+        'ops-user',
+        mockOrgId,
+      );
 
       expect(prisma.dossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -206,7 +227,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
       // Cannot jump directly from en_transit to livraison_client
       await expect(
-        service.updateStatus('dos-ddp', { status: 'livraison_client' }, 'user-1', mockOrgId),
+        service.updateStatus(
+          'dos-ddp',
+          { status: 'livraison_client' },
+          'user-1',
+          mockOrgId,
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -246,7 +272,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
       // 'achat_confirme' and 'paiement_fournisseur' are forbidden in SHIPPING_ONLY
       await expect(
-        service.updateStatus('dos-ship', { status: 'achat_confirme' }, 'user-1', mockOrgId),
+        service.updateStatus(
+          'dos-ship',
+          { status: 'achat_confirme' },
+          'user-1',
+          mockOrgId,
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -265,7 +296,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       prisma.dossier.findFirst.mockResolvedValue(mockClosedDossier);
 
       await expect(
-        service.updateStatus('dos-closed', { status: 'contrat_signe' }, 'user-1', mockOrgId),
+        service.updateStatus(
+          'dos-closed',
+          { status: 'contrat_signe' },
+          'user-1',
+          mockOrgId,
+        ),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -301,7 +337,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
 
       await expect(
-        service.updateStatus('dos-1', { status: 'inspection' }, 'user-1', mockOrgId),
+        service.updateStatus(
+          'dos-1',
+          { status: 'inspection' },
+          'user-1',
+          mockOrgId,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -312,9 +353,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
         status: 'documents_remis',
-        dossierVehicles: [
-          { vehicleId: 'veh-1', vehicle: mockVehicle1 },
-        ],
+        dossierVehicles: [{ vehicleId: 'veh-1', vehicle: mockVehicle1 }],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
@@ -323,7 +362,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         status: 'cloture',
       });
 
-      await service.updateStatus('dos-final', { status: 'cloture' }, 'user-1', mockOrgId);
+      await service.updateStatus(
+        'dos-final',
+        { status: 'cloture' },
+        'user-1',
+        mockOrgId,
+      );
 
       expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
         where: { id: { in: ['veh-1'] } },

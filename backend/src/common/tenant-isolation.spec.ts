@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { DossiersService } from '../dossiers/dossiers.service';
 import { ClientsService } from '../clients/clients.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
@@ -112,7 +116,10 @@ describe('Multi-Tenant Isolation & Cross-Tenant Security (Phase 3-5)', () => {
     });
 
     it('should reject creating dossier with a vehicle belonging to another tenant', async () => {
-      prisma.client.findFirst.mockResolvedValue({ id: 'client-1', organizationId: ORG_A });
+      prisma.client.findFirst.mockResolvedValue({
+        id: 'client-1',
+        organizationId: ORG_A,
+      });
       // Vehicle from ORG_B not found when scoped to ORG_A
       prisma.vehicle.findFirst.mockResolvedValue(null);
 

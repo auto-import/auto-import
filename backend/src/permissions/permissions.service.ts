@@ -9,10 +9,7 @@ export class PermissionsService {
 
   async findAll() {
     return this.prisma.permission.findMany({
-      orderBy: [
-        { resource: 'asc' },
-        { action: 'asc' },
-      ],
+      orderBy: [{ resource: 'asc' }, { action: 'asc' }],
     });
   }
 
@@ -40,8 +37,10 @@ export class PermissionsService {
       return [];
     }
 
-    const permissions = user.userRoles.flatMap(ur =>
-      ur.role.rolePermissions.map(rp => `${rp.permission.resource}:${rp.permission.action}`)
+    const permissions = user.userRoles.flatMap((ur) =>
+      ur.role.rolePermissions.map(
+        (rp) => `${rp.permission.resource}:${rp.permission.action}`,
+      ),
     );
 
     return [...new Set(permissions)];

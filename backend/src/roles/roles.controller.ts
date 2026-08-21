@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -11,10 +19,7 @@ export class RolesController {
 
   @Post()
   @RequirePermission('roles:manage')
-  create(
-    @Body() createRoleDto: CreateRoleDto,
-    @CurrentUser() user: any,
-  ) {
+  create(@Body() createRoleDto: CreateRoleDto, @CurrentUser() user: any) {
     return this.rolesService.create(createRoleDto, user.organizationId);
   }
 
@@ -32,10 +37,7 @@ export class RolesController {
 
   @Get(':id')
   @RequirePermission('roles:manage')
-  findOne(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.rolesService.findOne(id, user.organizationId);
   }
 
@@ -51,10 +53,7 @@ export class RolesController {
 
   @Delete(':id')
   @RequirePermission('roles:manage')
-  remove(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.rolesService.remove(id, user.organizationId);
   }
 }

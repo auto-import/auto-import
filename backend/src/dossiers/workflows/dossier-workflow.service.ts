@@ -1,4 +1,8 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { DossierType } from '../dto/dossier-type.enum';
 import {
   WORKFLOW_STEPS_BY_TYPE,
@@ -45,7 +49,7 @@ export class DossierWorkflowService {
    */
   getAllowedTransitions(type: DossierType, currentStatus: string): string[] {
     const rawStatus = (currentStatus || '').toLowerCase();
-    
+
     // Terminal states cannot transition to anything
     if (this.isTerminalStatus(rawStatus)) {
       return [];
@@ -104,7 +108,11 @@ export class DossierWorkflowService {
   /**
    * Validate a requested transition
    */
-  validateTransition(type: DossierType, fromStatus: string, toStatus: string): void {
+  validateTransition(
+    type: DossierType,
+    fromStatus: string,
+    toStatus: string,
+  ): void {
     const from = (fromStatus || '').toLowerCase();
     const to = (toStatus || '').toLowerCase();
 
@@ -123,7 +131,8 @@ export class DossierWorkflowService {
     const allowed = this.getAllowedTransitions(type, from);
     const normalizedTo = this.normalizeStatus(to);
 
-    const isDirectlyAllowed = allowed.includes(to) || allowed.includes(normalizedTo);
+    const isDirectlyAllowed =
+      allowed.includes(to) || allowed.includes(normalizedTo);
 
     if (!isDirectlyAllowed) {
       throw new ConflictException(

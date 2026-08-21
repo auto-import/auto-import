@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateClientDto } from './dto/update-client.dto';
 
@@ -8,7 +13,12 @@ export class ClientsService {
 
   constructor(private prisma: PrismaService) {}
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    filters?: any,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -109,22 +119,39 @@ export class ClientsService {
     // Format dossiers with vehicles for backward compatibility
     const formattedDossiers = client.dossiers.map((d: any) => ({
       ...d,
-      vehicles: d.dossierVehicles ? d.dossierVehicles.map((dv: any) => dv.vehicle) : [],
-      vehicle: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicle : null,
-      vehicleId: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicleId : null,
+      vehicles: d.dossierVehicles
+        ? d.dossierVehicles.map((dv: any) => dv.vehicle)
+        : [],
+      vehicle:
+        d.dossierVehicles && d.dossierVehicles.length > 0
+          ? d.dossierVehicles[0].vehicle
+          : null,
+      vehicleId:
+        d.dossierVehicles && d.dossierVehicles.length > 0
+          ? d.dossierVehicles[0].vehicleId
+          : null,
     }));
 
     // Add summary stats
     const stats = {
       totalDossiers: client.dossiers.length,
       totalOrders: client.orders.length,
-      activeDossiers: client.dossiers.filter(d => d.status !== 'cloture' && d.status !== 'service_termine' && d.status !== 'annule').length,
+      activeDossiers: client.dossiers.filter(
+        (d) =>
+          d.status !== 'cloture' &&
+          d.status !== 'service_termine' &&
+          d.status !== 'annule',
+      ).length,
     };
 
     return { ...client, dossiers: formattedDossiers, stats };
   }
 
-  async update(id: string, organizationId: string, updateClientDto: UpdateClientDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    updateClientDto: UpdateClientDto,
+  ) {
     await this.findOne(id, organizationId);
 
     const client = await this.prisma.client.update({
@@ -137,15 +164,22 @@ export class ClientsService {
       },
     });
 
-    this.logger.log(`Client updated: ${client.firstName} ${client.lastName} (${id})`);
+    this.logger.log(
+      `Client updated: ${client.firstName} ${client.lastName} (${id})`,
+    );
     return client;
   }
 
   async remove(id: string, organizationId: string) {
     const client = await this.findOne(id, organizationId);
 
-    if ((client?.dossiers?.length ?? 0) > 0 || (client?.orders?.length ?? 0) > 0) {
-      throw new ConflictException('Cannot delete client with existing dossiers or orders');
+    if (
+      (client?.dossiers?.length ?? 0) > 0 ||
+      (client?.orders?.length ?? 0) > 0
+    ) {
+      throw new ConflictException(
+        'Cannot delete client with existing dossiers or orders',
+      );
     }
 
     await this.prisma.client.delete({
@@ -175,9 +209,17 @@ export class ClientsService {
 
     return dossiers.map((d: any) => ({
       ...d,
-      vehicles: d.dossierVehicles ? d.dossierVehicles.map((dv: any) => dv.vehicle) : [],
-      vehicle: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicle : null,
-      vehicleId: d.dossierVehicles && d.dossierVehicles.length > 0 ? d.dossierVehicles[0].vehicleId : null,
+      vehicles: d.dossierVehicles
+        ? d.dossierVehicles.map((dv: any) => dv.vehicle)
+        : [],
+      vehicle:
+        d.dossierVehicles && d.dossierVehicles.length > 0
+          ? d.dossierVehicles[0].vehicle
+          : null,
+      vehicleId:
+        d.dossierVehicles && d.dossierVehicles.length > 0
+          ? d.dossierVehicles[0].vehicleId
+          : null,
     }));
   }
 

@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -27,15 +33,14 @@ export class UsersService {
       const validRoles = await this.prisma.role.findMany({
         where: {
           id: { in: roleIds },
-          OR: [
-            { organizationId },
-            { organizationId: null },
-          ],
+          OR: [{ organizationId }, { organizationId: null }],
         },
       });
 
       if (validRoles.length !== roleIds.length) {
-        throw new ForbiddenException('One or more role IDs are invalid for this organization');
+        throw new ForbiddenException(
+          'One or more role IDs are invalid for this organization',
+        );
       }
     }
 
@@ -49,9 +54,11 @@ export class UsersService {
         email,
         passwordHash,
         organizationId,
-        userRoles: roleIds ? {
-          create: roleIds.map(roleId => ({ roleId })),
-        } : undefined,
+        userRoles: roleIds
+          ? {
+              create: roleIds.map((roleId) => ({ roleId })),
+            }
+          : undefined,
       },
       include: {
         userRoles: {
@@ -101,9 +108,9 @@ export class UsersService {
 
   async findOne(id: string, organizationId: string) {
     const user = await this.prisma.user.findFirst({
-      where: { 
-        id, 
-        organizationId 
+      where: {
+        id,
+        organizationId,
       },
       include: {
         userRoles: {
@@ -130,7 +137,12 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, organizationId: string, updateUserDto: UpdateUserDto, currentUserId?: string) {
+  async update(
+    id: string,
+    organizationId: string,
+    updateUserDto: UpdateUserDto,
+    currentUserId?: string,
+  ) {
     const { roleIds, ...userData } = updateUserDto;
 
     // Check if user exists
@@ -141,15 +153,14 @@ export class UsersService {
       const validRoles = await this.prisma.role.findMany({
         where: {
           id: { in: roleIds },
-          OR: [
-            { organizationId },
-            { organizationId: null },
-          ],
+          OR: [{ organizationId }, { organizationId: null }],
         },
       });
 
       if (validRoles.length !== roleIds.length) {
-        throw new ForbiddenException('One or more role IDs are invalid for this organization');
+        throw new ForbiddenException(
+          'One or more role IDs are invalid for this organization',
+        );
       }
     }
 
@@ -161,7 +172,7 @@ export class UsersService {
         ...(roleIds && {
           userRoles: {
             deleteMany: {},
-            create: roleIds.map(roleId => ({ roleId })),
+            create: roleIds.map((roleId) => ({ roleId })),
           },
         }),
       },
@@ -186,10 +197,16 @@ export class UsersService {
 
     const user = await this.findOne(id, organizationId);
 
-    // Check if user is the last active admin/Direction user in the organization
-    const isAdmin = user.userRoles.some(ur => 
-      ur.role.name.toLowerCase() === 'admin' || 
-      ur.role.name.toLowerCase() === 'direction'
+    // Check if user is an active admin/Direction user or holds users:manage in the organization
+    const isAdmin = user.userRoles.some(
+      (ur) =>
+        ur.role.name.toLowerCase() === 'admin' ||
+        ur.role.name.toLowerCase() === 'direction' ||
+        ur.role.rolePermissions?.some(
+          (rp) =>
+            rp.permission?.resource === 'users' &&
+            rp.permission?.action === 'manage',
+        ),
     );
 
     if (isAdmin) {
@@ -203,7 +220,9 @@ export class UsersService {
       });
 
       if (adminUsersCount === 0) {
-        throw new ConflictException('Cannot delete the last administrator of the organization');
+        throw new ConflictException(
+          'Cannot delete the last administrator of the organization',
+        );
       }
     }
 
@@ -215,7 +234,11 @@ export class UsersService {
     return { message: 'User deleted successfully' };
   }
 
-  async updatePassword(id: string, organizationId: string, newPassword: string) {
+  async updatePassword(
+    id: string,
+    organizationId: string,
+    newPassword: string,
+  ) {
     await this.findOne(id, organizationId);
 
     const passwordHash = await bcrypt.hash(newPassword, 10);

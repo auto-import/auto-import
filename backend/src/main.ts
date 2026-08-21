@@ -11,7 +11,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  
+
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
 
@@ -36,8 +36,8 @@ async function bootstrap() {
         enableImplicitConversion: true,
       },
       exceptionFactory: (errors) => {
-        const messages = errors.map(error => 
-          Object.values(error.constraints || {}).join(', ')
+        const messages = errors.map((error) =>
+          Object.values(error.constraints || {}).join(', '),
         );
         return new BadRequestException({
           statusCode: 400,
@@ -46,7 +46,7 @@ async function bootstrap() {
           timestamp: new Date().toISOString(),
         });
       },
-    })
+    }),
   );
 
   app.useGlobalFilters(new HttpExceptionFilter());

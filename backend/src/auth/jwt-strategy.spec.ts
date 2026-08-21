@@ -91,7 +91,9 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
       organizationId: 'org-1',
     };
 
-    await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException);
+    await expect(strategy.validate(payload)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('should reject token if user has been deleted from database', async () => {
@@ -103,7 +105,9 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
       organizationId: 'org-1',
     };
 
-    await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException);
+    await expect(strategy.validate(payload)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('should reject token if user organization is inactive/suspended', async () => {
@@ -125,6 +129,8 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
       organizationId: 'org-1',
     };
 
-    await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException);
+    await expect(strategy.validate(payload)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 });

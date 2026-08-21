@@ -12,7 +12,10 @@ describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
     guard = new PermissionsGuard(reflector);
   });
 
-  function createMockContext(user: any, requiredPermission?: string): ExecutionContext {
+  function createMockContext(
+    user: any,
+    requiredPermission?: string,
+  ): ExecutionContext {
     jest.spyOn(reflector, 'get').mockReturnValue(requiredPermission);
 
     return {
@@ -56,6 +59,8 @@ describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
       'dossiers:write',
     );
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    expect(() => guard.canActivate(context)).toThrow(/Permission required: dossiers:write/);
+    expect(() => guard.canActivate(context)).toThrow(
+      /Permission required: dossiers:write/,
+    );
   });
 });

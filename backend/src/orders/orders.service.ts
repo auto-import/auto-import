@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -32,8 +37,13 @@ export class OrdersService {
     return `ORD-${year}-${String(sequence).padStart(6, '0')}`;
   }
 
-  async create(createOrderDto: CreateOrderDto, userId: string, organizationId: string) {
-    const { clientId, prospectId, dossierId, items, currency, status } = createOrderDto;
+  async create(
+    createOrderDto: CreateOrderDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const { clientId, prospectId, dossierId, items, currency, status } =
+      createOrderDto;
 
     // Check if client exists and belongs to same organization
     const client = await this.prisma.client.findFirst({
@@ -41,7 +51,9 @@ export class OrdersService {
     });
 
     if (!client) {
-      throw new NotFoundException(`Client with ID ${clientId} not found in your organization`);
+      throw new NotFoundException(
+        `Client with ID ${clientId} not found in your organization`,
+      );
     }
 
     // Check if prospect exists and belongs to same organization if provided
@@ -51,7 +63,9 @@ export class OrdersService {
       });
 
       if (!prospect) {
-        throw new NotFoundException(`Prospect with ID ${prospectId} not found in your organization`);
+        throw new NotFoundException(
+          `Prospect with ID ${prospectId} not found in your organization`,
+        );
       }
     }
 
@@ -62,7 +76,9 @@ export class OrdersService {
       });
 
       if (!dossier) {
-        throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
+        throw new NotFoundException(
+          `Dossier with ID ${dossierId} not found in your organization`,
+        );
       }
 
       if (dossier.orderId) {
@@ -80,11 +96,15 @@ export class OrdersService {
       });
 
       if (!vehicle) {
-        throw new NotFoundException(`Vehicle with ID ${item.vehicleId} not found in your organization`);
+        throw new NotFoundException(
+          `Vehicle with ID ${item.vehicleId} not found in your organization`,
+        );
       }
 
       if (vehicle.status === 'sold') {
-        throw new ConflictException(`Vehicle ${vehicle.brand} ${vehicle.model} is already sold`);
+        throw new ConflictException(
+          `Vehicle ${vehicle.brand} ${vehicle.model} is already sold`,
+        );
       }
 
       const itemTotal = item.unitPrice - (item.discount || 0);
@@ -169,16 +189,27 @@ export class OrdersService {
     return this.findOne(order.id, organizationId);
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    filters?: any,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.clientId) where.clientId = filters.clientId;
-    if (filters?.orderNumber) where.orderNumber = { contains: filters.orderNumber, mode: 'insensitive' };
-    if (filters?.fromDate) where.orderDate = { gte: new Date(filters.fromDate) };
-    if (filters?.toDate) where.orderDate = { ...where.orderDate, lte: new Date(filters.toDate) };
+    if (filters?.orderNumber)
+      where.orderNumber = {
+        contains: filters.orderNumber,
+        mode: 'insensitive',
+      };
+    if (filters?.fromDate)
+      where.orderDate = { gte: new Date(filters.fromDate) };
+    if (filters?.toDate)
+      where.orderDate = { ...where.orderDate, lte: new Date(filters.toDate) };
 
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -288,13 +319,15 @@ export class OrdersService {
     }
 
     // Calculate payment status
-    const totalPaid = order.invoices?.reduce((sum, inv) => 
-      sum + inv.payments.reduce((s, p) => s + p.amount.toNumber(), 0), 0
-    ) || 0;
+    const totalPaid =
+      order.invoices?.reduce(
+        (sum, inv) =>
+          sum + inv.payments.reduce((s, p) => s + p.amount.toNumber(), 0),
+        0,
+      ) || 0;
 
-    const totalInvoiced = order.invoices?.reduce((sum, inv) => 
-      sum + inv.total.toNumber(), 0
-    ) || 0;
+    const totalInvoiced =
+      order.invoices?.reduce((sum, inv) => sum + inv.total.toNumber(), 0) || 0;
 
     return {
       ...order,
@@ -307,7 +340,12 @@ export class OrdersService {
     };
   }
 
-  async updateStatus(id: string, updateStatusDto: UpdateOrderStatusDto, userId: string, organizationId?: string) {
+  async updateStatus(
+    id: string,
+    updateStatusDto: UpdateOrderStatusDto,
+    userId: string,
+    organizationId?: string,
+  ) {
     const order = await this.findOne(id, organizationId);
     const { status, comment } = updateStatusDto;
 
@@ -324,7 +362,7 @@ export class OrdersService {
 
     if (!validTransitions[order.status]?.includes(status)) {
       throw new ConflictException(
-        `Invalid status transition from ${order.status} to ${status}`
+        `Invalid status transition from ${order.status} to ${status}`,
       );
     }
 
@@ -360,7 +398,7 @@ export class OrdersService {
         await prisma.vehicle.updateMany({
           where: {
             id: {
-              in: order.items.map(item => item.vehicleId),
+              in: order.items.map((item) => item.vehicleId),
             },
           },
           data: { status: status === 'completed' ? 'sold' : 'available' },
@@ -370,7 +408,9 @@ export class OrdersService {
       return updated;
     });
 
-    this.logger.log(`Order ${order.orderNumber} status updated: ${order.status} -> ${status}`);
+    this.logger.log(
+      `Order ${order.orderNumber} status updated: ${order.status} -> ${status}`,
+    );
     return this.findOne(id, organizationId);
   }
 
@@ -403,7 +443,9 @@ export class OrdersService {
     const order = await this.findOne(id, organizationId);
 
     if (order.status !== 'draft' && order.status !== 'cancelled') {
-      throw new ConflictException(`Cannot delete order in ${order.status} status`);
+      throw new ConflictException(
+        `Cannot delete order in ${order.status} status`,
+      );
     }
 
     await this.prisma.$transaction(async (prisma) => {
@@ -420,7 +462,7 @@ export class OrdersService {
       await prisma.vehicle.updateMany({
         where: {
           id: {
-            in: order.items.map(item => item.vehicleId),
+            in: order.items.map((item) => item.vehicleId),
           },
         },
         data: { status: 'available' },

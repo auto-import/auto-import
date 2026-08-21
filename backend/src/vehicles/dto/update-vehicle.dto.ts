@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsEnum, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsUUID,
+  IsEnum,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { AcquisitionType, VehicleStatus } from './create-vehicle.dto';
 

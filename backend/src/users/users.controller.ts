@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -12,19 +21,13 @@ export class UsersController {
 
   @Post()
   @RequirePermission('users:manage')
-  create(
-    @Body() createUserDto: CreateUserDto,
-    @CurrentUser() user: any,
-  ) {
+  create(@Body() createUserDto: CreateUserDto, @CurrentUser() user: any) {
     return this.usersService.create(createUserDto, user.organizationId);
   }
 
   @Get()
   @RequirePermission('users:manage')
-  findAll(
-    @Query() pagination: PaginationDto,
-    @CurrentUser() user: any,
-  ) {
+  findAll(@Query() pagination: PaginationDto, @CurrentUser() user: any) {
     return this.usersService.findAll(
       user.organizationId,
       pagination.page,
@@ -34,10 +37,7 @@ export class UsersController {
 
   @Get(':id')
   @RequirePermission('users:manage')
-  findOne(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.usersService.findOne(id, user.organizationId);
   }
 
@@ -48,7 +48,12 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() user: any,
   ) {
-    return this.usersService.update(id, user.organizationId, updateUserDto, user.id);
+    return this.usersService.update(
+      id,
+      user.organizationId,
+      updateUserDto,
+      user.id,
+    );
   }
 
   @Patch(':id/password')
@@ -63,10 +68,7 @@ export class UsersController {
 
   @Delete(':id')
   @RequirePermission('users:manage')
-  remove(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.usersService.remove(id, user.organizationId, user.id);
   }
 }

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehicleRequestDto } from './dto/create-request.dto';
 import { UpdateVehicleRequestDto } from './dto/update-request.dto';
@@ -18,7 +23,9 @@ export class VehicleRequestsService {
 
   async create(dto: CreateVehicleRequestDto, organizationId: string) {
     if (!dto.prospectId && !dto.clientId) {
-      throw new ConflictException('Either prospectId or clientId must be provided');
+      throw new ConflictException(
+        'Either prospectId or clientId must be provided',
+      );
     }
 
     // Verify prospect exists and belongs to same org if provided
@@ -27,7 +34,9 @@ export class VehicleRequestsService {
         where: { id: dto.prospectId, organizationId },
       });
       if (!prospect) {
-        throw new NotFoundException(`Prospect with ID ${dto.prospectId} not found in your organization`);
+        throw new NotFoundException(
+          `Prospect with ID ${dto.prospectId} not found in your organization`,
+        );
       }
     }
 
@@ -37,7 +46,9 @@ export class VehicleRequestsService {
         where: { id: dto.clientId, organizationId },
       });
       if (!client) {
-        throw new NotFoundException(`Client with ID ${dto.clientId} not found in your organization`);
+        throw new NotFoundException(
+          `Client with ID ${dto.clientId} not found in your organization`,
+        );
       }
     }
 
@@ -53,11 +64,18 @@ export class VehicleRequestsService {
       },
     });
 
-    this.logger.log(`Vehicle request created: ${request.id} (brand: ${request.brand || 'any'}, model: ${request.model || 'any'})`);
+    this.logger.log(
+      `Vehicle request created: ${request.id} (brand: ${request.brand || 'any'}, model: ${request.model || 'any'})`,
+    );
     return request;
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: FilterVehicleRequestDto) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    filters?: FilterVehicleRequestDto,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -153,7 +171,10 @@ export class VehicleRequestsService {
     let prospect: any = null;
     if (request.prospectId) {
       prospect = await this.prisma.prospect.findFirst({
-        where: { id: request.prospectId, ...(organizationId && { organizationId }) },
+        where: {
+          id: request.prospectId,
+          ...(organizationId && { organizationId }),
+        },
         include: {
           activities: {
             orderBy: { activityDate: 'desc' },
@@ -167,11 +188,19 @@ export class VehicleRequestsService {
     let client: any = null;
     if (request.clientId) {
       client = await this.prisma.client.findFirst({
-        where: { id: request.clientId, ...(organizationId && { organizationId }) },
+        where: {
+          id: request.clientId,
+          ...(organizationId && { organizationId }),
+        },
         include: {
           dossiers: {
             where: organizationId ? { organizationId } : undefined,
-            select: { id: true, reference: true, status: true, createdAt: true },
+            select: {
+              id: true,
+              reference: true,
+              status: true,
+              createdAt: true,
+            },
             orderBy: { createdAt: 'desc' },
             take: 5,
           },
@@ -186,10 +215,14 @@ export class VehicleRequestsService {
     }
 
     // Compute best candidate (lowest proposedPrice among non-rejected)
-    const activeCandidates = request.candidates.filter(c => c.status !== 'rejected');
-    const bestCandidate = activeCandidates
-      .filter(c => c.proposedPrice != null)
-      .sort((a, b) => Number(a.proposedPrice) - Number(b.proposedPrice))[0] || null;
+    const activeCandidates = request.candidates.filter(
+      (c) => c.status !== 'rejected',
+    );
+    const bestCandidate =
+      activeCandidates
+        .filter((c) => c.proposedPrice != null)
+        .sort((a, b) => Number(a.proposedPrice) - Number(b.proposedPrice))[0] ||
+      null;
 
     return {
       ...request,
@@ -200,7 +233,11 @@ export class VehicleRequestsService {
     };
   }
 
-  async update(id: string, organizationId: string, dto: UpdateVehicleRequestDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    dto: UpdateVehicleRequestDto,
+  ) {
     await this.findOne(id, organizationId);
 
     const request = await this.prisma.vehicleRequest.update({
@@ -225,9 +262,13 @@ export class VehicleRequestsService {
     }
 
     // Block if any candidate is validated
-    const validatedCandidates = request.candidates.filter(c => c.status === 'validated');
+    const validatedCandidates = request.candidates.filter(
+      (c) => c.status === 'validated',
+    );
     if (validatedCandidates.length > 0) {
-      throw new ConflictException('Cannot delete request with validated candidates');
+      throw new ConflictException(
+        'Cannot delete request with validated candidates',
+      );
     }
 
     // Delete candidates first (referential integrity), then the request
@@ -254,7 +295,9 @@ export class VehicleRequestsService {
       where: { id: dto.vehicleRequestId, organizationId },
     });
     if (!request) {
-      throw new NotFoundException(`Vehicle request with ID ${dto.vehicleRequestId} not found in your organization`);
+      throw new NotFoundException(
+        `Vehicle request with ID ${dto.vehicleRequestId} not found in your organization`,
+      );
     }
 
     // Verify vehicle exists in same organization
@@ -262,7 +305,9 @@ export class VehicleRequestsService {
       where: { id: dto.vehicleId, organizationId },
     });
     if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID ${dto.vehicleId} not found in your organization`);
+      throw new NotFoundException(
+        `Vehicle with ID ${dto.vehicleId} not found in your organization`,
+      );
     }
 
     try {
@@ -284,7 +329,9 @@ export class VehicleRequestsService {
         },
       });
 
-      this.logger.log(`Candidate added: vehicle ${dto.vehicleId} → request ${dto.vehicleRequestId}`);
+      this.logger.log(
+        `Candidate added: vehicle ${dto.vehicleId} → request ${dto.vehicleRequestId}`,
+      );
       return candidate;
     } catch (error: any) {
       // Handle unique constraint violation (vehicleRequestId + vehicleId)
@@ -297,7 +344,11 @@ export class VehicleRequestsService {
     }
   }
 
-  async updateCandidate(candidateId: string, dto: UpdateCandidateDto, organizationId?: string) {
+  async updateCandidate(
+    candidateId: string,
+    dto: UpdateCandidateDto,
+    organizationId?: string,
+  ) {
     const candidate = await this.prisma.vehicleCandidate.findFirst({
       where: {
         id: candidateId,
@@ -345,7 +396,9 @@ export class VehicleRequestsService {
       });
 
       if (!candidate) {
-        throw new NotFoundException(`Candidate with ID ${candidateId} not found`);
+        throw new NotFoundException(
+          `Candidate with ID ${candidateId} not found`,
+        );
       }
 
       if (candidate.status === 'validated') {
@@ -492,9 +545,15 @@ export class VehicleRequestsService {
   async getStatistics(organizationId: string) {
     const [total, open, validated, closed] = await this.prisma.$transaction([
       this.prisma.vehicleRequest.count({ where: { organizationId } }),
-      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'open' } }),
-      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'validated' } }),
-      this.prisma.vehicleRequest.count({ where: { organizationId, status: 'closed' } }),
+      this.prisma.vehicleRequest.count({
+        where: { organizationId, status: 'open' },
+      }),
+      this.prisma.vehicleRequest.count({
+        where: { organizationId, status: 'validated' },
+      }),
+      this.prisma.vehicleRequest.count({
+        where: { organizationId, status: 'closed' },
+      }),
     ]);
 
     return {
@@ -504,7 +563,8 @@ export class VehicleRequestsService {
         validated,
         closed,
       },
-      conversionRate: total > 0 ? Math.round((validated / total) * 10000) / 100 : 0,
+      conversionRate:
+        total > 0 ? Math.round((validated / total) * 10000) / 100 : 0,
     };
   }
 }

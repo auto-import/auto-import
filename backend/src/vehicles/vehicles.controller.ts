@@ -52,7 +52,11 @@ export class VehiclesController {
     @Body() updateVehicleDto: UpdateVehicleDto,
     @CurrentUser() user: any,
   ) {
-    return this.vehiclesService.update(id, user.organizationId, updateVehicleDto);
+    return this.vehiclesService.update(
+      id,
+      user.organizationId,
+      updateVehicleDto,
+    );
   }
 
   @Delete(':id')

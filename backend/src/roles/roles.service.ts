@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -21,7 +27,9 @@ export class RolesService {
     });
 
     if (existingRole) {
-      throw new ConflictException(`Role "${roleData.name}" already exists in this organization`);
+      throw new ConflictException(
+        `Role "${roleData.name}" already exists in this organization`,
+      );
     }
 
     const role = await this.prisma.role.create({
@@ -29,9 +37,11 @@ export class RolesService {
         ...roleData,
         organizationId,
         scope: roleData.scope || 'tenant',
-        rolePermissions: permissionIds ? {
-          create: permissionIds.map(permissionId => ({ permissionId })),
-        } : undefined,
+        rolePermissions: permissionIds
+          ? {
+              create: permissionIds.map((permissionId) => ({ permissionId })),
+            }
+          : undefined,
       },
       include: {
         rolePermissions: {
@@ -49,10 +59,7 @@ export class RolesService {
   async findAll(organizationId: string) {
     return this.prisma.role.findMany({
       where: {
-        OR: [
-          { organizationId },
-          { organizationId: null },
-        ],
+        OR: [{ organizationId }, { organizationId: null }],
       },
       include: {
         rolePermissions: {
@@ -68,10 +75,7 @@ export class RolesService {
     const role = await this.prisma.role.findFirst({
       where: {
         id,
-        OR: [
-          { organizationId },
-          { organizationId: null },
-        ],
+        OR: [{ organizationId }, { organizationId: null }],
       },
       include: {
         rolePermissions: {
@@ -89,14 +93,23 @@ export class RolesService {
     return role;
   }
 
-  async update(id: string, organizationId: string, updateRoleDto: UpdateRoleDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    updateRoleDto: UpdateRoleDto,
+  ) {
     const { permissionIds, ...roleData } = updateRoleDto;
 
     const existingRole = await this.findOne(id, organizationId);
 
     // Platform roles (organizationId === null) or roles from other orgs cannot be modified by tenant
-    if (!existingRole.organizationId || existingRole.organizationId !== organizationId) {
-      throw new ForbiddenException('Cannot modify platform-level or other organization roles');
+    if (
+      !existingRole.organizationId ||
+      existingRole.organizationId !== organizationId
+    ) {
+      throw new ForbiddenException(
+        'Cannot modify platform-level or other organization roles',
+      );
     }
 
     const role = await this.prisma.role.update({
@@ -106,7 +119,7 @@ export class RolesService {
         ...(permissionIds && {
           rolePermissions: {
             deleteMany: {},
-            create: permissionIds.map(permissionId => ({ permissionId })),
+            create: permissionIds.map((permissionId) => ({ permissionId })),
           },
         }),
       },
@@ -127,8 +140,13 @@ export class RolesService {
     const existingRole = await this.findOne(id, organizationId);
 
     // Platform roles (organizationId === null) or roles from other orgs cannot be deleted by tenant
-    if (!existingRole.organizationId || existingRole.organizationId !== organizationId) {
-      throw new ForbiddenException('Cannot delete platform-level or other organization roles');
+    if (
+      !existingRole.organizationId ||
+      existingRole.organizationId !== organizationId
+    ) {
+      throw new ForbiddenException(
+        'Cannot delete platform-level or other organization roles',
+      );
     }
 
     // Check if role is assigned to users
@@ -137,7 +155,9 @@ export class RolesService {
     });
 
     if (userCount > 0) {
-      throw new ConflictException(`Cannot delete role: ${userCount} users have this role`);
+      throw new ConflictException(
+        `Cannot delete role: ${userCount} users have this role`,
+      );
     }
 
     await this.prisma.role.delete({
@@ -150,10 +170,7 @@ export class RolesService {
 
   async findAllPermissions() {
     return this.prisma.permission.findMany({
-      orderBy: [
-        { resource: 'asc' },
-        { action: 'asc' },
-      ],
+      orderBy: [{ resource: 'asc' }, { action: 'asc' }],
     });
   }
 }

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProspectDto } from './dto/create-prospect.dto';
 import { UpdateProspectDto } from './dto/update-prospect.dto';
@@ -11,7 +16,11 @@ export class ProspectsService {
 
   constructor(private prisma: PrismaService) {}
 
-  async create(createProspectDto: CreateProspectDto, userId: string, organizationId: string) {
+  async create(
+    createProspectDto: CreateProspectDto,
+    userId: string,
+    organizationId: string,
+  ) {
     const prospect = await this.prisma.prospect.create({
       data: {
         ...createProspectDto,
@@ -24,11 +33,18 @@ export class ProspectsService {
       },
     });
 
-    this.logger.log(`Prospect created: ${prospect.firstName} ${prospect.lastName} (${prospect.id})`);
+    this.logger.log(
+      `Prospect created: ${prospect.firstName} ${prospect.lastName} (${prospect.id})`,
+    );
     return prospect;
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, filters?: any) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    filters?: any,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -87,7 +103,11 @@ export class ProspectsService {
     return prospect;
   }
 
-  async update(id: string, organizationId: string, updateProspectDto: UpdateProspectDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    updateProspectDto: UpdateProspectDto,
+  ) {
     await this.findOne(id, organizationId);
 
     const prospect = await this.prisma.prospect.update({
@@ -99,7 +119,9 @@ export class ProspectsService {
       },
     });
 
-    this.logger.log(`Prospect updated: ${prospect.firstName} ${prospect.lastName} (${id})`);
+    this.logger.log(
+      `Prospect updated: ${prospect.firstName} ${prospect.lastName} (${id})`,
+    );
     return prospect;
   }
 
@@ -107,7 +129,9 @@ export class ProspectsService {
     const prospect = await this.findOne(id, organizationId);
 
     if (prospect?.client) {
-      throw new ConflictException('Cannot delete prospect that has been converted to a client');
+      throw new ConflictException(
+        'Cannot delete prospect that has been converted to a client',
+      );
     }
 
     await this.prisma.prospect.delete({
@@ -118,8 +142,15 @@ export class ProspectsService {
     return { message: 'Prospect deleted successfully' };
   }
 
-  async addActivity(createActivityDto: CreateActivityDto, userId: string, organizationId: string) {
-    const prospect = await this.findOne(createActivityDto.prospectId, organizationId);
+  async addActivity(
+    createActivityDto: CreateActivityDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const prospect = await this.findOne(
+      createActivityDto.prospectId,
+      organizationId,
+    );
 
     const activity = await this.prisma.prospectActivity.create({
       data: {
@@ -129,11 +160,18 @@ export class ProspectsService {
       },
     });
 
-    this.logger.log(`Activity added to prospect ${prospect.id} by user ${userId}`);
+    this.logger.log(
+      `Activity added to prospect ${prospect.id} by user ${userId}`,
+    );
     return activity;
   }
 
-  async convertToClient(id: string, convertProspectDto: ConvertProspectDto, userId: string, organizationId: string) {
+  async convertToClient(
+    id: string,
+    convertProspectDto: ConvertProspectDto,
+    userId: string,
+    organizationId: string,
+  ) {
     const prospect = await this.findOne(id, organizationId);
 
     if (prospect.client) {
@@ -151,7 +189,9 @@ export class ProspectsService {
           phone: convertProspectDto.phone || prospect.phone,
           email: convertProspectDto.email || prospect.email,
           passportNumber: convertProspectDto.passportNumber,
-          passportExpiry: convertProspectDto.passportExpiry ? new Date(convertProspectDto.passportExpiry) : undefined,
+          passportExpiry: convertProspectDto.passportExpiry
+            ? new Date(convertProspectDto.passportExpiry)
+            : undefined,
           nationality: convertProspectDto.nationality,
           address: convertProspectDto.address,
         },

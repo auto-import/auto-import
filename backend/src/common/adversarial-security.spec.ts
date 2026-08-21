@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { DossiersService } from '../dossiers/dossiers.service';
 import { ClientsService } from '../clients/clients.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
@@ -169,7 +174,9 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
     clientsService = module.get<ClientsService>(ClientsService);
     vehiclesService = module.get<VehiclesService>(VehiclesService);
     ordersService = module.get<OrdersService>(OrdersService);
-    vehicleRequestsService = module.get<VehicleRequestsService>(VehicleRequestsService);
+    vehicleRequestsService = module.get<VehicleRequestsService>(
+      VehicleRequestsService,
+    );
     warehousesService = module.get<WarehousesService>(WarehousesService);
     prospectsService = module.get<ProspectsService>(ProspectsService);
     usersService = module.get<UsersService>(UsersService);
@@ -190,7 +197,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
           model: 'Coolray',
           acquisitionType: 'stock' as any,
           // Attacker sends another org in payload
-        } as any,
+        },
         ORG_A,
       );
 
@@ -229,7 +236,10 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
 
   describe('2. Cross-Tenant Relationship Injections', () => {
     it('Dossier: should REJECT creating dossier with orderId belonging to another tenant', async () => {
-      prisma.client.findFirst.mockResolvedValue({ id: 'client-1', organizationId: ORG_A });
+      prisma.client.findFirst.mockResolvedValue({
+        id: 'client-1',
+        organizationId: ORG_A,
+      });
       // Order belongs to Org B (not found in Org A)
       prisma.order.findFirst.mockResolvedValue(null);
 
@@ -243,7 +253,10 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
     });
 
     it('Dossier: should REJECT creating dossier with vehicleRequestId belonging to another tenant', async () => {
-      prisma.client.findFirst.mockResolvedValue({ id: 'client-1', organizationId: ORG_A });
+      prisma.client.findFirst.mockResolvedValue({
+        id: 'client-1',
+        organizationId: ORG_A,
+      });
       // VehicleRequest belongs to Org B (not found in Org A)
       prisma.vehicleRequest.findFirst.mockResolvedValue(null);
 
@@ -257,7 +270,10 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
     });
 
     it('Order: should REJECT creating order with prospectId belonging to another tenant', async () => {
-      prisma.client.findFirst.mockResolvedValue({ id: 'client-1', organizationId: ORG_A });
+      prisma.client.findFirst.mockResolvedValue({
+        id: 'client-1',
+        organizationId: ORG_A,
+      });
       // Prospect belongs to Org B (not found in Org A)
       prisma.prospect.findFirst.mockResolvedValue(null);
 
@@ -280,7 +296,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
       prisma.dossier.findMany.mockResolvedValue([]);
       prisma.dossier.count.mockResolvedValue(0);
 
-      await dossiersService.findAll(ORG_A, 1, 10, { search: 'test' } as any);
+      await dossiersService.findAll(ORG_A, 1, 10, { search: 'test' });
 
       expect(prisma.dossier.findMany).toHaveBeenCalledWith(
         expect.objectContaining({

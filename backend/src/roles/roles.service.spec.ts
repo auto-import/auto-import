@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -52,7 +56,9 @@ describe('RolesService (Privilege Escalation & Platform Role Protection)', () =>
       organizationId: TENANT_A,
     });
 
-    const result = await service.update('role-1', TENANT_A, { name: 'Updated Role' });
+    const result = await service.update('role-1', TENANT_A, {
+      name: 'Updated Role',
+    });
     expect(result.name).toBe('Updated Role');
   });
 
@@ -65,7 +71,9 @@ describe('RolesService (Privilege Escalation & Platform Role Protection)', () =>
     });
 
     await expect(
-      service.update('platform-admin-role', TENANT_A, { name: 'Hijacked Role' }),
+      service.update('platform-admin-role', TENANT_A, {
+        name: 'Hijacked Role',
+      }),
     ).rejects.toThrow(ForbiddenException);
   });
 

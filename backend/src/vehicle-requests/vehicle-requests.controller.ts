@@ -20,7 +20,9 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('vehicle-requests')
 export class VehicleRequestsController {
-  constructor(private readonly vehicleRequestsService: VehicleRequestsService) {}
+  constructor(
+    private readonly vehicleRequestsService: VehicleRequestsService,
+  ) {}
 
   // ──────────────────────────────────────────────
   // Static routes FIRST (before :id params)
@@ -45,18 +47,31 @@ export class VehicleRequestsController {
     @Body() dto: UpdateCandidateDto,
     @CurrentUser() user: any,
   ) {
-    return this.vehicleRequestsService.updateCandidate(id, dto, user.organizationId);
+    return this.vehicleRequestsService.updateCandidate(
+      id,
+      dto,
+      user.organizationId,
+    );
   }
 
   @Post('candidates/:id/validate')
   @RequirePermission('dossiers:write')
-  validateCandidate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
-    return this.vehicleRequestsService.validateCandidate(id, user.organizationId);
+  validateCandidate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.vehicleRequestsService.validateCandidate(
+      id,
+      user.organizationId,
+    );
   }
 
   @Post('candidates/:id/reject')
   @RequirePermission('vehicles:write')
-  rejectCandidate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  rejectCandidate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+  ) {
     return this.vehicleRequestsService.rejectCandidate(id, user.organizationId);
   }
 
@@ -89,7 +104,10 @@ export class VehicleRequestsController {
 
   @Get(':id/candidates')
   @RequirePermission('vehicles:read')
-  getCandidates(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  getCandidates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+  ) {
     return this.vehicleRequestsService.getCandidates(id, user.organizationId);
   }
 

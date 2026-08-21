@@ -60,8 +60,10 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const permissions = user.userRoles.flatMap(ur =>
-      ur.role.rolePermissions.map(rp => `${rp.permission.resource}:${rp.permission.action}`)
+    const permissions = user.userRoles.flatMap((ur) =>
+      ur.role.rolePermissions.map(
+        (rp) => `${rp.permission.resource}:${rp.permission.action}`,
+      ),
     );
 
     const payload = {
@@ -70,7 +72,7 @@ export class AuthService {
       organizationId: user.organizationId,
       firstName: user.firstName,
       lastName: user.lastName,
-      roles: user.userRoles.map(ur => ur.role.name),
+      roles: user.userRoles.map((ur) => ur.role.name),
       permissions: [...new Set(permissions)],
     };
 
@@ -80,7 +82,7 @@ export class AuthService {
       {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
         expiresIn: this.configService.get('JWT_REFRESH_TTL', '7d'),
-      }
+      },
     );
 
     this.logger.log(`User logged in: ${user.email} (${user.id})`);
@@ -128,8 +130,10 @@ export class AuthService {
       throw new UnauthorizedException('Account is inactive');
     }
 
-    const permissions = user.userRoles.flatMap(ur =>
-      ur.role.rolePermissions.map(rp => `${rp.permission.resource}:${rp.permission.action}`)
+    const permissions = user.userRoles.flatMap((ur) =>
+      ur.role.rolePermissions.map(
+        (rp) => `${rp.permission.resource}:${rp.permission.action}`,
+      ),
     );
 
     const payload = {
@@ -138,7 +142,7 @@ export class AuthService {
       organizationId: user.organizationId,
       firstName: user.firstName,
       lastName: user.lastName,
-      roles: user.userRoles.map(ur => ur.role.name),
+      roles: user.userRoles.map((ur) => ur.role.name),
       permissions: [...new Set(permissions)],
     };
 

@@ -48,11 +48,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     if (user.organization && user.organization.status !== 'active') {
-      throw new UnauthorizedException('User organization is inactive or suspended');
+      throw new UnauthorizedException(
+        'User organization is inactive or suspended',
+      );
     }
 
     const permissions = user.userRoles.flatMap((ur) =>
-      ur.role.rolePermissions.map((rp) => `${rp.permission.resource}:${rp.permission.action}`),
+      ur.role.rolePermissions.map(
+        (rp) => `${rp.permission.resource}:${rp.permission.action}`,
+      ),
     );
 
     return {

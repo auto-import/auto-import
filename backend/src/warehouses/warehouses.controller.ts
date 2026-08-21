@@ -25,8 +25,14 @@ export class WarehousesController {
 
   @Post()
   @RequirePermission('warehouses:write')
-  create(@Body() createWarehouseDto: CreateWarehouseDto, @CurrentUser() user: any) {
-    return this.warehousesService.create(createWarehouseDto, user.organizationId);
+  create(
+    @Body() createWarehouseDto: CreateWarehouseDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.warehousesService.create(
+      createWarehouseDto,
+      user.organizationId,
+    );
   }
 
   @Get()
@@ -53,7 +59,11 @@ export class WarehousesController {
     @Body() updateWarehouseDto: UpdateWarehouseDto,
     @CurrentUser() user: any,
   ) {
-    return this.warehousesService.update(id, user.organizationId, updateWarehouseDto);
+    return this.warehousesService.update(
+      id,
+      user.organizationId,
+      updateWarehouseDto,
+    );
   }
 
   @Delete(':id')
@@ -73,7 +83,11 @@ export class WarehousesController {
     @Body() locationDto: CreateWarehouseLocationDto,
     @CurrentUser() user: any,
   ) {
-    return this.warehousesService.addLocation(id, locationDto, user.organizationId);
+    return this.warehousesService.addLocation(
+      id,
+      locationDto,
+      user.organizationId,
+    );
   }
 
   @Get(':id/locations')
@@ -89,7 +103,11 @@ export class WarehousesController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.warehousesService.removeLocation(id, locationId, user.organizationId);
+    return this.warehousesService.removeLocation(
+      id,
+      locationId,
+      user.organizationId,
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -102,12 +120,19 @@ export class WarehousesController {
     @Body() dto: CreateStockMovementDto,
     @CurrentUser() user: any,
   ) {
-    return this.warehousesService.createStockMovement(dto, user.id, user.organizationId);
+    return this.warehousesService.createStockMovement(
+      dto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Get('stock-movements')
   @RequirePermission('warehouses:read')
-  getStockMovements(@Query() filterDto: FilterStockMovementDto, @CurrentUser() user: any) {
+  getStockMovements(
+    @Query() filterDto: FilterStockMovementDto,
+    @CurrentUser() user: any,
+  ) {
     return this.warehousesService.getStockMovements(
       filterDto.vehicleId,
       filterDto.page,

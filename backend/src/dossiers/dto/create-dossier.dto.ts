@@ -1,4 +1,11 @@
-import { IsString, IsUUID, IsOptional, IsArray, ArrayUnique, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsUUID,
+  IsOptional,
+  IsArray,
+  ArrayUnique,
+  IsEnum,
+} from 'class-validator';
 import { DossierType } from './dossier-type.enum';
 
 export class CreateDossierDto {
@@ -10,7 +17,8 @@ export class CreateDossierDto {
    */
   @IsOptional()
   @IsEnum(DossierType, {
-    message: 'type must be one of: VEHICLE_SALE_CIF, VEHICLE_SALE_DDP, SHIPPING_ONLY',
+    message:
+      'type must be one of: VEHICLE_SALE_CIF, VEHICLE_SALE_DDP, SHIPPING_ONLY',
   })
   type?: DossierType;
 

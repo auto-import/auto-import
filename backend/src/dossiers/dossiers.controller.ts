@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+} from '@nestjs/common';
 import { DossiersService } from './dossiers.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -14,19 +23,17 @@ export class DossiersController {
 
   @Post()
   @RequirePermission('dossiers:write')
-  create(
-    @Body() createDossierDto: CreateDossierDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.dossiersService.create(createDossierDto, user.id, user.organizationId);
+  create(@Body() createDossierDto: CreateDossierDto, @CurrentUser() user: any) {
+    return this.dossiersService.create(
+      createDossierDto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Get()
   @RequirePermission('dossiers:read')
-  findAll(
-    @Query() filters: FilterDossierDto,
-    @CurrentUser() user: any,
-  ) {
+  findAll(@Query() filters: FilterDossierDto, @CurrentUser() user: any) {
     return this.dossiersService.findAll(
       user.organizationId,
       filters.page,
@@ -72,7 +79,12 @@ export class DossiersController {
     @Body() advanceStatusDto: AdvanceStatusDto,
     @CurrentUser() user: any,
   ) {
-    return this.dossiersService.advanceStatus(id, advanceStatusDto.comment, user.id, user.organizationId);
+    return this.dossiersService.advanceStatus(
+      id,
+      advanceStatusDto.comment,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Post(':id/vehicles')
@@ -82,7 +94,12 @@ export class DossiersController {
     @Body() addVehicleDto: AddDossierVehicleDto,
     @CurrentUser() user: any,
   ) {
-    return this.dossiersService.addVehicle(id, addVehicleDto.vehicleId, user.organizationId, user.id);
+    return this.dossiersService.addVehicle(
+      id,
+      addVehicleDto.vehicleId,
+      user.organizationId,
+      user.id,
+    );
   }
 
   @Delete(':id/vehicles/:vehicleId')
@@ -92,7 +109,12 @@ export class DossiersController {
     @Param('vehicleId') vehicleId: string,
     @CurrentUser() user: any,
   ) {
-    return this.dossiersService.removeVehicle(id, vehicleId, user.organizationId, user.id);
+    return this.dossiersService.removeVehicle(
+      id,
+      vehicleId,
+      user.organizationId,
+      user.id,
+    );
   }
 
   @Patch(':id/status')
@@ -102,6 +124,11 @@ export class DossiersController {
     @Body() updateStatusDto: UpdateStatusDto,
     @CurrentUser() user: any,
   ) {
-    return this.dossiersService.updateStatus(id, updateStatusDto, user.id, user.organizationId);
+    return this.dossiersService.updateStatus(
+      id,
+      updateStatusDto,
+      user.id,
+      user.organizationId,
+    );
   }
 }

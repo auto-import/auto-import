@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Logger, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
@@ -33,7 +38,12 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10, search?: string) {
+  async findAll(
+    organizationId: string,
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -88,7 +98,11 @@ export class WarehousesService {
     return warehouse;
   }
 
-  async update(id: string, organizationId: string, updateWarehouseDto: UpdateWarehouseDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    updateWarehouseDto: UpdateWarehouseDto,
+  ) {
     await this.findOne(id, organizationId);
 
     const warehouse = await this.prisma.warehouse.update({
@@ -115,7 +129,9 @@ export class WarehousesService {
     });
 
     if (locations > 0) {
-      throw new ConflictException('Cannot delete warehouse with existing locations. Remove locations first.');
+      throw new ConflictException(
+        'Cannot delete warehouse with existing locations. Remove locations first.',
+      );
     }
 
     await this.prisma.warehouse.delete({ where: { id } });
@@ -128,7 +144,11 @@ export class WarehousesService {
   // Warehouse Locations
   // ──────────────────────────────────────────────
 
-  async addLocation(warehouseId: string, locationDto: CreateWarehouseLocationDto, organizationId?: string) {
+  async addLocation(
+    warehouseId: string,
+    locationDto: CreateWarehouseLocationDto,
+    organizationId?: string,
+  ) {
     await this.findOne(warehouseId, organizationId);
 
     const location = await this.prisma.warehouseLocation.create({
@@ -138,7 +158,9 @@ export class WarehousesService {
       },
     });
 
-    this.logger.log(`Location added to warehouse ${warehouseId}: ${location.code}`);
+    this.logger.log(
+      `Location added to warehouse ${warehouseId}: ${location.code}`,
+    );
     return location;
   }
 
@@ -150,7 +172,11 @@ export class WarehousesService {
     });
   }
 
-  async removeLocation(warehouseId: string, locationId: string, organizationId?: string) {
+  async removeLocation(
+    warehouseId: string,
+    locationId: string,
+    organizationId?: string,
+  ) {
     await this.findOne(warehouseId, organizationId);
 
     const location = await this.prisma.warehouseLocation.findFirst({
@@ -158,14 +184,18 @@ export class WarehousesService {
     });
 
     if (!location) {
-      throw new NotFoundException(`Location ${locationId} not found in warehouse ${warehouseId}`);
+      throw new NotFoundException(
+        `Location ${locationId} not found in warehouse ${warehouseId}`,
+      );
     }
 
     await this.prisma.warehouseLocation.delete({
       where: { id: locationId },
     });
 
-    this.logger.log(`Location removed: ${locationId} from warehouse ${warehouseId}`);
+    this.logger.log(
+      `Location removed: ${locationId} from warehouse ${warehouseId}`,
+    );
     return { message: 'Location deleted successfully' };
   }
 
@@ -173,7 +203,11 @@ export class WarehousesService {
   // Stock Movements
   // ──────────────────────────────────────────────
 
-  async createStockMovement(dto: CreateStockMovementDto, performedBy: string, organizationId?: string) {
+  async createStockMovement(
+    dto: CreateStockMovementDto,
+    performedBy: string,
+    organizationId?: string,
+  ) {
     // Verify vehicle exists in same organization if organizationId provided
     const vehicle = await this.prisma.vehicle.findFirst({
       where: { id: dto.vehicleId, ...(organizationId && { organizationId }) },
@@ -207,11 +241,18 @@ export class WarehousesService {
       });
     }
 
-    this.logger.log(`Stock movement created: ${movement.type} for vehicle ${dto.vehicleId}`);
+    this.logger.log(
+      `Stock movement created: ${movement.type} for vehicle ${dto.vehicleId}`,
+    );
     return movement;
   }
 
-  async getStockMovements(vehicleId?: string, page: number = 1, limit: number = 10, organizationId?: string) {
+  async getStockMovements(
+    vehicleId?: string,
+    page: number = 1,
+    limit: number = 10,
+    organizationId?: string,
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = {};
