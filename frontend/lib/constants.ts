@@ -27,6 +27,10 @@ import type {
   Carburant,
   BoiteVitesse,
   Direction,
+  SourceLead,
+  StatutLead,
+  TypeClient,
+  TypeActivite,
 } from '@/types';
 
 // ─── Dossier Statuts (per workflow type) ─────────────────────────────
@@ -276,6 +280,69 @@ export const DIRECTION_LABELS: Record<Direction, string> = {
   droite: 'Volant à droite',
 };
 
+// ─── CRM / Leads ──────────────────────────────────────────────────────
+
+export const LEAD_SOURCE_LABELS: Record<SourceLead, string> = {
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  whatsapp: 'WhatsApp',
+  referral: 'Parrainage',
+  website: 'Site web',
+  walk_in: 'Walk-in',
+  existing_client: 'Client existant',
+  autre: 'Autre',
+};
+
+export const LEAD_STATUT_LABELS: Record<StatutLead, string> = {
+  nouveau: 'Nouveau',
+  contacte: 'Contacté',
+  interesse: 'Intéressé',
+  qualification: 'Qualification',
+  offre_envoyee: 'Offre envoyée',
+  negociation: 'Négociation',
+  gagne: 'Gagné',
+  perdu: 'Perdu',
+};
+
+export const LEAD_STATUT_VARIANTS: Record<StatutLead, string> = {
+  nouveau: 'blue',
+  contacte: 'amber',
+  interesse: 'amber',
+  qualification: 'blue',
+  offre_envoyee: 'amber',
+  negociation: 'amber',
+  gagne: 'green',
+  perdu: 'red',
+};
+
+export const TYPE_CLIENT_LABELS: Record<TypeClient, string> = {
+  particulier: 'Particulier',
+  revendeur: 'Revendeur',
+  importateur: 'Importateur',
+  societe: 'Société',
+};
+
+export const TYPE_ACTIVITE_LABELS: Record<TypeActivite, string> = {
+  appel: 'Appel',
+  whatsapp: 'WhatsApp',
+  email: 'Email',
+  reunion: 'Réunion',
+  note: 'Note',
+  offre: 'Offre',
+  suivi: 'Suivi',
+};
+
+export const LEAD_PIPELINE_STAGES: StatutLead[] = [
+  'nouveau',
+  'contacte',
+  'interesse',
+  'qualification',
+  'offre_envoyee',
+  'negociation',
+  'gagne',
+  'perdu',
+];
+
 // ─── Offres ──────────────────────────────────────────────────────────
 
 export const OFFRE_STATUT_LABELS: Record<StatutOffre, string> = {
@@ -482,17 +549,19 @@ export interface NavItem {
 
 export const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: 'LayoutDashboard' },
-  { label: 'Véhicules / Stock', href: '/vehicules', icon: 'Car' },
+  { label: 'CRM / Clients', href: '/crm', icon: 'Users' },
   { label: 'Offres Chine', href: '/offres', icon: 'PackageSearch' },
   { label: 'Dossiers', href: '/dossiers', icon: 'FolderOpen' },
-  { label: 'Fournisseurs', href: '/fournisseurs', icon: 'Handshake' },
-  { label: 'Expéditions maritimes', href: '/expeditions', icon: 'Ship' },
-  { label: 'Facturation & paiements', href: '/facturation', icon: 'Receipt' },
-  { label: 'Clients', href: '/clients', icon: 'Users' },
+  { label: 'Véhicules', href: '/vehicules', icon: 'Car' },
+  { label: 'Achats / Suppliers', href: '/fournisseurs', icon: 'Handshake' },
+  { label: 'Logistics / Shipments', href: '/expeditions', icon: 'Ship' },
+  { label: 'Douane & Livraison', href: '/facturation', icon: 'Receipt' },
+  { label: 'Finance', href: '/finance', icon: 'DollarSign' },
+  { label: 'Documents', href: '/documents', icon: 'FileText' },
+  { label: 'Tasks', href: '/tasks', icon: 'CheckSquare' },
   { label: 'Notifications', href: '/notifications', icon: 'Bell' },
-  { label: 'Utilisateurs & rôles', href: '/utilisateurs', icon: 'UserCog' },
-  { label: 'Rapports', href: '/rapports', icon: 'BarChart3' },
-  { label: 'Paramètres', href: '/parametres', icon: 'Settings' },
+  { label: 'Reports', href: '/rapports', icon: 'BarChart3' },
+  { label: 'Users & Roles', href: '/utilisateurs', icon: 'UserCog' },
 ];
 
 // ─── Dossier Detail Tabs ─────────────────────────────────────────────
@@ -508,6 +577,18 @@ export const DOSSIER_TABS: TabItem[] = [
   { key: 'preuves', label: 'Photos & preuves' },
   { key: 'tasks', label: 'Tâches' },
   { key: 'timeline', label: 'Timeline' },
+  { key: 'notes', label: 'Notes' },
+];
+
+// ─── CRM / Client Profile Tabs ────────────────────────────────────────
+
+export const CLIENT_PROFILE_TABS: TabItem[] = [
+  { key: 'overview', label: 'Vue d\u2019ensemble' },
+  { key: 'dossiers', label: 'Dossiers' },
+  { key: 'vehicles', label: 'Véhicules' },
+  { key: 'payments', label: 'Paiements' },
+  { key: 'documents', label: 'Documents' },
+  { key: 'activities', label: 'Activités' },
   { key: 'notes', label: 'Notes' },
 ];
 

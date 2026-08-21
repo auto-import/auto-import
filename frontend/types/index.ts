@@ -184,6 +184,15 @@ export interface Fournisseur {
   email: string;
   telephone: string;
   nombre_vehicules: number;
+  // Relations & infos métier
+  adresse?: string;
+  site_web?: string;
+  delai_livraison_jours?: number;
+  conditions_paiement?: string;
+  specialites?: string[]; // ex: ['BMW', 'Mercedes', 'SUV']
+  note_interne?: string;
+  date_creation?: string;
+  actif?: boolean;
 }
 
 export interface Vehicule {
@@ -431,4 +440,104 @@ export interface SidebarItem {
 export interface TabItem {
   key: string;
   label: string;
+}
+
+// ─── CRM / Leads ──────────────────────────────────────────────────────
+
+export type SourceLead =
+  | 'facebook'
+  | 'instagram'
+  | 'whatsapp'
+  | 'referral'
+  | 'website'
+  | 'walk_in'
+  | 'existing_client'
+  | 'autre';
+
+export type StatutLead =
+  | 'nouveau'
+  | 'contacte'
+  | 'interesse'
+  | 'qualification'
+  | 'offre_envoyee'
+  | 'negociation'
+  | 'gagne'
+  | 'perdu';
+
+export type TypeClient =
+  | 'particulier'
+  | 'revendeur'
+  | 'importateur'
+  | 'societe';
+
+export type StatutClient = 'actif' | 'inactif' | 'suspendu';
+
+export type TypeActivite =
+  | 'appel'
+  | 'whatsapp'
+  | 'email'
+  | 'reunion'
+  | 'note'
+  | 'offre'
+  | 'suivi';
+
+export interface Lead {
+  id: string;
+  nom: string;
+  prenom: string;
+  telephone: string;
+  whatsapp?: string;
+  email?: string;
+  ville?: string;
+  source: SourceLead;
+  statut: StatutLead;
+  type_dossier_attendu?: TypeDossier;
+  vehicule_interet?: string;
+  valeur_attendue?: number;
+  devise_attendue?: Devise;
+  assigne_a: string; // utilisateur id
+  date_creation: string;
+  date_dernier_contact?: string;
+  date_prochain_suivi?: string;
+  raison_suivi?: string;
+  notes?: string;
+  // Conversion
+  client_id?: string; // set when converted
+}
+
+export interface ClientCRM {
+  id: string;
+  nom: string;
+  prenom: string;
+  telephone: string;
+  whatsapp?: string;
+  email?: string;
+  ville?: string;
+  type_client: TypeClient;
+  societe_nom?: string;
+  societe_registre?: string;
+  societe_tax_id?: string;
+  assigne_a: string; // utilisateur id (vendeur)
+  statut: StatutClient;
+  date_inscription: string;
+  date_derniere_activite?: string;
+  date_prochain_suivi?: string;
+  // Computed from relations
+  nombre_dossiers?: number;
+  nombre_vehicules?: number;
+  revenu_total?: number;
+  solde_du?: number;
+}
+
+export interface Activite {
+  id: string;
+  client_id: string;
+  lead_id?: string;
+  dossier_id?: string;
+  type: TypeActivite;
+  description: string;
+  utilise_par: string; // utilisateur id
+  date: string;
+  date_prochain_suivi?: string;
+  raison_suivi?: string;
 }
