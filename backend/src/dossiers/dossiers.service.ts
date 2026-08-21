@@ -220,7 +220,7 @@ export class DossiersService {
     });
 
     if (!dossier) {
-      throw new NotFoundException(`Dossier with ID ${dossierId} not found`);
+      throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
     }
 
     if (this.workflowService.isTerminalStatus(dossier.status)) {
@@ -249,14 +249,46 @@ export class DossiersService {
       );
     }
 
+    // Check if vehicle is already attached to another active dossier
+    const conflictingActiveDossier = await this.prisma.dossierVehicle.findFirst({
+      where: {
+        vehicleId,
+        dossier: {
+          id: { not: dossierId },
+          status: { notIn: ['cloture', 'service_termine', 'annule'] },
+        },
+      },
+    });
+    if (conflictingActiveDossier) {
+      throw new ConflictException(
+        `Vehicle ${vehicleId} is already attached to another active dossier`,
+      );
+    }
+
     if (vehicle.status !== 'available') {
       throw new ConflictException(
         `Vehicle ${vehicle.brand} ${vehicle.model} (${vehicleId}) is not available (current status: ${vehicle.status})`,
       );
     }
 
-    await this.prisma.$transaction(async (prisma) => {
-      await prisma.dossierVehicle.create({
+    await this.prisma.$transaction(async (tx) => {
+      // Concurrency-safe atomic reservation
+      const reservation = await tx.vehicle.updateMany({
+        where: {
+          id: vehicleId,
+          organizationId,
+          status: 'available',
+        },
+        data: { status: 'reserved' },
+      });
+
+      if (reservation.count === 0) {
+        throw new ConflictException(
+          `Vehicle ${vehicle.brand} ${vehicle.model} (${vehicleId}) is no longer available for reservation`,
+        );
+      }
+
+      await tx.dossierVehicle.create({
         data: {
           dossierId,
           vehicleId,
@@ -264,12 +296,7 @@ export class DossiersService {
         },
       });
 
-      await prisma.vehicle.update({
-        where: { id: vehicleId },
-        data: { status: 'reserved' },
-      });
-
-      await prisma.dossierStatusHistory.create({
+      await tx.dossierStatusHistory.create({
         data: {
           dossierId,
           fromStatus: dossier.status,
@@ -298,7 +325,7 @@ export class DossiersService {
     });
 
     if (!dossier) {
-      throw new NotFoundException(`Dossier with ID ${dossierId} not found`);
+      throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
     }
 
     const link = dossier.dossierVehicles.find(
@@ -314,8 +341,18 @@ export class DossiersService {
       where: { id: vehicleId },
     });
 
-    await this.prisma.$transaction(async (prisma) => {
-      await prisma.dossierVehicle.delete({
+    if (
+      vehicle?.status === 'in_transit' ||
+      vehicle?.status === 'in_customs' ||
+      vehicle?.status === 'sold'
+    ) {
+      throw new ConflictException(
+        `Cannot remove vehicle in status '${vehicle.status}' from dossier`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dossierVehicle.delete({
         where: {
           dossierId_vehicleId: {
             dossierId,
@@ -324,13 +361,13 @@ export class DossiersService {
         },
       });
 
-      // Revert vehicle status to available if not part of active order
-      await prisma.vehicle.update({
+      // Revert vehicle status to available if reserved
+      await tx.vehicle.update({
         where: { id: vehicleId },
         data: { status: 'available' },
       });
 
-      await prisma.dossierStatusHistory.create({
+      await tx.dossierStatusHistory.create({
         data: {
           dossierId,
           fromStatus: dossier.status,

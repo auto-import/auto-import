@@ -66,6 +66,8 @@ async function main() {
     { resource: 'vehicle-requests', action: 'write', description: 'Create and edit vehicle requests' },
     { resource: 'orders', action: 'read', description: 'Read orders and reservations' },
     { resource: 'orders', action: 'write', description: 'Create, update and manage orders' },
+    { resource: 'partners', action: 'read', description: 'Read partners and suppliers' },
+    { resource: 'partners', action: 'write', description: 'Create, update and manage partners' },
   ];
 
   const permissionRecords: Record<string, string> = {};
@@ -105,6 +107,7 @@ async function main() {
         'warehouses:read', 'warehouses:write',
         'vehicle-requests:read', 'vehicle-requests:write',
         'orders:read', 'orders:write',
+        'partners:read', 'partners:write',
         'users:read', 'roles:read',
       ],
     },
@@ -118,6 +121,7 @@ async function main() {
         'vehicles:read',
         'vehicle-requests:read', 'vehicle-requests:write',
         'orders:read', 'orders:write',
+        'partners:read',
       ],
     },
     {
@@ -128,6 +132,7 @@ async function main() {
         'warehouses:read', 'warehouses:write',
         'dossiers:read',
         'orders:read',
+        'partners:read', 'partners:write',
       ],
     },
     {
@@ -138,6 +143,7 @@ async function main() {
         'dossiers:read',
         'clients:read',
         'vehicles:read',
+        'partners:read',
       ],
     },
   ];

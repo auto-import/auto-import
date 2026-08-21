@@ -13,6 +13,7 @@ import { VehiclesModule } from './vehicles/vehicles.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { VehicleRequestsModule } from './vehicle-requests/vehicle-requests.module';
 import { OrdersModule } from './orders/orders.module';
+import { PartnersModule } from './partners/partners.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -36,6 +37,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     WarehousesModule,
     VehicleRequestsModule,
     OrdersModule,
+    PartnersModule,
   ],
   controllers: [AppController],
   providers: [

@@ -310,6 +310,27 @@ export class VehicleRequestsService {
       );
     }
 
+    if (vehicle.status !== 'available') {
+      throw new ConflictException(
+        `Vehicle ${dto.vehicleId} is not available (current status: ${vehicle.status})`,
+      );
+    }
+
+    // Check if vehicle is already attached to an active dossier
+    const activeDossierConflict = await this.prisma.dossierVehicle.findFirst({
+      where: {
+        vehicleId: dto.vehicleId,
+        dossier: {
+          status: { notIn: ['cloture', 'service_termine', 'annule'] },
+        },
+      },
+    });
+    if (activeDossierConflict) {
+      throw new ConflictException(
+        `Vehicle ${dto.vehicleId} is already attached to an active dossier`,
+      );
+    }
+
     try {
       const candidate = await this.prisma.vehicleCandidate.create({
         data: {
@@ -347,19 +368,19 @@ export class VehicleRequestsService {
   async updateCandidate(
     candidateId: string,
     dto: UpdateCandidateDto,
-    organizationId?: string,
+    organizationId: string,
   ) {
     const candidate = await this.prisma.vehicleCandidate.findFirst({
       where: {
         id: candidateId,
-        ...(organizationId && {
-          vehicleRequest: { organizationId },
-        }),
+        vehicleRequest: { organizationId },
       },
     });
 
     if (!candidate) {
-      throw new NotFoundException(`Candidate with ID ${candidateId} not found`);
+      throw new NotFoundException(
+        `Candidate with ID ${candidateId} not found in your organization`,
+      );
     }
 
     const updated = await this.prisma.vehicleCandidate.update({
@@ -377,15 +398,13 @@ export class VehicleRequestsService {
     return updated;
   }
 
-  async validateCandidate(candidateId: string, organizationId?: string) {
+  async validateCandidate(candidateId: string, organizationId: string, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      // 1. Fetch candidate with all needed relations and verify org
+      // 1. Fetch candidate with relations and verify org
       const candidate = await tx.vehicleCandidate.findFirst({
         where: {
           id: candidateId,
-          ...(organizationId && {
-            vehicleRequest: { organizationId },
-          }),
+          vehicleRequest: { organizationId },
         },
         include: {
           vehicleRequest: {
@@ -397,7 +416,7 @@ export class VehicleRequestsService {
 
       if (!candidate) {
         throw new NotFoundException(
-          `Candidate with ID ${candidateId} not found`,
+          `Candidate with ID ${candidateId} not found in your organization`,
         );
       }
 
@@ -405,14 +424,39 @@ export class VehicleRequestsService {
         throw new ConflictException('Candidate is already validated');
       }
 
-      // 2. Check vehicle availability
-      if (candidate.vehicle.status !== 'available') {
+      // 2. Check no conflicting active dossier owns the vehicle
+      const conflictingDossier = await tx.dossierVehicle.findFirst({
+        where: {
+          vehicleId: candidate.vehicleId,
+          dossier: {
+            id: { not: candidate.vehicleRequest.dossier?.id },
+            status: { notIn: ['cloture', 'service_termine', 'annule'] },
+          },
+        },
+      });
+      if (conflictingDossier) {
         throw new ConflictException(
-          `Vehicle ${candidate.vehicleId} is not available (current status: ${candidate.vehicle.status})`,
+          `Vehicle ${candidate.vehicleId} is already attached to another active dossier`,
         );
       }
 
-      // 3. Update candidate → VALIDATED
+      // 3. Concurrency-safe atomic reservation
+      const updateResult = await tx.vehicle.updateMany({
+        where: {
+          id: candidate.vehicleId,
+          organizationId,
+          status: 'available',
+        },
+        data: { status: 'reserved' },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          `Vehicle ${candidate.vehicleId} is not available for reservation`,
+        );
+      }
+
+      // 4. Update candidate → VALIDATED
       const updatedCandidate = await tx.vehicleCandidate.update({
         where: { id: candidateId },
         data: {
@@ -425,12 +469,6 @@ export class VehicleRequestsService {
             include: { dossier: true },
           },
         },
-      });
-
-      // 4. Reserve vehicle
-      await tx.vehicle.update({
-        where: { id: candidate.vehicleId },
-        data: { status: 'reserved' },
       });
 
       // 5. Update request status → validated
@@ -451,6 +489,7 @@ export class VehicleRequestsService {
           create: {
             dossierId: candidate.vehicleRequest.dossier.id,
             vehicleId: candidate.vehicleId,
+            assignedAt: new Date(),
           },
           update: {},
         });
@@ -468,8 +507,8 @@ export class VehicleRequestsService {
             dossierId: candidate.vehicleRequest.dossier.id,
             fromStatus: candidate.vehicleRequest.dossier.status,
             toStatus: 'achat_confirme',
-            changedBy: 'system',
-            comment: `Vehicle candidate ${candidateId} validated — vehicle ${candidate.vehicleId} assigned`,
+            changedBy: userId || 'system',
+            comment: `Vehicle candidate ${candidateId} validated — vehicle ${candidate.vehicleId} assigned to dossier`,
           },
         });
       }
@@ -482,18 +521,18 @@ export class VehicleRequestsService {
     });
   }
 
-  async rejectCandidate(candidateId: string, organizationId?: string) {
+  async rejectCandidate(candidateId: string, organizationId: string) {
     const candidate = await this.prisma.vehicleCandidate.findFirst({
       where: {
         id: candidateId,
-        ...(organizationId && {
-          vehicleRequest: { organizationId },
-        }),
+        vehicleRequest: { organizationId },
       },
     });
 
     if (!candidate) {
-      throw new NotFoundException(`Candidate with ID ${candidateId} not found`);
+      throw new NotFoundException(
+        `Candidate with ID ${candidateId} not found in your organization`,
+      );
     }
 
     if (candidate.status === 'rejected') {
@@ -515,6 +554,211 @@ export class VehicleRequestsService {
 
     this.logger.log(`Candidate ${candidateId} rejected`);
     return rejected;
+  }
+
+  async confirmPurchase(
+    requestId: string,
+    dto: any,
+    organizationId: string,
+    userId?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.vehicleRequest.findFirst({
+        where: { id: requestId, organizationId },
+        include: {
+          candidates: {
+            include: { vehicle: true },
+          },
+          dossier: true,
+        },
+      });
+
+      if (!request) {
+        throw new NotFoundException(
+          `Vehicle request with ID ${requestId} not found in your organization`,
+        );
+      }
+
+      // Determine target vehicle
+      let targetVehicleId = dto.vehicleId;
+      let targetCandidateId = dto.candidateId;
+
+      if (!targetVehicleId && targetCandidateId) {
+        const candidate = request.candidates.find((c) => c.id === targetCandidateId);
+        if (!candidate) {
+          throw new NotFoundException(
+            `Candidate with ID ${targetCandidateId} not found in this request`,
+          );
+        }
+        targetVehicleId = candidate.vehicleId;
+      } else if (!targetVehicleId && !targetCandidateId) {
+        const validatedCandidate = request.candidates.find((c) => c.status === 'validated');
+        if (validatedCandidate) {
+          targetVehicleId = validatedCandidate.vehicleId;
+          targetCandidateId = validatedCandidate.id;
+        } else if (request.candidates.length === 1) {
+          targetVehicleId = request.candidates[0].vehicleId;
+          targetCandidateId = request.candidates[0].id;
+        } else {
+          throw new ConflictException(
+            'Please specify which vehicle or candidate to confirm purchase for',
+          );
+        }
+      }
+
+      // Validate vehicle belongs to organization
+      const vehicle = await tx.vehicle.findFirst({
+        where: { id: targetVehicleId, organizationId },
+      });
+
+      if (!vehicle) {
+        throw new NotFoundException(
+          `Vehicle with ID ${targetVehicleId} not found in your organization`,
+        );
+      }
+
+      // Validate supplier partner if provided
+      let supplier: any = null;
+      if (dto.supplierId) {
+        supplier = await tx.partner.findFirst({
+          where: { id: dto.supplierId, organizationId },
+        });
+        if (!supplier) {
+          throw new NotFoundException(
+            `Supplier with ID ${dto.supplierId} not found in your organization`,
+          );
+        }
+      }
+
+      // Concurrency-safe reservation & state check
+      if (vehicle.status === 'available') {
+        const reservationResult = await tx.vehicle.updateMany({
+          where: {
+            id: targetVehicleId,
+            organizationId,
+            status: 'available',
+          },
+          data: {
+            status: 'reserved',
+            supplierId: dto.supplierId || vehicle.supplierId,
+            purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : vehicle.purchasePrice,
+            currency: dto.currency || vehicle.currency,
+          },
+        });
+        if (reservationResult.count === 0) {
+          throw new ConflictException(
+            `Vehicle ${targetVehicleId} is no longer available for purchase`,
+          );
+        }
+      } else if (vehicle.status === 'reserved') {
+        await tx.vehicle.update({
+          where: { id: targetVehicleId },
+          data: {
+            supplierId: dto.supplierId || vehicle.supplierId,
+            purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : vehicle.purchasePrice,
+            currency: dto.currency || vehicle.currency,
+          },
+        });
+      } else {
+        throw new ConflictException(
+          `Cannot purchase vehicle with status '${vehicle.status}'`,
+        );
+      }
+
+      // Check no conflicting active dossier owns the vehicle
+      const conflictingDossier = await tx.dossierVehicle.findFirst({
+        where: {
+          vehicleId: targetVehicleId,
+          dossier: {
+            id: { not: request.dossier?.id },
+            status: { notIn: ['cloture', 'service_termine', 'annule'] },
+          },
+        },
+      });
+      if (conflictingDossier) {
+        throw new ConflictException(
+          `Vehicle ${targetVehicleId} is already attached to another active dossier`,
+        );
+      }
+
+      // Update candidate status to validated
+      if (targetCandidateId) {
+        await tx.vehicleCandidate.update({
+          where: { id: targetCandidateId },
+          data: {
+            status: 'validated',
+            validatedAt: new Date(),
+          },
+        });
+      }
+
+      // Update request status to validated
+      await tx.vehicleRequest.update({
+        where: { id: requestId },
+        data: { status: 'validated' },
+      });
+
+      // If request has linked dossier, bind vehicle and advance workflow
+      if (request.dossier) {
+        await tx.dossierVehicle.upsert({
+          where: {
+            dossierId_vehicleId: {
+              dossierId: request.dossier.id,
+              vehicleId: targetVehicleId,
+            },
+          },
+          create: {
+            dossierId: request.dossier.id,
+            vehicleId: targetVehicleId,
+            assignedAt: new Date(),
+          },
+          update: {},
+        });
+
+        await tx.dossier.update({
+          where: { id: request.dossier.id },
+          data: { status: 'achat_confirme' },
+        });
+
+        await tx.dossierStatusHistory.create({
+          data: {
+            dossierId: request.dossier.id,
+            fromStatus: request.dossier.status,
+            toStatus: 'achat_confirme',
+            changedBy: userId || 'system',
+            comment: `Purchase confirmed for vehicle ${vehicle.brand} ${vehicle.model} (${vehicle.vin || targetVehicleId})${supplier ? ` from supplier ${supplier.name}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}`,
+          },
+        });
+      }
+
+      // Generate purchase record
+      const purchaseYear = new Date().getFullYear();
+      const countPurchases = await tx.purchase.count();
+      const purchaseNumber = `PUR-${purchaseYear}-${String(countPurchases + 1).padStart(5, '0')}`;
+
+      const purchase = await tx.purchase.create({
+        data: {
+          purchaseNumber,
+          supplierId: dto.supplierId || vehicle.supplierId || 'direct',
+          vehicleId: targetVehicleId,
+          purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : (vehicle.purchasePrice || 0),
+          currency: dto.currency || vehicle.currency || 'USD',
+          status: 'confirmed',
+          purchaseDate: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Purchase confirmed for request ${requestId}: vehicle ${targetVehicleId}, purchase ${purchase.purchaseNumber}`,
+      );
+
+      return {
+        message: 'Purchase confirmed successfully',
+        requestId,
+        vehicleId: targetVehicleId,
+        purchase,
+      };
+    });
   }
 
   async getCandidates(requestId: string, organizationId: string) {

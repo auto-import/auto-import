@@ -63,6 +63,7 @@ export class VehicleRequestsController {
     return this.vehicleRequestsService.validateCandidate(
       id,
       user.organizationId,
+      user.id,
     );
   }
 
@@ -73,6 +74,21 @@ export class VehicleRequestsController {
     @CurrentUser() user: any,
   ) {
     return this.vehicleRequestsService.rejectCandidate(id, user.organizationId);
+  }
+
+  @Post(':id/confirm-purchase')
+  @RequirePermission('dossiers:write')
+  confirmPurchase(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: any,
+    @CurrentUser() user: any,
+  ) {
+    return this.vehicleRequestsService.confirmPurchase(
+      id,
+      dto,
+      user.organizationId,
+      user.id,
+    );
   }
 
   // ──────────────────────────────────────────────
