@@ -44,6 +44,17 @@ export class OrdersService {
       throw new NotFoundException(`Client with ID ${clientId} not found in your organization`);
     }
 
+    // Check if prospect exists and belongs to same organization if provided
+    if (prospectId) {
+      const prospect = await this.prisma.prospect.findFirst({
+        where: { id: prospectId, organizationId },
+      });
+
+      if (!prospect) {
+        throw new NotFoundException(`Prospect with ID ${prospectId} not found in your organization`);
+      }
+    }
+
     // Check if dossier exists and belongs to same organization
     if (dossierId) {
       const dossier = await this.prisma.dossier.findFirst({

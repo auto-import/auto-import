@@ -14,8 +14,9 @@ export class CreateUserDto {
   @IsString()
   lastName: string;
 
+  @IsOptional()
   @IsUUID()
-  organizationId: string;
+  organizationId?: string;
 
   @IsOptional()
   @IsUUID()

@@ -92,6 +92,26 @@ export class DossiersService {
       }
     }
 
+    // Validate orderId belongs to same org if provided
+    if (orderId) {
+      const order = await this.prisma.order.findFirst({
+        where: { id: orderId, organizationId },
+      });
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${orderId} not found in your organization`);
+      }
+    }
+
+    // Validate vehicleRequestId belongs to same org if provided
+    if (createDossierDto.vehicleRequestId) {
+      const vehicleRequest = await this.prisma.vehicleRequest.findFirst({
+        where: { id: createDossierDto.vehicleRequestId, organizationId },
+      });
+      if (!vehicleRequest) {
+        throw new NotFoundException(`Vehicle request with ID ${createDossierDto.vehicleRequestId} not found in your organization`);
+      }
+    }
+
     // Generate reference
     const reference = await this.generateReference();
     const dossierType = (type || DossierType.VEHICLE_SALE_CIF) as DossierType;

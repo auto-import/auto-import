@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -12,7 +12,7 @@ export class RolesService {
   async create(createRoleDto: CreateRoleDto, organizationId: string) {
     const { permissionIds, ...roleData } = createRoleDto;
 
-    // Check if role exists
+    // Check if role exists in this organization
     const existingRole = await this.prisma.role.findFirst({
       where: {
         name: roleData.name,
@@ -92,7 +92,12 @@ export class RolesService {
   async update(id: string, organizationId: string, updateRoleDto: UpdateRoleDto) {
     const { permissionIds, ...roleData } = updateRoleDto;
 
-    await this.findOne(id, organizationId);
+    const existingRole = await this.findOne(id, organizationId);
+
+    // Platform roles (organizationId === null) or roles from other orgs cannot be modified by tenant
+    if (!existingRole.organizationId || existingRole.organizationId !== organizationId) {
+      throw new ForbiddenException('Cannot modify platform-level or other organization roles');
+    }
 
     const role = await this.prisma.role.update({
       where: { id },
@@ -119,7 +124,12 @@ export class RolesService {
   }
 
   async remove(id: string, organizationId: string) {
-    await this.findOne(id, organizationId);
+    const existingRole = await this.findOne(id, organizationId);
+
+    // Platform roles (organizationId === null) or roles from other orgs cannot be deleted by tenant
+    if (!existingRole.organizationId || existingRole.organizationId !== organizationId) {
+      throw new ForbiddenException('Cannot delete platform-level or other organization roles');
+    }
 
     // Check if role is assigned to users
     const userCount = await this.prisma.userRole.count({

@@ -170,11 +170,13 @@ export class VehicleRequestsService {
         where: { id: request.clientId, ...(organizationId && { organizationId }) },
         include: {
           dossiers: {
+            where: organizationId ? { organizationId } : undefined,
             select: { id: true, reference: true, status: true, createdAt: true },
             orderBy: { createdAt: 'desc' },
             take: 5,
           },
           orders: {
+            where: organizationId ? { organizationId } : undefined,
             select: { id: true, orderNumber: true, status: true, total: true },
             orderBy: { createdAt: 'desc' },
             take: 5,

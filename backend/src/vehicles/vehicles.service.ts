@@ -103,6 +103,7 @@ export class VehiclesService {
           orderBy: { sortOrder: 'asc' },
         },
         dossierVehicles: {
+          where: organizationId ? { dossier: { organizationId } } : undefined,
           include: {
             dossier: {
               select: {
@@ -115,6 +116,7 @@ export class VehiclesService {
           },
         },
         candidates: {
+          where: organizationId ? { vehicleRequest: { organizationId } } : undefined,
           select: {
             id: true,
             vehicleRequestId: true,
