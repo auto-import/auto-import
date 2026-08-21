@@ -24,6 +24,9 @@ import type {
   BoiteVitesse,
   Direction,
   SourceVehicule,
+  Lead,
+  ClientCRM,
+  Activite,
 } from '@/types';
 import {
   DOSSIER_STATUTS_BY_TYPE,
@@ -104,6 +107,408 @@ export const clients: Client[] = [
   },
 ];
 
+// ─── CRM / Leads ──────────────────────────────────────────────────────
+
+export const leads: Lead[] = [
+  {
+    id: 'lead-001',
+    nom: 'Boudiaf',
+    prenom: 'Rachid',
+    telephone: '+213 661 111 222',
+    whatsapp: '+213 661 111 222',
+    email: 'r.boudiaf@gmail.com',
+    ville: 'Alger',
+    source: 'instagram',
+    statut: 'nouveau',
+    type_dossier_attendu: 'ddp',
+    vehicule_interet: 'BYD Seal',
+    valeur_attendue: 25000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-19',
+    notes: 'Demande via DM Instagram, intéressé par BYD Seal DDP',
+  },
+  {
+    id: 'lead-002',
+    nom: 'Touati',
+    prenom: 'Amina',
+    telephone: '+213 550 333 444',
+    whatsapp: '+213 550 333 444',
+    source: 'whatsapp',
+    statut: 'contacte',
+    type_dossier_attendu: 'cif',
+    vehicule_interet: 'Toyota Land Cruiser',
+    valeur_attendue: 45000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-17',
+    date_dernier_contact: '2026-08-20',
+    date_prochain_suivi: '2026-08-25',
+    raison_suivi: 'Envoyer proforma LC',
+    notes: 'Cherche LC 2024, budget 45k USD CIF',
+  },
+  {
+    id: 'lead-003',
+    nom: 'Meziane',
+    prenom: 'Youcef',
+    telephone: '+213 770 555 666',
+    source: 'referral',
+    statut: 'interesse',
+    type_dossier_attendu: 'shipping_only',
+    vehicule_interet: 'Véhicule existant — BMW X5',
+    valeur_attendue: 3500,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-003',
+    date_creation: '2026-08-15',
+    date_dernier_contact: '2026-08-19',
+    date_prochain_suivi: '2026-08-22',
+    raison_suivi: 'Attente détails véhicule pour devis',
+    notes: 'Client parrainé par Karim B. — veut expédier son BMW X5',
+  },
+  {
+    id: 'lead-004',
+    nom: 'Cherif',
+    prenom: 'Samir',
+    telephone: '+213 550 777 888',
+    whatsapp: '+213 550 777 888',
+    email: 's.cherif@outlook.com',
+    ville: 'Oran',
+    source: 'facebook',
+    statut: 'qualification',
+    type_dossier_attendu: 'ddp',
+    vehicule_interet: 'Mercedes GLC 300',
+    valeur_attendue: 38000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-12',
+    date_dernier_contact: '2026-08-20',
+    date_prochain_suivi: '2026-08-23',
+    raison_suivi: 'Vérifier disponibilité GLC',
+    notes: 'Prospect qualifié, revenu potentiel élevé',
+  },
+  {
+    id: 'lead-005',
+    nom: 'Hadj',
+    prenom: 'Fatima',
+    telephone: '+213 661 999 000',
+    source: 'website',
+    statut: 'offre_envoyee',
+    type_dossier_attendu: 'ddp',
+    vehicule_interet: 'Zeekr 001',
+    valeur_attendue: 32000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-10',
+    date_dernier_contact: '2026-08-18',
+    date_prochain_suivi: '2026-08-22',
+    raison_suivi: 'Relance pour acceptation offre',
+    notes: 'Offre envoyée Zeekr 001 DDP — en attente retour',
+  },
+  {
+    id: 'lead-006',
+    nom: 'Benmalek',
+    prenom: 'Omar',
+    telephone: '+213 550 111 222',
+    whatsapp: '+213 550 111 222',
+    source: 'existing_client',
+    statut: 'negociation',
+    type_dossier_attendu: 'cif',
+    vehicule_interet: 'Audi Q5',
+    valeur_attendue: 42000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-05',
+    date_dernier_contact: '2026-08-21',
+    date_prochain_suivi: '2026-08-24',
+    raison_suivi: 'Négocier prix CIF Audi Q5',
+    notes: 'Ancien client (cli-002), veut Acheter 2e véhicule',
+    client_id: 'cli-002',
+  },
+  {
+    id: 'lead-007',
+    nom: 'Brahimi',
+    prenom: 'Nassim',
+    telephone: '+213 770 333 444',
+    source: 'walk_in',
+    statut: 'gagne',
+    type_dossier_attendu: 'ddp',
+    vehicule_interet: 'Hyundai Tucson',
+    valeur_attendue: 22000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-01',
+    date_dernier_contact: '2026-08-21',
+    notes: 'Walk-in converti, a accepté l\'offre',
+    client_id: 'cli-004',
+  },
+  {
+    id: 'lead-008',
+    nom: 'Guerfi',
+    prenom: 'Amira',
+    telephone: '+213 550 555 666',
+    whatsapp: '+213 550 555 666',
+    email: 'a.guerfi@yahoo.fr',
+    source: 'instagram',
+    statut: 'perdu',
+    type_dossier_attendu: 'ddp',
+    vehicule_interet: 'Tesla Model 3',
+    valeur_attendue: 30000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-003',
+    date_creation: '2026-07-20',
+    date_dernier_contact: '2026-08-05',
+    notes: 'A choisi un concurrent — prix trop élevé',
+  },
+  {
+    id: 'lead-009',
+    nom: 'Abdi',
+    prenom: 'Khaled',
+    telephone: '+213 661 777 888',
+    source: 'whatsapp',
+    statut: 'nouveau',
+    type_dossier_attendu: 'shipping_only',
+    vehicule_interet: 'Ford Ranger (extérieur)',
+    valeur_attendue: 2800,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-003',
+    date_creation: '2026-08-21',
+    notes: 'Nouveau contact WhatsApp — veut expédier Ford Ranger',
+  },
+  {
+    id: 'lead-010',
+    nom: 'Saifi',
+    prenom: 'Mehdi',
+    telephone: '+213 550 888 999',
+    source: 'referral',
+    statut: 'contacte',
+    type_dossier_attendu: 'cif',
+    vehicule_interet: 'Range Rover Sport',
+    valeur_attendue: 65000,
+    devise_attendue: 'USD',
+    assigne_a: 'usr-002',
+    date_creation: '2026-08-18',
+    date_dernier_contact: '2026-08-21',
+    date_prochain_suivi: '2026-08-28',
+    raison_suivi: 'Envoyer specs complètes Range Rover',
+    notes: 'Parrainé par Rachid B. — gros budget',
+  },
+];
+
+// ─── CRM / Clients enrichis ───────────────────────────────────────────
+
+export const clientsCRM: ClientCRM[] = [
+  {
+    id: 'cli-001',
+    nom: 'Amrani',
+    prenom: 'Brahim',
+    telephone: '+213 555 123 456',
+    whatsapp: '+213 555 123 456',
+    email: 'b.amrani@email.dz',
+    ville: 'Alger',
+    type_client: 'particulier',
+    assigne_a: 'usr-002',
+    statut: 'actif',
+    date_inscription: '2026-01-15',
+    date_derniere_activite: '2026-08-20',
+    date_prochain_suivi: '2026-08-25',
+    nombre_dossiers: 2,
+    nombre_vehicules: 3,
+    revenu_total: 52000,
+    solde_du: 4200,
+  },
+  {
+    id: 'cli-002',
+    nom: 'Benali',
+    prenom: 'Karim',
+    telephone: '+213 555 234 567',
+    whatsapp: '+213 555 234 567',
+    email: 'k.benali@email.dz',
+    ville: 'Oran',
+    type_client: 'revendeur',
+    assigne_a: 'usr-002',
+    statut: 'actif',
+    date_inscription: '2026-02-20',
+    date_derniere_activite: '2026-08-21',
+    nombre_dossiers: 1,
+    nombre_vehicules: 2,
+    revenu_total: 38000,
+    solde_du: 0,
+  },
+  {
+    id: 'cli-003',
+    nom: 'Zerhouni',
+    prenom: 'Nadia',
+    telephone: '+213 555 345 678',
+    email: 'n.zerhouni@email.dz',
+    ville: 'Constantine',
+    type_client: 'particulier',
+    assigne_a: 'usr-003',
+    statut: 'actif',
+    date_inscription: '2026-03-10',
+    date_derniere_activite: '2026-08-15',
+    nombre_dossiers: 1,
+    nombre_vehicules: 1,
+    revenu_total: 28500,
+    solde_du: 28500,
+  },
+  {
+    id: 'cli-004',
+    nom: 'Messaoudi',
+    prenom: 'Youcef',
+    telephone: '+213 555 456 789',
+    whatsapp: '+213 555 456 789',
+    email: 'y.messaoudi@email.dz',
+    ville: 'Annaba',
+    type_client: 'importateur',
+    assigne_a: 'usr-002',
+    statut: 'actif',
+    date_inscription: '2026-04-05',
+    date_derniere_activite: '2026-08-21',
+    date_prochain_suivi: '2026-08-28',
+    nombre_dossiers: 1,
+    nombre_vehicules: 1,
+    revenu_total: 22000,
+    solde_du: 5500,
+  },
+  {
+    id: 'cli-005',
+    nom: 'Bouzid',
+    prenom: 'Amina',
+    telephone: '+213 555 567 890',
+    email: 'a.bouzid@email.dz',
+    ville: 'Tlemcen',
+    type_client: 'particulier',
+    assigne_a: 'usr-003',
+    statut: 'actif',
+    date_inscription: '2026-05-12',
+    date_derniere_activite: '2026-08-10',
+    nombre_dossiers: 1,
+    nombre_vehicules: 1,
+    revenu_total: 19500,
+    solde_du: 19500,
+  },
+  {
+    id: 'cli-006',
+    nom: 'Khelifi',
+    prenom: 'Mohamed',
+    telephone: '+213 555 678 901',
+    whatsapp: '+213 555 678 901',
+    email: 'm.khelifi@email.dz',
+    ville: 'Sétif',
+    type_client: 'societe',
+    societe_nom: 'Khelifi Transport SARL',
+    societe_registre: 'RC-19/00-12345',
+    assigne_a: 'usr-002',
+    statut: 'actif',
+    date_inscription: '2026-06-01',
+    date_derniere_activite: '2026-08-18',
+    nombre_dossiers: 1,
+    nombre_vehicules: 2,
+    revenu_total: 41000,
+    solde_du: 8200,
+  },
+];
+
+// ─── CRM / Activités ──────────────────────────────────────────────────
+
+export const activites: Activite[] = [
+  {
+    id: 'act-001',
+    client_id: 'cli-001',
+    type: 'whatsapp',
+    description: 'Brahim a contacté pour suivi de son dossier BYD Seal DDP. Confirmation que le véhicule est en transit.',
+    utilise_par: 'usr-002',
+    date: '2026-08-20T14:30:00',
+    date_prochain_suivi: '2026-08-25',
+    raison_suivi: 'Relance après arrivée port',
+  },
+  {
+    id: 'act-002',
+    client_id: 'cli-001',
+    type: 'appel',
+    description: 'Appel téléphonique — Brahim demande si paiement douane est possible par virement.',
+    utilise_par: 'usr-002',
+    date: '2026-08-18T10:15:00',
+  },
+  {
+    id: 'act-003',
+    client_id: 'cli-002',
+    type: 'offre',
+    description: 'Offre envoyée — Audi Q5 2024 CIF. Prix: $42,000 USD.',
+    utilise_par: 'usr-002',
+    date: '2026-08-19T16:00:00',
+    lead_id: 'lead-006',
+  },
+  {
+    id: 'act-004',
+    client_id: 'cli-002',
+    type: 'whatsapp',
+    description: 'Karim confirme intérêt pour Audi Q5. Demande à négocier le prix CIF.',
+    utilise_par: 'usr-002',
+    date: '2026-08-21T09:30:00',
+    date_prochain_suivi: '2026-08-24',
+    raison_suivi: 'Négocier prix avec fournisseur',
+    lead_id: 'lead-006',
+  },
+  {
+    id: 'act-005',
+    client_id: 'cli-004',
+    type: 'reunion',
+    description: 'Réunion avec Youcef — discussion sur prochain achat Toyota Hilux DDP.',
+    utilise_par: 'usr-002',
+    date: '2026-08-21T11:00:00',
+    date_prochain_suivi: '2026-08-28',
+    raison_suivi: 'Envoyer devis Hilux',
+  },
+  {
+    id: 'act-006',
+    client_id: 'cli-003',
+    type: 'email',
+    description: 'Email envoyé — Confirmation réception paiement acompte $8,000.',
+    utilise_par: 'usr-003',
+    date: '2026-08-15T14:00:00',
+  },
+  {
+    id: 'act-007',
+    client_id: 'cli-006',
+    type: 'appel',
+    description: 'Appel avec Mohamed K. — facture en retard, relance paiement solde.',
+    utilise_par: 'usr-002',
+    date: '2026-08-18T16:30:00',
+    date_prochain_suivi: '2026-08-22',
+    raison_suivi: 'Relance paiement facture',
+  },
+  {
+    id: 'act-008',
+    lead_id: 'lead-001',
+    client_id: '',
+    type: 'whatsapp',
+    description: 'Premier contact — Rachid demande prix BYD Seal DDP.',
+    utilise_par: 'usr-002',
+    date: '2026-08-19T18:00:00',
+  },
+  {
+    id: 'act-009',
+    lead_id: 'lead-005',
+    client_id: '',
+    type: 'offre',
+    description: 'Offre Zeekr 001 DDP envoyée — $32,000 USD.',
+    utilise_par: 'usr-002',
+    date: '2026-08-18T15:00:00',
+    date_prochain_suivi: '2026-08-22',
+    raison_suivi: 'Relance pour acceptation',
+  },
+  {
+    id: 'act-010',
+    lead_id: 'lead-003',
+    client_id: '',
+    type: 'note',
+    description: 'Détails reçus: BMW X5 2021, VIN WF0JXX... — préparer devis shipping.',
+    utilise_par: 'usr-003',
+    date: '2026-08-19T11:30:00',
+  },
+];
+
 // ─── Fournisseurs ────────────────────────────────────────────────────
 
 export const fournisseurs: Fournisseur[] = [
@@ -116,6 +521,14 @@ export const fournisseurs: Fournisseur[] = [
     email: 'liwei@sinoauto.cn',
     telephone: '+86 21 5555 1234',
     nombre_vehicules: 12,
+    adresse: '128 Zhongshan Road, Huangpu District',
+    site_web: 'https://sinoauto.cn',
+    delai_livraison_jours: 14,
+    conditions_paiement: '30% à la commande, 70% avant expédition',
+    specialites: ['BMW', 'Mercedes-Benz', 'SUV'],
+    note_interne: 'Partenaire historique, fiable sur les délais',
+    date_creation: '2024-01-15',
+    actif: true,
   },
   {
     id: 'four-002',
@@ -126,6 +539,14 @@ export const fournisseurs: Fournisseur[] = [
     email: 'zhang.min@dragonmotors.cn',
     telephone: '+86 20 6666 5678',
     nombre_vehicules: 8,
+    adresse: '45 Tianhe Road, Tianhe District',
+    site_web: 'https://dragonmotors.cn',
+    delai_livraison_jours: 10,
+    conditions_paiement: '50% à la commande, 50% avant BL',
+    specialites: ['Audi', 'VW', 'Porsche', 'SUV Premium'],
+    note_interne: 'Spécialisé véhicules haut de gamme',
+    date_creation: '2024-03-20',
+    actif: true,
   },
   {
     id: 'four-003',
@@ -136,6 +557,14 @@ export const fournisseurs: Fournisseur[] = [
     email: 'chen@pacificvt.cn',
     telephone: '+86 755 8888 9012',
     nombre_vehicules: 15,
+    adresse: '78 Futian Road, Futian District',
+    site_web: 'https://pacificvt.cn',
+    delai_livraison_jours: 21,
+    conditions_paiement: '100% virement avant chargement',
+    specialites: ['Toyota', 'Land Cruiser', '4x4'],
+    note_interne: 'Gros volume, délais plus longs',
+    date_creation: '2023-11-10',
+    actif: true,
   },
   {
     id: 'four-004',
@@ -146,6 +575,14 @@ export const fournisseurs: Fournisseur[] = [
     email: 'wangjun@goldenstar.cn',
     telephone: '+86 10 7777 3456',
     nombre_vehicules: 6,
+    adresse: '23 Chaoyang Road, Chaoyang District',
+    site_web: 'https://goldenstar.cn',
+    delai_livraison_jours: 18,
+    conditions_paiement: '40% commande, 60% expédition',
+    specialites: ['Range Rover', 'Jaguar', 'Luxe britannique'],
+    note_interne: 'Marché niche véhicules luxe',
+    date_creation: '2024-02-05',
+    actif: true,
   },
   {
     id: 'four-005',
@@ -156,6 +593,14 @@ export const fournisseurs: Fournisseur[] = [
     email: 'liu.fang@yangtzeauto.cn',
     telephone: '+86 23 4444 7890',
     nombre_vehicules: 10,
+    adresse: '56 Yuzhong Road, Yuzhong District',
+    site_web: 'https://yangtzeauto.cn',
+    delai_livraison_jours: 12,
+    conditions_paiement: '30% commande, 70% BL',
+    specialites: ['Hyundai', 'Kia', 'SUV Compacts'],
+    note_interne: 'Bon rapport qualité/prix',
+    date_creation: '2024-04-12',
+    actif: true,
   },
   {
     id: 'four-006',
@@ -166,6 +611,86 @@ export const fournisseurs: Fournisseur[] = [
     email: 'xupeng@ehorizon.cn',
     telephone: '+86 22 3333 2345',
     nombre_vehicules: 4,
+    adresse: '89 Heping Road, Heping District',
+    site_web: 'https://ehorizon.cn',
+    delai_livraison_jours: 15,
+    conditions_paiement: '50% commande, 50% avant BL',
+    specialites: ['Tesla', 'BYD', 'Électrique'],
+    note_interne: 'Nouveau fournisseur EV, en test',
+    date_creation: '2024-07-01',
+    actif: true,
+  },
+  {
+    id: 'four-007',
+    nom: 'Great Wall Auto Supply',
+    pays: 'Chine',
+    ville: 'Baoding',
+    contact: 'Sun Lei',
+    email: 'sunlei@gwall.cn',
+    telephone: '+86 312 2222 8888',
+    nombre_vehicules: 9,
+    adresse: '200 Chaoyang Street, Baoding',
+    site_web: 'https://gwall.cn',
+    delai_livraison_jours: 25,
+    conditions_paiement: '100% avant expédition',
+    specialites: ['Great Wall', 'Tank', 'Pick-up', 'Off-road'],
+    note_interne: 'Spécialiste véhicules utilitaires',
+    date_creation: '2023-09-01',
+    actif: true,
+  },
+  {
+    id: 'four-008',
+    nom: 'Ningbo Harbor Vehicles',
+    pays: 'Chine',
+    ville: 'Ningbo',
+    contact: 'Zhou Mei',
+    email: 'zhmei@nhv.cn',
+    telephone: '+86 574 3333 6666',
+    nombre_vehicules: 14,
+    adresse: '12 Port Road, Beilun District',
+    site_web: 'https://nhv.cn',
+    delai_livraison_jours: 7,
+    conditions_paiement: '30% commande, 70% arrivée port',
+    specialites: ['Multi-marques', 'Stock portuaire', 'Expédition rapide'],
+    note_interne: 'Avantage logistique port de Ningbo',
+    date_creation: '2024-05-20',
+    actif: true,
+  },
+  {
+    id: 'four-009',
+    nom: 'Chengdu Premium Motors',
+    pays: 'Chine',
+    ville: 'Chengdu',
+    contact: 'Li Jing',
+    email: 'lijing@cpm.cn',
+    telephone: '+86 28 8888 9999',
+    nombre_vehicules: 7,
+    adresse: '66 Jinjiang Road, Jinjiang District',
+    site_web: 'https://cpm.cn',
+    delai_livraison_jours: 30,
+    conditions_paiement: '50% commande, 50% livraison',
+    specialites: ['Lexus', 'Infiniti', 'Premium Japonais'],
+    note_interne: 'Import Japon, délais longs mais qualité',
+    date_creation: '2024-06-10',
+    actif: true,
+  },
+  {
+    id: 'four-010',
+    nom: 'Shanghai EV Solutions',
+    pays: 'Chine',
+    ville: 'Shanghai',
+    contact: 'Zhang Wei',
+    email: 'zwei@shanghaiev.cn',
+    telephone: '+86 21 6666 7777',
+    nombre_vehicules: 11,
+    adresse: '300 Pudong Avenue, Pudong New Area',
+    site_web: 'https://shanghaiev.cn',
+    delai_livraison_jours: 10,
+    conditions_paiement: '30% commande, 70% BL',
+    specialites: ['NIO', 'XPeng', 'Li Auto', 'NEV'],
+    note_interne: 'Leader NEV Chine, volumes croissants',
+    date_creation: '2024-08-01',
+    actif: true,
   },
 ];
 
@@ -2987,6 +3512,48 @@ export function getFournisseurById(id: string): Fournisseur | undefined {
   return fournisseurs.find((f) => f.id === id);
 }
 
+export function aFournisseurExiste(nom: string): boolean {
+  return fournisseurs.some((f) => f.nom.toLowerCase() === nom.toLowerCase());
+}
+
+export interface CreateFournisseurInfos {
+  nom: string;
+  pays: string;
+  ville: string;
+  contact: string;
+  email: string;
+  telephone: string;
+  adresse?: string;
+  site_web?: string;
+  delai_livraison_jours?: number;
+  conditions_paiement?: string;
+  specialites?: string[];
+  note_interne?: string;
+}
+
+export function createFournisseur(infos: CreateFournisseurInfos): Fournisseur {
+  const fournisseur: Fournisseur = {
+    id: `four-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: infos.nom,
+    pays: infos.pays,
+    ville: infos.ville,
+    contact: infos.contact,
+    email: infos.email,
+    telephone: infos.telephone,
+    nombre_vehicules: 0,
+    adresse: infos.adresse,
+    site_web: infos.site_web,
+    delai_livraison_jours: infos.delai_livraison_jours,
+    conditions_paiement: infos.conditions_paiement,
+    specialites: infos.specialites,
+    note_interne: infos.note_interne,
+    date_creation: new Date().toISOString().slice(0, 10),
+    actif: true,
+  };
+  fournisseurs.push(fournisseur);
+  return fournisseur;
+}
+
 export function getOffreById(id: string): Offre | undefined {
   return offres.find((o) => o.id === id);
 }
@@ -3610,4 +4177,161 @@ export function marquerToutesNotificationsLues(userId: string): void {
   notifications.forEach((n) => {
     if (n.destinataire === userId) n.lu = true;
   });
+}
+
+// ─── CRM / Leads helpers ──────────────────────────────────────────────
+
+export function getLeadById(id: string): Lead | undefined {
+  return leads.find((l) => l.id === id);
+}
+
+export function getLeadsByStatut(statut: Lead['statut']): Lead[] {
+  return leads.filter((l) => l.statut === statut);
+}
+
+export function getLeadsByAssignee(userId: string): Lead[] {
+  return leads.filter((l) => l.assigne_a === userId);
+}
+
+export interface CreateLeadInfos {
+  nom: string;
+  prenom: string;
+  telephone: string;
+  whatsapp?: string;
+  email?: string;
+  ville?: string;
+  source: Lead['source'];
+  type_dossier_attendu?: Lead['type_dossier_attendu'];
+  vehicule_interet?: string;
+  valeur_attendue?: number;
+  devise_attendue?: Lead['devise_attendue'];
+  assigne_a: string;
+  notes?: string;
+}
+
+export function createLead(infos: CreateLeadInfos): Lead {
+  const lead: Lead = {
+    id: `lead-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: infos.nom,
+    prenom: infos.prenom,
+    telephone: infos.telephone,
+    whatsapp: infos.whatsapp,
+    email: infos.email,
+    ville: infos.ville,
+    source: infos.source,
+    statut: 'nouveau',
+    type_dossier_attendu: infos.type_dossier_attendu,
+    vehicule_interet: infos.vehicule_interet,
+    valeur_attendue: infos.valeur_attendue,
+    devise_attendue: infos.devise_attendue,
+    assigne_a: infos.assigne_a,
+    date_creation: new Date().toISOString().slice(0, 10),
+    notes: infos.notes,
+  };
+  leads.push(lead);
+  return lead;
+}
+
+export function updateLeadStatut(id: string, statut: Lead['statut']): void {
+  const lead = leads.find((l) => l.id === id);
+  if (lead) lead.statut = statut;
+}
+
+export function convertLeadToClient(leadId: string): ClientCRM | null {
+  const lead = leads.find((l) => l.id === leadId);
+  if (!lead || lead.statut !== 'gagne') return null;
+
+  const client: ClientCRM = {
+    id: `cli-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nom: lead.nom,
+    prenom: lead.prenom,
+    telephone: lead.telephone,
+    whatsapp: lead.whatsapp,
+    email: lead.email,
+    ville: lead.ville,
+    type_client: 'particulier',
+    assigne_a: lead.assigne_a,
+    statut: 'actif',
+    date_inscription: new Date().toISOString().slice(0, 10),
+    nombre_dossiers: 0,
+    nombre_vehicules: 0,
+    revenu_total: 0,
+    solde_du: 0,
+  };
+  clientsCRM.push(client);
+  lead.client_id = client.id;
+  return client;
+}
+
+export function getLeadsParStatut(): Record<Lead['statut'], number> {
+  const counts: Record<Lead['statut'], number> = {
+    nouveau: 0, contacte: 0, interesse: 0, qualification: 0,
+    offre_envoyee: 0, negociation: 0, gagne: 0, perdu: 0,
+  };
+  leads.forEach((l) => { counts[l.statut]++; });
+  return counts;
+}
+
+// ─── CRM / ClientCRM helpers ──────────────────────────────────────────
+
+export function getClientCRMById(id: string): ClientCRM | undefined {
+  return clientsCRM.find((c) => c.id === id);
+}
+
+export function getActivitesByClient(clientId: string): Activite[] {
+  return activites
+    .filter((a) => a.client_id === clientId)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export function getActivitesByLead(leadId: string): Activite[] {
+  return activites
+    .filter((a) => a.lead_id === leadId)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export interface CreateActiviteInfos {
+  client_id: string;
+  lead_id?: string;
+  dossier_id?: string;
+  type: Activite['type'];
+  description: string;
+  utilise_par: string;
+  date_prochain_suivi?: string;
+  raison_suivi?: string;
+}
+
+export function createActivite(infos: CreateActiviteInfos): Activite {
+  const activite: Activite = {
+    id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    client_id: infos.client_id,
+    lead_id: infos.lead_id,
+    dossier_id: infos.dossier_id,
+    type: infos.type,
+    description: infos.description,
+    utilise_par: infos.utilise_par,
+    date: new Date().toISOString(),
+    date_prochain_suivi: infos.date_prochain_suivi,
+    raison_suivi: infos.raison_suivi,
+  };
+  activites.push(activite);
+  return activite;
+}
+
+export function getDossiersByClient(clientId: string): Dossier[] {
+  return dossiers.filter((d) => d.client_id === clientId);
+}
+
+export function getVehiculesByClient(clientId: string): Vehicule[] {
+  const clientDossiers = getDossiersByClient(clientId);
+  const vehicleIds = new Set<string>();
+  clientDossiers.forEach((d) => {
+    d.vehicles.forEach((v) => vehicleIds.add(v.id));
+  });
+  return vehicules.filter((v) => vehicleIds.has(v.id));
+}
+
+export function getPaiementsByClient(clientId: string): PaiementClient[] {
+  const clientDossiers = getDossiersByClient(clientId);
+  return clientDossiers.flatMap((d) => d.paiements_client);
 }
