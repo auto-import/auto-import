@@ -16,11 +16,16 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('/ping (GET)', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/ping')
+      .expect(200);
+    const body = JSON.parse(response.text) as {
+      pong: boolean;
+      timestamp: string;
+    };
+    expect(body.pong).toBe(true);
+    expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
   });
 
   afterEach(async () => {

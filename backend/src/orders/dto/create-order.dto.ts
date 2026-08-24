@@ -5,9 +5,11 @@ import {
   IsArray,
   ValidateNested,
   IsNumber,
+  IsEnum,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { OrderStatus } from '@auto-import/contracts';
 
 export class OrderItemDto {
   @IsUUID()
@@ -47,6 +49,6 @@ export class CreateOrderDto {
   currency?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 }

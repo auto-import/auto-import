@@ -15,25 +15,26 @@ import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { FilterPartnerDto } from './dto/filter-partner.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Permission } from '@auto-import/contracts';
 
 @Controller('partners')
 export class PartnersController {
   constructor(private readonly partnersService: PartnersService) {}
 
   @Post()
-  @RequirePermission('vehicles:write')
+  @RequirePermission(Permission.PARTNERS_WRITE)
   create(@Body() dto: CreatePartnerDto, @CurrentUser() user: any) {
     return this.partnersService.create(dto, user.organizationId);
   }
 
   @Get()
-  @RequirePermission('vehicles:read')
+  @RequirePermission(Permission.PARTNERS_READ)
   findAll(@Query() query: FilterPartnerDto, @CurrentUser() user: any) {
     return this.partnersService.findAll(user.organizationId, query);
   }
 
   @Get(':id')
-  @RequirePermission('vehicles:read')
+  @RequirePermission(Permission.PARTNERS_READ)
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: any,
@@ -42,7 +43,7 @@ export class PartnersController {
   }
 
   @Patch(':id')
-  @RequirePermission('vehicles:write')
+  @RequirePermission(Permission.PARTNERS_WRITE)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePartnerDto,
@@ -52,7 +53,7 @@ export class PartnersController {
   }
 
   @Delete(':id')
-  @RequirePermission('vehicles:write')
+  @RequirePermission(Permission.PARTNERS_WRITE)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: any,

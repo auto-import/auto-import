@@ -6,18 +6,29 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import helmet from 'helmet';
+import { configureOpenApi } from './common/openapi';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const allowedOrigins = configService
+    .get<string>('CORS_ORIGIN', 'http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (allowedOrigins.length === 0 || allowedOrigins.includes('*')) {
+    throw new Error(
+      'CORS_ORIGIN must contain explicit origins when credentials are enabled',
+    );
+  }
 
   app.use(helmet());
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', '*'),
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -40,10 +51,9 @@ async function bootstrap() {
           Object.values(error.constraints || {}).join(', '),
         );
         return new BadRequestException({
-          statusCode: 400,
+          code: 'VALIDATION_ERROR',
           message: 'Validation failed',
-          errors: messages,
-          timestamp: new Date().toISOString(),
+          details: messages,
         });
       },
     }),
@@ -55,9 +65,11 @@ async function bootstrap() {
     new ResponseInterceptor(),
   );
 
+  configureOpenApi(app);
+
   await app.listen(port);
   logger.log(`🚀 Application running on: http://localhost:${port}`);
   logger.log(`📝 Environment: ${nodeEnv}`);
   logger.log(`🔍 Health check: http://localhost:${port}/health`);
 }
-bootstrap();
+void bootstrap();

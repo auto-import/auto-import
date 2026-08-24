@@ -1,13 +1,14 @@
 import {
-  IsString,
   IsOptional,
   IsUUID,
   IsArray,
   ValidateNested,
   IsNumber,
   Min,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { OrderStatus } from '@auto-import/contracts';
 
 export class UpdateOrderItemDto {
   @IsUUID()
@@ -28,8 +29,8 @@ export class UpdateOrderItemDto {
 
 export class UpdateOrderDto {
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 
   @IsOptional()
   @IsArray()

@@ -4,11 +4,13 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { CreateVehicleSpecDto } from './dto/create-vehicle-spec.dto';
 import { FilterVehicleDto } from './dto/filter-vehicle.dto';
+import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
 export class VehiclesService {
@@ -17,28 +19,28 @@ export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
   async create(createVehicleDto: CreateVehicleDto, organizationId: string) {
-    // Check VIN uniqueness if provided
-    if (createVehicleDto.vin) {
-      const existing = await this.prisma.vehicle.findUnique({
-        where: { vin: createVehicleDto.vin },
-      });
-      if (existing) {
-        throw new ConflictException(
-          `Vehicle with VIN ${createVehicleDto.vin} already exists`,
+    const vehicle = await this.prisma.$transaction(
+      async (transaction) => {
+        if (createVehicleDto.vin) {
+          const existing = await transaction.vehicle.findUnique({
+            where: { vin: createVehicleDto.vin },
+          });
+          if (existing) {
+            throw new ConflictException('A vehicle with this VIN exists');
+          }
+        }
+        await this.validateTenantRelations(
+          transaction,
+          createVehicleDto,
+          organizationId,
         );
-      }
-    }
-
-    const vehicle = await this.prisma.vehicle.create({
-      data: {
-        ...createVehicleDto,
-        organizationId,
+        return transaction.vehicle.create({
+          data: { ...createVehicleDto, organizationId },
+          include: { specs: true, photos: true },
+        });
       },
-      include: {
-        specs: true,
-        photos: true,
-      },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     this.logger.log(
       `Vehicle created: ${vehicle.brand} ${vehicle.model} (${vehicle.id})`,
@@ -48,10 +50,10 @@ export class VehiclesService {
 
   async findAll(organizationId: string, filters: FilterVehicleDto) {
     const page = filters.page || 1;
-    const limit = filters.limit || 10;
+    const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.VehicleWhereInput = { organizationId };
 
     if (filters.search) {
       where.OR = [
@@ -93,18 +95,12 @@ export class VehiclesService {
       this.prisma.vehicle.count({ where }),
     ]);
 
-    return {
-      items: vehicles,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(vehicles, total, page, limit);
   }
 
-  async findOne(id: string, organizationId?: string) {
+  async findOne(id: string, organizationId: string) {
     const vehicle = await this.prisma.vehicle.findFirst({
-      where: { id, ...(organizationId && { organizationId }) },
+      where: { id, organizationId },
       include: {
         specs: true,
         photos: {
@@ -112,7 +108,7 @@ export class VehiclesService {
           orderBy: { sortOrder: 'asc' },
         },
         dossierVehicles: {
-          where: organizationId ? { dossier: { organizationId } } : undefined,
+          where: { dossier: { organizationId } },
           include: {
             dossier: {
               select: {
@@ -125,9 +121,7 @@ export class VehiclesService {
           },
         },
         candidates: {
-          where: organizationId
-            ? { vehicleRequest: { organizationId } }
-            : undefined,
+          where: { vehicleRequest: { organizationId } },
           select: {
             id: true,
             vehicleRequestId: true,
@@ -153,31 +147,33 @@ export class VehiclesService {
     organizationId: string,
     updateVehicleDto: UpdateVehicleDto,
   ) {
-    await this.findOne(id, organizationId);
-
-    // Check VIN uniqueness if updating
-    if (updateVehicleDto.vin) {
-      const existing = await this.prisma.vehicle.findFirst({
-        where: {
-          vin: updateVehicleDto.vin,
-          NOT: { id },
-        },
-      });
-      if (existing) {
-        throw new ConflictException(
-          `Vehicle with VIN ${updateVehicleDto.vin} already exists`,
+    const vehicle = await this.prisma.$transaction(
+      async (transaction) => {
+        const existingVehicle = await transaction.vehicle.findFirst({
+          where: { id, organizationId },
+        });
+        if (!existingVehicle) throw new NotFoundException('Vehicle not found');
+        if (updateVehicleDto.vin) {
+          const duplicate = await transaction.vehicle.findFirst({
+            where: { vin: updateVehicleDto.vin, NOT: { id } },
+          });
+          if (duplicate) {
+            throw new ConflictException('A vehicle with this VIN exists');
+          }
+        }
+        await this.validateTenantRelations(
+          transaction,
+          updateVehicleDto,
+          organizationId,
         );
-      }
-    }
-
-    const vehicle = await this.prisma.vehicle.update({
-      where: { id },
-      data: updateVehicleDto,
-      include: {
-        specs: true,
-        photos: true,
+        return transaction.vehicle.update({
+          where: { id },
+          data: updateVehicleDto,
+          include: { specs: true, photos: true },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     this.logger.log(
       `Vehicle updated: ${vehicle.brand} ${vehicle.model} (${id})`,
@@ -191,9 +187,9 @@ export class VehiclesService {
     // Check if vehicle has active dossiers
     const activeDossiers = vehicle.dossierVehicles?.filter(
       (dv) =>
-        dv.dossier.status !== 'cloture' &&
-        dv.dossier.status !== 'service_termine' &&
-        dv.dossier.status !== 'annule',
+        dv.dossier.status !== 'closed' &&
+        dv.dossier.status !== 'serviceCompleted' &&
+        dv.dossier.status !== 'cancelled',
     );
     if (activeDossiers && activeDossiers.length > 0) {
       throw new ConflictException('Cannot delete vehicle with active dossiers');
@@ -212,7 +208,7 @@ export class VehiclesService {
   async upsertSpecs(
     vehicleId: string,
     specsDto: CreateVehicleSpecDto,
-    organizationId?: string,
+    organizationId: string,
   ) {
     await this.findOne(vehicleId, organizationId);
 
@@ -229,7 +225,7 @@ export class VehiclesService {
     return specs;
   }
 
-  async getSpecs(vehicleId: string, organizationId?: string) {
+  async getSpecs(vehicleId: string, organizationId: string) {
     await this.findOne(vehicleId, organizationId);
 
     const specs = await this.prisma.vehicleSpec.findUnique({
@@ -265,10 +261,10 @@ export class VehiclesService {
       }),
       this.prisma.vehicle.count({ where: { organizationId, status: 'sold' } }),
       this.prisma.vehicle.count({
-        where: { organizationId, status: 'in_transit' },
+        where: { organizationId, status: 'inTransit' },
       }),
       this.prisma.vehicle.count({
-        where: { organizationId, status: 'in_customs' },
+        where: { organizationId, status: 'inCustoms' },
       }),
     ]);
 
@@ -293,8 +289,8 @@ export class VehiclesService {
         available: availableCount,
         reserved: reservedCount,
         sold: soldCount,
-        in_transit: inTransitCount,
-        in_customs: inCustomsCount,
+        inTransit: inTransitCount,
+        inCustoms: inCustomsCount,
       },
       byBrand: byBrand.map((b) => ({
         brand: b.brand,
@@ -305,5 +301,30 @@ export class VehiclesService {
         count: a._count.id,
       })),
     };
+  }
+
+  private async validateTenantRelations(
+    transaction: Prisma.TransactionClient,
+    dto: Pick<CreateVehicleDto, 'supplierId' | 'currentLocationId'>,
+    organizationId: string,
+  ): Promise<void> {
+    if (dto.supplierId) {
+      const supplier = await transaction.partner.findFirst({
+        where: { id: dto.supplierId, organizationId, type: 'supplier' },
+        select: { id: true },
+      });
+      if (!supplier) throw new NotFoundException('Supplier not found');
+    }
+    if (dto.currentLocationId) {
+      const location = await transaction.warehouseLocation.findFirst({
+        where: {
+          id: dto.currentLocationId,
+          warehouse: { organizationId },
+        },
+        select: { id: true },
+      });
+      if (!location)
+        throw new NotFoundException('Warehouse location not found');
+    }
   }
 }

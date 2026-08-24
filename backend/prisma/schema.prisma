@@ -7,7 +7,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider = "postgresql"
 }
@@ -29,17 +28,36 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  offices         Office[]
-  users           User[]
-  warehouses      Warehouse[]
-  roles           Role[]
-  prospects       Prospect[]
-  clients         Client[]
-  vehicles        Vehicle[]
-  dossiers        Dossier[]
-  orders          Order[]
-  vehicleRequests VehicleRequest[]
-  partners        Partner[]
+  offices               Office[]
+  users                 User[]
+  warehouses            Warehouse[]
+  roles                 Role[]
+  prospects             Prospect[]
+  clients               Client[]
+  vehicles              Vehicle[]
+  dossiers              Dossier[]
+  orders                Order[]
+  vehicleRequests       VehicleRequest[]
+  partners              Partner[]
+  purchases             Purchase[]
+  shipments             Shipment[]
+  customsFiles          CustomsFile[]
+  customerDeposits      CustomerDeposit[]
+  stockMovements        StockMovement[]
+  tasks                 Task[]
+  auditLogs             AuditLog[]
+  contactPoints         ContactPoint[]
+  companyChannels       CompanyChannel[]
+  callSessions          CallSession[]
+  agentPresences        AgentPresence[]
+  whatsappConversations WhatsappConversation[]
+  whatsappMessages      WhatsappMessage[]
+  webhookInboxes        WebhookInbox[]
+  appointments          Appointment[]
+  crmNotes              CrmNote[]
+  prospectStatusHistory ProspectStatusHistory[]
+
+  @@index([status])
 }
 
 model Office {
@@ -53,6 +71,9 @@ model Office {
   createdAt      DateTime     @default(now())
 
   users User[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
 }
 
 model User {
@@ -70,7 +91,55 @@ model User {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  userRoles UserRole[]
+  userRoles             UserRole[]
+  refreshSessions       RefreshSession[]
+  salesDossiers         Dossier[]               @relation("DossierSalesUser")
+  operationsDossiers    Dossier[]               @relation("DossierOperationsUser")
+  dossierStatusChanges  DossierStatusHistory[]
+  prospectActivities    ProspectActivity[]
+  assignedProspects     Prospect[]
+  assignedClients       Client[]                @relation("ClientAssignee")
+  prospectStatusChanges ProspectStatusHistory[]
+  crmNotes              CrmNote[]
+  dispatchedCalls       CallSession[]           @relation("CallDispatcher")
+  handledCalls          CallSession[]           @relation("CallHandler")
+  callEvents            CallEvent[]
+  dispatchedAssignments CallAssignment[]        @relation("AssignmentDispatcher")
+  assignmentsFrom       CallAssignment[]        @relation("AssignmentFrom")
+  assignmentsTo         CallAssignment[]        @relation("AssignmentTo")
+  presence              AgentPresence?
+  assignedConversations WhatsappConversation[]  @relation("ConversationAssignee")
+  appointments          Appointment[]           @relation("AppointmentAssignee")
+  uploadedFiles         FileAsset[]
+  stockMovements        StockMovement[]
+  assignedRequests      VehicleRequest[]
+  createdOrders         Order[]
+  orderStatusChanges    OrderStatusHistory[]
+  reservations          Reservation[]
+  uploadedDocuments     BusinessDocument[]
+  assignedTasks         Task[]                  @relation("TaskAssignee")
+  createdTasks          Task[]                  @relation("TaskCreator")
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+
+  @@index([organizationId, status])
+  @@index([officeId])
+}
+
+model RefreshSession {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  rotatedAt DateTime?
+  userAgent String?
+  ipAddress String?
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
 }
 
 model Role {
@@ -83,6 +152,9 @@ model Role {
 
   userRoles       UserRole[]
   rolePermissions RolePermission[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, scope])
 }
 
 model Permission {
@@ -99,19 +171,21 @@ model Permission {
 model UserRole {
   userId String
   roleId String
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id])
 
   @@id([userId, roleId])
+  @@index([roleId])
 }
 
 model RolePermission {
   roleId       String
   permissionId String
-  role         Role       @relation(fields: [roleId], references: [id])
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id])
 
   @@id([roleId, permissionId])
+  @@index([permissionId])
 }
 
 // ──────────────────────────────────────────────
@@ -119,23 +193,41 @@ model RolePermission {
 // ──────────────────────────────────────────────
 
 model Prospect {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  firstName      String
-  lastName       String
-  phone          String?
-  email          String?
-  wilaya         String?
-  source         String?
-  status         String       @default("new")
-  assignedTo     String?
-  notes          String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                String            @id @default(uuid())
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  firstName         String
+  lastName          String
+  phone             String?
+  email             String?
+  wilaya            String?
+  source            String?
+  status            String            @default("new")
+  qualification     LeadQualification @default(UNCLASSIFIED)
+  assignedTo        String?
+  assignee          User?             @relation(fields: [assignedTo], references: [id])
+  notes             String?
+  lastInteractionAt DateTime?
+  nextActionAt      DateTime?
+  convertedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  activities ProspectActivity[]
-  client     Client?
+  activities            ProspectActivity[]
+  client                Client?
+  vehicleRequests       VehicleRequest[]
+  orders                Order[]
+  deposits              CustomerDeposit[]
+  contactPoints         ContactPoint[]
+  calls                 CallSession[]
+  whatsappConversations WhatsappConversation[]
+  appointments          Appointment[]
+  tasks                 Task[]
+  crmNotes              CrmNote[]
+  statusHistory         ProspectStatusHistory[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, assignedTo])
 }
 
 model ProspectActivity {
@@ -143,32 +235,426 @@ model ProspectActivity {
   prospectId   String
   prospect     Prospect @relation(fields: [prospectId], references: [id])
   userId       String
+  user         User     @relation(fields: [userId], references: [id])
   type         String
   title        String
   description  String?
   activityDate DateTime
   createdAt    DateTime @default(now())
+
+  @@index([prospectId, activityDate])
+  @@index([userId])
 }
 
 model Client {
+  id                String       @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  prospectId        String?      @unique
+  prospect          Prospect?    @relation(fields: [prospectId], references: [id])
+  firstName         String
+  lastName          String
+  phone             String?
+  email             String?
+  passportNumber    String?
+  passportExpiry    DateTime?
+  nationality       String?
+  address           String?
+  status            String       @default("active")
+  assignedTo        String?
+  assignee          User?        @relation("ClientAssignee", fields: [assignedTo], references: [id])
+  lastInteractionAt DateTime?
+  nextActionAt      DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  dossiers              Dossier[]
+  orders                Order[]
+  vehicleRequests       VehicleRequest[]
+  invoices              Invoice[]
+  deposits              CustomerDeposit[]
+  contactPoints         ContactPoint[]
+  calls                 CallSession[]
+  whatsappConversations WhatsappConversation[]
+  appointments          Appointment[]
+  tasks                 Task[]
+  crmNotes              CrmNote[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, email])
+  @@index([organizationId, assignedTo])
+}
+
+enum LeadQualification {
+  HOT
+  WARM
+  COLD
+  UNCLASSIFIED
+}
+
+enum ContactPointKind {
+  PHONE
+  EMAIL
+}
+
+enum CompanyChannelKind {
+  VOICE
+  WHATSAPP
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallState {
+  RINGING
+  QUEUED
+  ASSIGNED
+  FORWARDED
+  ANSWERED
+  COMPLETED
+  MISSED
+  FAILED
+}
+
+enum CallAssignmentStatus {
+  REQUESTED
+  ACCEPTED
+  REJECTED
+  FAILED
+}
+
+enum AgentPresenceStatus {
+  AVAILABLE
+  BUSY
+  AWAY
+  OFFLINE
+}
+
+enum PresenceSource {
+  MANUAL
+  PROVIDER
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageContentType {
+  TEXT
+  TEMPLATE
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+}
+
+enum MessageDeliveryStatus {
+  RECEIVED
+  SIMULATED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model ContactPoint {
+  id              String           @id @default(uuid())
+  organizationId  String
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kind            ContactPointKind
+  displayValue    String
+  normalizedValue String
+  whatsappEnabled Boolean          @default(false)
+  prospectId      String?
+  prospect        Prospect?        @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  preferred       Boolean          @default(false)
+  verified        Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([organizationId, kind, normalizedValue])
+  @@index([prospectId])
+  @@index([clientId])
+}
+
+model CompanyChannel {
+  id               String             @id @default(uuid())
+  organizationId   String
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel          CompanyChannelKind
+  displayName      String
+  normalizedNumber String
+  providerKey      String
+  active           Boolean            @default(true)
+  queueName        String             @default("default")
+  routingConfig    Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  calls         CallSession[]
+  conversations WhatsappConversation[]
+  webhookEvents WebhookInbox[]
+
+  @@unique([organizationId, channel, normalizedNumber])
+  @@unique([providerKey, channel, normalizedNumber])
+  @@index([normalizedNumber, channel, active])
+}
+
+model CallSession {
+  id                 String         @id @default(uuid())
+  organizationId     String
+  organization       Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelId          String
+  channel            CompanyChannel @relation(fields: [channelId], references: [id])
+  providerKey        String
+  providerCallId     String
+  direction          CallDirection
+  companyNumber      String
+  externalNumber     String
+  prospectId         String?
+  prospect           Prospect?      @relation(fields: [prospectId], references: [id])
+  clientId           String?
+  client             Client?        @relation(fields: [clientId], references: [id])
+  dispatcherId       String?
+  dispatcher         User?          @relation("CallDispatcher", fields: [dispatcherId], references: [id])
+  handlingEmployeeId String?
+  handlingEmployee   User?          @relation("CallHandler", fields: [handlingEmployeeId], references: [id])
+  state              CallState      @default(RINGING)
+  receivedAt         DateTime       @default(now())
+  queuedAt           DateTime?
+  answeredAt         DateTime?
+  completedAt        DateTime?
+  durationSeconds    Int?
+  waitingSeconds     Int?
+  outcome            String?
+  notes              String?
+  nextAction         String?
+  nextActionAt       DateTime?
+  missedReason       String?
+  failureReason      String?
+  dispositionedAt    DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  events        CallEvent[]
+  assignments   CallAssignment[]
+  busyPresences AgentPresence[]
+  callbackTask  Task?            @relation("CallbackTask")
+
+  @@unique([organizationId, providerKey, providerCallId])
+  @@index([organizationId, state, queuedAt])
+  @@index([organizationId, handlingEmployeeId, receivedAt])
+  @@index([prospectId, receivedAt])
+  @@index([clientId, receivedAt])
+}
+
+model CallEvent {
+  id              String      @id @default(uuid())
+  callSessionId   String
+  callSession     CallSession @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  providerEventId String?
+  state           CallState
+  actorUserId     String?
+  actorUser       User?       @relation(fields: [actorUserId], references: [id])
+  metadata        Json?
+  occurredAt      DateTime
+  createdAt       DateTime    @default(now())
+
+  @@unique([callSessionId, providerEventId])
+  @@index([callSessionId, occurredAt, id])
+}
+
+model CallAssignment {
+  id            String               @id @default(uuid())
+  callSessionId String
+  callSession   CallSession          @relation(fields: [callSessionId], references: [id], onDelete: Cascade)
+  dispatcherId  String
+  dispatcher    User                 @relation("AssignmentDispatcher", fields: [dispatcherId], references: [id])
+  fromUserId    String?
+  fromUser      User?                @relation("AssignmentFrom", fields: [fromUserId], references: [id])
+  toUserId      String
+  toUser        User                 @relation("AssignmentTo", fields: [toUserId], references: [id])
+  status        CallAssignmentStatus @default(REQUESTED)
+  reason        String?
+  requestedAt   DateTime             @default(now())
+  resolvedAt    DateTime?
+
+  @@index([callSessionId, requestedAt])
+  @@index([toUserId, status])
+}
+
+model AgentPresence {
+  id              String              @id @default(uuid())
+  organizationId  String
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String              @unique
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          AgentPresenceStatus @default(OFFLINE)
+  source          PresenceSource      @default(MANUAL)
+  currentCallId   String?
+  currentCall     CallSession?        @relation(fields: [currentCallId], references: [id])
+  lastHeartbeatAt DateTime
+  updatedAt       DateTime            @updatedAt
+
+  @@index([organizationId, status, lastHeartbeatAt])
+}
+
+model WhatsappConversation {
+  id                     String         @id @default(uuid())
+  organizationId         String
+  organization           Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelId              String
+  channel                CompanyChannel @relation(fields: [channelId], references: [id])
+  providerKey            String
+  providerConversationId String?
+  externalNumber         String
+  prospectId             String?
+  prospect               Prospect?      @relation(fields: [prospectId], references: [id])
+  clientId               String?
+  client                 Client?        @relation(fields: [clientId], references: [id])
+  assignedTo             String?
+  assignee               User?          @relation("ConversationAssignee", fields: [assignedTo], references: [id])
+  lastMessageAt          DateTime?
+  closedAt               DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  messages WhatsappMessage[]
+  tasks    Task[]
+
+  @@unique([organizationId, channelId, externalNumber])
+  @@index([organizationId, lastMessageAt])
+  @@index([prospectId])
+  @@index([clientId])
+}
+
+model WhatsappMessage {
+  id                String                @id @default(uuid())
+  organizationId    String
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversationId    String
+  conversation      WhatsappConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  providerKey       String
+  providerMessageId String
+  direction         MessageDirection
+  contentType       MessageContentType    @default(TEXT)
+  text              String?
+  status            MessageDeliveryStatus
+  replyToId         String?
+  replyTo           WhatsappMessage?      @relation("WhatsappReply", fields: [replyToId], references: [id])
+  replies           WhatsappMessage[]     @relation("WhatsappReply")
+  occurredAt        DateTime
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([organizationId, providerKey, providerMessageId])
+  @@index([conversationId, occurredAt, id])
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedTo     String
+  assignee       User              @relation("AppointmentAssignee", fields: [assignedTo], references: [id])
+  prospectId     String?
+  prospect       Prospect?         @relation(fields: [prospectId], references: [id])
+  clientId       String?
+  client         Client?           @relation(fields: [clientId], references: [id])
+  title          String
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  status         AppointmentStatus @default(SCHEDULED)
+  notes          String?
+  outcome        String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([organizationId, assignedTo, scheduledStart])
+  @@index([prospectId, scheduledStart])
+  @@index([clientId, scheduledStart])
+}
+
+model CrmNote {
   id             String       @id @default(uuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  prospectId     String?      @unique
-  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
-  firstName      String
-  lastName       String
-  phone          String?
-  email          String?
-  passportNumber String?
-  passportExpiry DateTime?
-  nationality    String?
-  address        String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  prospectId     String?
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id])
+  content        String
+  occurredAt     DateTime     @default(now())
   createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
 
-  dossiers Dossier[]
-  orders   Order[]
+  @@index([prospectId, occurredAt, id])
+  @@index([clientId, occurredAt, id])
+}
+
+model ProspectStatusHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  prospectId     String
+  prospect       Prospect     @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  changedBy      String?
+  user           User?        @relation(fields: [changedBy], references: [id])
+  fromStatus     String?
+  toStatus       String
+  reason         String?
+  occurredAt     DateTime     @default(now())
+
+  @@index([prospectId, occurredAt, id])
+  @@index([organizationId, occurredAt])
+}
+
+model WebhookInbox {
+  id              String                  @id @default(uuid())
+  organizationId  String
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelId       String
+  channel         CompanyChannel          @relation(fields: [channelId], references: [id])
+  providerKey     String
+  providerEventId String
+  eventType       String
+  payloadHash     String
+  metadata        Json?
+  status          WebhookProcessingStatus @default(RECEIVED)
+  retryCount      Int                     @default(0)
+  lastError       String?
+  receivedAt      DateTime                @default(now())
+  processedAt     DateTime?
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([organizationId, providerKey, providerEventId])
+  @@index([status, receivedAt])
+  @@index([channelId, receivedAt])
 }
 
 model Partner {
@@ -186,6 +672,12 @@ model Partner {
   status         String       @default("active")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  suppliedVehicles Vehicle[]  @relation("VehicleSupplier")
+  purchases        Purchase[]
+  shipments        Shipment[]
+
+  @@index([organizationId, type, status])
 }
 
 // ──────────────────────────────────────────────
@@ -210,9 +702,11 @@ model Dossier {
   vehicleRequest   VehicleRequest? @relation(fields: [vehicleRequestId], references: [id])
   orderId          String?         @unique
   order            Order?          @relation(fields: [orderId], references: [id])
-  status           String          @default("prospection")
+  status           String          @default("offerSelected")
   salesUserId      String
+  salesUser        User            @relation("DossierSalesUser", fields: [salesUserId], references: [id])
   opsUserId        String?
+  opsUser          User?           @relation("DossierOperationsUser", fields: [opsUserId], references: [id])
   openedAt         DateTime        @default(now())
   closedAt         DateTime?
   createdAt        DateTime        @default(now())
@@ -220,6 +714,12 @@ model Dossier {
 
   history         DossierStatusHistory[]
   dossierVehicles DossierVehicle[]
+
+  @@index([organizationId, status, openedAt])
+  @@index([organizationId, type, openedAt])
+  @@index([clientId])
+  @@index([salesUserId])
+  @@index([opsUserId])
 }
 
 model DossierVehicle {
@@ -231,6 +731,7 @@ model DossierVehicle {
   assignedAt DateTime @default(now())
 
   @@unique([dossierId, vehicleId])
+  @@index([vehicleId])
 }
 
 model DossierStatusHistory {
@@ -240,37 +741,51 @@ model DossierStatusHistory {
   fromStatus String?
   toStatus   String
   changedBy  String
+  user       User     @relation(fields: [changedBy], references: [id])
   comment    String?
   createdAt  DateTime @default(now())
+
+  @@index([dossierId, createdAt])
+  @@index([changedBy])
 }
 
 model Vehicle {
-  id                String       @id @default(uuid())
+  id                String             @id @default(uuid())
   organizationId    String
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  vin               String?      @unique
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  vin               String?            @unique
   brand             String
   model             String
   year              Int?
   mileage           Int?
   condition         String?
-  purchasePrice     Decimal?     @db.Decimal(12, 2)
-  sellingPrice      Decimal?     @db.Decimal(12, 2)
+  purchasePrice     Decimal?           @db.Decimal(12, 2)
+  sellingPrice      Decimal?           @db.Decimal(12, 2)
   currency          String?
-  status            String       @default("available")
+  status            String             @default("available")
   acquisitionType   String // "stock" | "client_request"
   supplierId        String?
+  supplier          Partner?           @relation("VehicleSupplier", fields: [supplierId], references: [id])
   currentLocationId String?
+  currentLocation   WarehouseLocation? @relation(fields: [currentLocationId], references: [id])
   acquiredAt        DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
-  specs           VehicleSpec?
-  photos          VehiclePhoto[]
-  dossierVehicles DossierVehicle[]
-  candidates      VehicleCandidate[]
-  orderItems      OrderItem[]
-  reservations    Reservation[]
+  specs            VehicleSpec?
+  photos           VehiclePhoto[]
+  dossierVehicles  DossierVehicle[]
+  candidates       VehicleCandidate[]
+  orderItems       OrderItem[]
+  reservations     Reservation[]
+  stockMovements   StockMovement[]
+  purchases        Purchase[]
+  shipmentVehicles ShipmentVehicle[]
+  customsFiles     CustomsFile[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([supplierId])
+  @@index([currentLocationId])
 }
 
 model VehicleSpec {
@@ -300,6 +815,9 @@ model FileAsset {
   vehiclePhotos     VehiclePhoto[]
   customsDocuments  CustomsDocument[]
   businessDocuments BusinessDocument[]
+  uploadedByUser    User               @relation(fields: [uploadedBy], references: [id])
+
+  @@index([uploadedBy, createdAt])
 }
 
 model VehiclePhoto {
@@ -311,6 +829,9 @@ model VehiclePhoto {
   isPrimary Boolean   @default(false)
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
+
+  @@index([vehicleId, sortOrder])
+  @@index([fileId])
 }
 
 // ──────────────────────────────────────────────
@@ -330,6 +851,8 @@ model Warehouse {
   createdAt      DateTime     @default(now())
 
   locations WarehouseLocation[]
+
+  @@index([organizationId, status])
 }
 
 model WarehouseLocation {
@@ -339,17 +862,36 @@ model WarehouseLocation {
   code        String
   name        String?
   status      String    @default("active")
+
+  vehicles      Vehicle[]
+  movementsFrom StockMovement[] @relation("StockMovementFrom")
+  movementsTo   StockMovement[] @relation("StockMovementTo")
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId, status])
 }
 
 model StockMovement {
-  id             String   @id @default(uuid())
+  id             String             @id @default(uuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id])
   vehicleId      String
+  vehicle        Vehicle            @relation(fields: [vehicleId], references: [id])
   fromLocationId String?
+  fromLocation   WarehouseLocation? @relation("StockMovementFrom", fields: [fromLocationId], references: [id])
   toLocationId   String?
+  toLocation     WarehouseLocation? @relation("StockMovementTo", fields: [toLocationId], references: [id])
   performedBy    String
+  user           User               @relation(fields: [performedBy], references: [id])
   type           String
   reason         String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime           @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([vehicleId, createdAt])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([performedBy])
 }
 
 // ──────────────────────────────────────────────
@@ -361,8 +903,11 @@ model VehicleRequest {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   prospectId     String?
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
   clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id])
   assignedTo     String?
+  assignee       User?        @relation(fields: [assignedTo], references: [id])
   brand          String?
   model          String?
   minYear        Int?
@@ -378,6 +923,11 @@ model VehicleRequest {
 
   candidates VehicleCandidate[]
   dossier    Dossier?
+
+  @@index([organizationId, status, createdAt])
+  @@index([prospectId])
+  @@index([clientId])
+  @@index([assignedTo])
 }
 
 model VehicleCandidate {
@@ -394,6 +944,7 @@ model VehicleCandidate {
   validatedAt      DateTime?
 
   @@unique([vehicleRequestId, vehicleId])
+  @@index([vehicleId])
 }
 
 model Order {
@@ -404,7 +955,9 @@ model Order {
   clientId       String
   client         Client       @relation(fields: [clientId], references: [id])
   prospectId     String?
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
   createdBy      String
+  creator        User         @relation(fields: [createdBy], references: [id])
   status         String       @default("draft")
   subtotal       Decimal      @db.Decimal(12, 2)
   discount       Decimal      @default(0) @db.Decimal(12, 2)
@@ -415,11 +968,19 @@ model Order {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  items        OrderItem[]
-  history      OrderStatusHistory[]
-  reservations Reservation[]
-  dossier      Dossier?
-  invoices     Invoice[]
+  items            OrderItem[]
+  history          OrderStatusHistory[]
+  reservations     Reservation[]
+  dossier          Dossier?
+  invoices         Invoice[]
+  paymentPlans     PaymentPlan[]
+  deposits         CustomerDeposit[]
+  shipmentVehicles ShipmentVehicle[]
+
+  @@index([organizationId, status, orderDate])
+  @@index([clientId])
+  @@index([prospectId])
+  @@index([createdBy])
 }
 
 model OrderItem {
@@ -432,6 +993,10 @@ model OrderItem {
   discount  Decimal  @default(0) @db.Decimal(12, 2)
   total     Decimal  @db.Decimal(12, 2)
   createdAt DateTime @default(now())
+
+  invoiceItems InvoiceItem[]
+
+  @@index([vehicleId])
 }
 
 model OrderStatusHistory {
@@ -439,10 +1004,14 @@ model OrderStatusHistory {
   orderId    String
   order      Order    @relation(fields: [orderId], references: [id])
   changedBy  String
+  user       User     @relation(fields: [changedBy], references: [id])
   fromStatus String?
   toStatus   String
   comment    String?
   createdAt  DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([changedBy])
 }
 
 model Reservation {
@@ -452,10 +1021,15 @@ model Reservation {
   orderId    String?
   order      Order?    @relation(fields: [orderId], references: [id])
   reservedBy String
+  user       User      @relation(fields: [reservedBy], references: [id])
   status     String    @default("active")
   reservedAt DateTime  @default(now())
   expiresAt  DateTime?
   releasedAt DateTime?
+
+  @@index([vehicleId, status])
+  @@index([orderId])
+  @@index([reservedBy])
 }
 
 // ──────────────────────────────────────────────
@@ -463,18 +1037,26 @@ model Reservation {
 // ──────────────────────────────────────────────
 
 model Purchase {
-  id             String    @id @default(uuid())
-  purchaseNumber String    @unique
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  purchaseNumber String       @unique
   supplierId     String
+  supplier       Partner      @relation(fields: [supplierId], references: [id])
   vehicleId      String
-  purchasePrice  Decimal   @db.Decimal(12, 2)
+  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
+  purchasePrice  Decimal      @db.Decimal(12, 2)
   currency       String
-  status         String    @default("pending")
+  status         String       @default("pending")
   purchaseDate   DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   payments SupplierPayment[]
+
+  @@index([organizationId, status, purchaseDate])
+  @@index([supplierId])
+  @@index([vehicleId])
 }
 
 model SupplierPayment {
@@ -488,12 +1070,17 @@ model SupplierPayment {
   status        String    @default("pending")
   paymentDate   DateTime?
   notes         String?
+
+  @@index([purchaseId, status])
 }
 
 model Shipment {
-  id               String    @id @default(uuid())
-  shipmentNumber   String    @unique
+  id               String       @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  shipmentNumber   String       @unique
   carrierPartnerId String?
+  carrierPartner   Partner?     @relation(fields: [carrierPartnerId], references: [id])
   blNumber         String?
   vesselName       String?
   containerNumber  String?
@@ -501,12 +1088,16 @@ model Shipment {
   arrivalPort      String?
   etd              DateTime?
   eta              DateTime?
-  status           String    @default("pending")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status           String       @default("pending")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  vehicles ShipmentVehicle[]
-  costs    ShippingCost[]
+  vehicles     ShipmentVehicle[]
+  costs        ShippingCost[]
+  customsFiles CustomsFile[]
+
+  @@index([organizationId, status, etd])
+  @@index([carrierPartnerId])
 }
 
 model ShipmentVehicle {
@@ -514,7 +1105,13 @@ model ShipmentVehicle {
   shipmentId String
   shipment   Shipment @relation(fields: [shipmentId], references: [id])
   vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id])
   orderId    String?
+  order      Order?   @relation(fields: [orderId], references: [id])
+
+  @@unique([shipmentId, vehicleId])
+  @@index([vehicleId])
+  @@index([orderId])
 }
 
 model ShippingCost {
@@ -526,25 +1123,35 @@ model ShippingCost {
   currency    String
   description String?
   createdAt   DateTime @default(now())
+
+  @@index([shipmentId])
 }
 
 model CustomsFile {
-  id                String    @id @default(uuid())
-  reference         String    @unique
+  id                String       @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  reference         String       @unique
   shipmentId        String?
+  shipment          Shipment?    @relation(fields: [shipmentId], references: [id])
   vehicleId         String?
-  status            String    @default("open")
+  vehicle           Vehicle?     @relation(fields: [vehicleId], references: [id])
+  status            String       @default("open")
   declarationNumber String?
-  customsValue      Decimal?  @db.Decimal(12, 2)
-  customsAmount     Decimal?  @db.Decimal(12, 2)
+  customsValue      Decimal?     @db.Decimal(12, 2)
+  customsAmount     Decimal?     @db.Decimal(12, 2)
   currency          String?
-  openedAt          DateTime  @default(now())
+  openedAt          DateTime     @default(now())
   closedAt          DateTime?
   notes             String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   documents CustomsDocument[]
+
+  @@index([organizationId, status, openedAt])
+  @@index([shipmentId])
+  @@index([vehicleId])
 }
 
 model CustomsDocument {
@@ -556,6 +1163,9 @@ model CustomsDocument {
   documentType  String?
   status        String      @default("pending")
   uploadedAt    DateTime    @default(now())
+
+  @@index([customsFileId])
+  @@index([fileId])
 }
 
 model BusinessDocument {
@@ -563,12 +1173,16 @@ model BusinessDocument {
   fileId       String
   file         FileAsset @relation(fields: [fileId], references: [id])
   uploadedBy   String
+  user         User      @relation(fields: [uploadedBy], references: [id])
   documentType String?
   title        String?
   description  String?
   entityType   String // "dossier" | "client" | "vehicle" ...
   entityId     String
   createdAt    DateTime  @default(now())
+
+  @@index([uploadedBy, createdAt])
+  @@index([entityType, entityId])
 }
 
 // ──────────────────────────────────────────────
@@ -581,6 +1195,7 @@ model Invoice {
   orderId       String
   order         Order     @relation(fields: [orderId], references: [id])
   clientId      String
+  client        Client    @relation(fields: [clientId], references: [id])
   status        String    @default("draft")
   subtotal      Decimal   @db.Decimal(12, 2)
   tax           Decimal   @default(0) @db.Decimal(12, 2)
@@ -593,28 +1208,38 @@ model Invoice {
 
   items    InvoiceItem[]
   payments Payment[]
+
+  @@index([orderId, status])
+  @@index([clientId])
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid())
+  id          String     @id @default(uuid())
   invoiceId   String
-  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  invoice     Invoice    @relation(fields: [invoiceId], references: [id])
   orderItemId String?
+  orderItem   OrderItem? @relation(fields: [orderItemId], references: [id])
   description String?
-  quantity    Decimal @default(1) @db.Decimal(10, 2)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  total       Decimal @db.Decimal(12, 2)
+  quantity    Decimal    @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal    @db.Decimal(12, 2)
+  total       Decimal    @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+  @@index([orderItemId])
 }
 
 model PaymentPlan {
   id          String   @id @default(uuid())
   orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
   totalAmount Decimal  @db.Decimal(12, 2)
   currency    String
   status      String   @default("active")
   createdAt   DateTime @default(now())
 
   installments PaymentInstallment[]
+
+  @@index([orderId, status])
 }
 
 model PaymentInstallment {
@@ -628,6 +1253,9 @@ model PaymentInstallment {
   status            String      @default("pending")
 
   payments Payment[]
+
+  @@unique([paymentPlanId, installmentNumber])
+  @@index([status, dueDate])
 }
 
 model Payment {
@@ -644,21 +1272,35 @@ model Payment {
   paymentDate   DateTime?
   notes         String?
   createdAt     DateTime            @default(now())
+
+  @@index([invoiceId])
+  @@index([installmentId])
+  @@index([status, paymentDate])
 }
 
 model CustomerDeposit {
-  id            String    @id @default(uuid())
-  prospectId    String?
-  clientId      String?
-  orderId       String?
-  amount        Decimal   @db.Decimal(12, 2)
-  currency      String
-  paymentMethod String?
-  reference     String?
-  status        String    @default("pending")
-  paymentDate   DateTime?
-  notes         String?
-  createdAt     DateTime  @default(now())
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  prospectId     String?
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id])
+  orderId        String?
+  order          Order?       @relation(fields: [orderId], references: [id])
+  amount         Decimal      @db.Decimal(12, 2)
+  currency       String
+  paymentMethod  String?
+  reference      String?
+  status         String       @default("pending")
+  paymentDate    DateTime?
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, status, createdAt])
+  @@index([prospectId])
+  @@index([clientId])
+  @@index([orderId])
 }
 
 // ──────────────────────────────────────────────
@@ -666,19 +1308,37 @@ model CustomerDeposit {
 // ──────────────────────────────────────────────
 
 model Task {
-  id          String    @id @default(uuid())
-  assignedTo  String
-  createdBy   String
-  title       String
-  description String?
-  priority    String    @default("normal")
-  status      String    @default("todo")
-  dueDate     DateTime?
-  relatedType String?
-  relatedId   String?
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                String                @id @default(uuid())
+  organizationId    String
+  organization      Organization          @relation(fields: [organizationId], references: [id])
+  assignedTo        String
+  assignee          User                  @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  createdBy         String
+  creator           User                  @relation("TaskCreator", fields: [createdBy], references: [id])
+  title             String
+  description       String?
+  priority          String                @default("normal")
+  status            String                @default("todo")
+  dueDate           DateTime?
+  relatedType       String?
+  relatedId         String?
+  prospectId        String?
+  prospect          Prospect?             @relation(fields: [prospectId], references: [id])
+  clientId          String?
+  client            Client?               @relation(fields: [clientId], references: [id])
+  conversationId    String?
+  conversation      WhatsappConversation? @relation(fields: [conversationId], references: [id])
+  callbackForCallId String?               @unique
+  callbackForCall   CallSession?          @relation("CallbackTask", fields: [callbackForCallId], references: [id])
+  completedAt       DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([organizationId, status, dueDate])
+  @@index([assignedTo, status])
+  @@index([createdBy])
+  @@index([prospectId, status, dueDate])
+  @@index([clientId, status, dueDate])
 }
 
 model NotificationTemplate {
@@ -697,6 +1357,7 @@ model NotificationTemplate {
 model Notification {
   id          String                @id @default(uuid())
   userId      String
+  user        User                  @relation(fields: [userId], references: [id])
   templateId  String?
   template    NotificationTemplate? @relation(fields: [templateId], references: [id])
   type        String
@@ -707,17 +1368,27 @@ model Notification {
   relatedId   String?
   readAt      DateTime?
   createdAt   DateTime              @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([templateId])
 }
 
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String?
-  action     String
-  entityType String
-  entityId   String
-  oldValues  Json?
-  newValues  Json?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id])
+  action         String
+  entityType     String
+  entityId       String
+  oldValues      Json?
+  newValues      Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

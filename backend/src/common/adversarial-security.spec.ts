@@ -38,6 +38,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         create: jest.fn(),
         update: jest.fn(),
         count: jest.fn(),
+        groupBy: jest.fn(),
       },
       client: {
         findFirst: jest.fn(),
@@ -211,6 +212,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
     });
 
     it('ProspectsService: must bind prospect to caller organization', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'user-1' });
       prisma.prospect.create.mockResolvedValue({
         id: 'pros-1',
         organizationId: ORG_A,
@@ -343,6 +345,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
   describe('4. Aggregation and Statistics Tenant Isolation', () => {
     it('DossiersService.getStatistics: counts only Organization A records', async () => {
       prisma.dossier.count.mockResolvedValue(0);
+      prisma.dossier.groupBy.mockResolvedValue([]);
 
       await dossiersService.getStatistics(ORG_A);
 

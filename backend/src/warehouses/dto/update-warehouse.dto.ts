@@ -1,10 +1,6 @@
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class UpdateWarehouseDto {
-  @IsOptional()
-  @IsUUID()
-  organizationId?: string;
-
   @IsOptional()
   @IsString()
   name?: string;

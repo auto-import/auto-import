@@ -1,0 +1,151 @@
+export type ValueOf<T> = T[keyof T];
+
+export const DossierType: {
+  readonly VEHICLE_SALE_CIF: 'VEHICLE_SALE_CIF';
+  readonly VEHICLE_SALE_DDP: 'VEHICLE_SALE_DDP';
+  readonly SHIPPING_ONLY: 'SHIPPING_ONLY';
+};
+export type DossierType = ValueOf<typeof DossierType>;
+
+export const DossierStatus: {
+  readonly OFFER_SELECTED: 'offerSelected';
+  readonly CLIENT_CONFIRMED: 'clientConfirmed';
+  readonly CONTRACT_SIGNED: 'contractSigned';
+  readonly DEPOSIT_RECEIVED: 'depositReceived';
+  readonly PURCHASE_CONFIRMED: 'purchaseConfirmed';
+  readonly SUPPLIER_PAID: 'supplierPaid';
+  readonly INSPECTION: 'inspection';
+  readonly BOOKING: 'booking';
+  readonly LOADING: 'loading';
+  readonly BILL_OF_LADING_ISSUED: 'billOfLadingIssued';
+  readonly IN_TRANSIT: 'inTransit';
+  readonly ARRIVED_AT_PORT: 'arrivedAtPort';
+  readonly DOCUMENTS_DELIVERED: 'documentsDelivered';
+  readonly CUSTOMS_CLEARANCE: 'customsClearance';
+  readonly CUSTOMS_RELEASED: 'customsReleased';
+  readonly PORT_EXIT: 'portExit';
+  readonly LOCAL_TRANSPORT: 'localTransport';
+  readonly DELIVERED_TO_CLIENT: 'deliveredToClient';
+  readonly CLIENT_REGISTERED: 'clientRegistered';
+  readonly EXTERNAL_VEHICLE_RECORDED: 'externalVehicleRecorded';
+  readonly EXTERNAL_SUPPLIER_RECORDED: 'externalSupplierRecorded';
+  readonly PICKUP_RECEIVED: 'pickupReceived';
+  readonly SHIPPING_QUOTED: 'shippingQuoted';
+  readonly PAYMENT_RECEIVED: 'paymentReceived';
+  readonly CONTAINER_BILL_OF_LADING: 'containerBillOfLading';
+  readonly ARRIVED: 'arrived';
+  readonly CLOSED: 'closed';
+  readonly SERVICE_COMPLETED: 'serviceCompleted';
+  readonly CANCELLED: 'cancelled';
+};
+export type DossierStatus = ValueOf<typeof DossierStatus>;
+
+export const VehicleStatus: {
+  readonly AVAILABLE: 'available'; readonly RESERVED: 'reserved';
+  readonly IN_TRANSIT: 'inTransit'; readonly IN_CUSTOMS: 'inCustoms';
+  readonly DELIVERED: 'delivered'; readonly SOLD: 'sold';
+};
+export type VehicleStatus = ValueOf<typeof VehicleStatus>;
+
+export const OrderStatus: {
+  readonly DRAFT: 'draft'; readonly CONFIRMED: 'confirmed';
+  readonly PROCESSING: 'processing'; readonly COMPLETED: 'completed';
+  readonly CANCELLED: 'cancelled';
+};
+export type OrderStatus = ValueOf<typeof OrderStatus>;
+
+export const ProspectStatus: {
+  readonly NEW: 'new'; readonly CONTACTED: 'contacted';
+  readonly INTERESTED: 'interested'; readonly QUALIFIED: 'qualified';
+  readonly OFFER_SENT: 'offerSent'; readonly NEGOTIATING: 'negotiating';
+  readonly WON: 'won'; readonly LOST: 'lost'; readonly CONVERTED: 'converted';
+};
+export type ProspectStatus = ValueOf<typeof ProspectStatus>;
+
+export const LeadQualification: {
+  readonly HOT: 'HOT'; readonly WARM: 'WARM'; readonly COLD: 'COLD';
+  readonly UNCLASSIFIED: 'UNCLASSIFIED';
+};
+export type LeadQualification = ValueOf<typeof LeadQualification>;
+
+export const CallState: {
+  readonly RINGING: 'RINGING'; readonly QUEUED: 'QUEUED';
+  readonly ASSIGNED: 'ASSIGNED'; readonly FORWARDED: 'FORWARDED';
+  readonly ANSWERED: 'ANSWERED'; readonly COMPLETED: 'COMPLETED';
+  readonly MISSED: 'MISSED'; readonly FAILED: 'FAILED';
+};
+export type CallState = ValueOf<typeof CallState>;
+
+export const AgentPresenceStatus: {
+  readonly AVAILABLE: 'AVAILABLE'; readonly BUSY: 'BUSY';
+  readonly AWAY: 'AWAY'; readonly OFFLINE: 'OFFLINE';
+};
+export type AgentPresenceStatus = ValueOf<typeof AgentPresenceStatus>;
+
+export const OfferStatus: {
+  readonly AVAILABLE: 'available'; readonly RESERVED: 'reserved';
+  readonly SOLD: 'sold'; readonly EXPIRED: 'expired';
+};
+export type OfferStatus = ValueOf<typeof OfferStatus>;
+
+export const PaymentStatus: {
+  readonly PENDING: 'pending'; readonly PARTIAL: 'partial';
+  readonly PAID: 'paid'; readonly FAILED: 'failed';
+  readonly REFUNDED: 'refunded'; readonly CANCELLED: 'cancelled';
+};
+export type PaymentStatus = ValueOf<typeof PaymentStatus>;
+
+export const ShipmentStatus: {
+  readonly PENDING: 'pending'; readonly BOOKED: 'booked';
+  readonly LOADING: 'loading'; readonly IN_TRANSIT: 'inTransit';
+  readonly ARRIVED: 'arrived'; readonly DELIVERED: 'delivered';
+  readonly CANCELLED: 'cancelled';
+};
+export type ShipmentStatus = ValueOf<typeof ShipmentStatus>;
+
+export const CustomsStatus: {
+  readonly OPEN: 'open'; readonly DOCUMENTS_PENDING: 'documentsPending';
+  readonly SUBMITTED: 'submitted'; readonly UNDER_REVIEW: 'underReview';
+  readonly CLEARED: 'cleared'; readonly RELEASED: 'released';
+  readonly REJECTED: 'rejected';
+};
+export type CustomsStatus = ValueOf<typeof CustomsStatus>;
+
+export const RecordStatus: {
+  readonly ACTIVE: 'active'; readonly INACTIVE: 'inactive';
+  readonly SUSPENDED: 'suspended';
+};
+export type RecordStatus = ValueOf<typeof RecordStatus>;
+
+export const Permission: {
+  readonly DASHBOARD_READ: 'dashboard:read';
+  readonly USERS_READ: 'users:read'; readonly USERS_WRITE: 'users:write'; readonly USERS_MANAGE: 'users:manage';
+  readonly OFFICES_READ: 'offices:read'; readonly OFFICES_WRITE: 'offices:write';
+  readonly ROLES_READ: 'roles:read'; readonly ROLES_WRITE: 'roles:write'; readonly ROLES_MANAGE: 'roles:manage';
+  readonly PROSPECTS_READ: 'prospects:read'; readonly PROSPECTS_WRITE: 'prospects:write';
+  readonly CLIENTS_READ: 'clients:read'; readonly CLIENTS_WRITE: 'clients:write';
+  readonly DOSSIERS_READ: 'dossiers:read'; readonly DOSSIERS_WRITE: 'dossiers:write';
+  readonly VEHICLES_READ: 'vehicles:read'; readonly VEHICLES_WRITE: 'vehicles:write';
+  readonly WAREHOUSES_READ: 'warehouses:read'; readonly WAREHOUSES_WRITE: 'warehouses:write';
+  readonly VEHICLE_REQUESTS_READ: 'vehicleRequests:read'; readonly VEHICLE_REQUESTS_WRITE: 'vehicleRequests:write';
+  readonly ORDERS_READ: 'orders:read'; readonly ORDERS_WRITE: 'orders:write';
+  readonly PARTNERS_READ: 'partners:read'; readonly PARTNERS_WRITE: 'partners:write';
+  readonly OFFERS_READ: 'offers:read'; readonly OFFERS_WRITE: 'offers:write';
+  readonly OFFERS_READ_PURCHASE_PRICE: 'offers:readPurchasePrice'; readonly OFFERS_READ_MARGIN: 'offers:readMargin';
+  readonly PAYMENTS_READ: 'payments:read'; readonly PAYMENTS_WRITE: 'payments:write';
+  readonly SHIPMENTS_READ: 'shipments:read'; readonly SHIPMENTS_WRITE: 'shipments:write';
+  readonly CUSTOMS_READ: 'customs:read'; readonly CUSTOMS_WRITE: 'customs:write';
+  readonly DOCUMENTS_READ: 'documents:read'; readonly DOCUMENTS_WRITE: 'documents:write';
+  readonly TASKS_READ: 'tasks:read'; readonly TASKS_WRITE: 'tasks:write';
+  readonly CRM_TIMELINE_READ: 'crmTimeline:read'; readonly CRM_TIMELINE_WRITE: 'crmTimeline:write';
+  readonly CALL_CENTER_ACCESS: 'callCenter:access'; readonly CALL_CENTER_DISPATCH: 'callCenter:dispatch';
+  readonly CALL_CENTER_HANDLE: 'callCenter:handle'; readonly WHATSAPP_HANDLE: 'whatsapp:handle';
+  readonly APPOINTMENTS_READ: 'appointments:read'; readonly APPOINTMENTS_WRITE: 'appointments:write';
+  readonly CRM_KPI_OWN: 'crmKpi:own'; readonly CRM_KPI_ORGANIZATION: 'crmKpi:organization';
+  readonly CHANNELS_MANAGE: 'channels:manage';
+  readonly REPORTS_READ: 'reports:read'; readonly SETTINGS_MANAGE: 'settings:manage';
+};
+export type Permission = ValueOf<typeof Permission>;
+
+export const ALL_PERMISSIONS: readonly Permission[];
+export const DOSSIER_WORKFLOWS: Readonly<Record<DossierType, readonly DossierStatus[]>>;

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { FilterPartnerDto } from './dto/filter-partner.dto';
+import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
 export class PartnersService {
@@ -32,7 +33,7 @@ export class PartnersService {
 
   async findAll(organizationId: string, filters?: FilterPartnerDto) {
     const page = filters?.page || 1;
-    const limit = filters?.limit || 10;
+    const limit = filters?.limit || 20;
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
@@ -60,13 +61,7 @@ export class PartnersService {
       this.prisma.partner.count({ where }),
     ]);
 
-    return {
-      items: partners,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(partners, total, page, limit);
   }
 
   async findOne(id: string, organizationId: string) {

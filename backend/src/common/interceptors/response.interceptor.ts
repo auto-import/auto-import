@@ -6,31 +6,28 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-
-export interface Response<T> {
-  success: boolean;
-  data: T;
-  timestamp: string;
-  path: string;
-  statusCode: number;
-}
+import { ApiSuccessResponse } from '../dto/response.dto';
+import { Request, Response as ExpressResponse } from 'express';
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
+export class ResponseInterceptor<T> implements NestInterceptor<
+  T,
+  ApiSuccessResponse<T>
+> {
   intercept(
     context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<Response<T>> {
+    next: CallHandler<T>,
+  ): Observable<ApiSuccessResponse<T>> {
     const ctx = context.switchToHttp();
-    const response = ctx.getResponse();
-    const request = ctx.getRequest();
+    const response = ctx.getResponse<ExpressResponse>();
+    const request = ctx.getRequest<Request>();
 
     return next.handle().pipe(
       map((data) => ({
-        success: true,
+        success: true as const,
         data,
         timestamp: new Date().toISOString(),
-        path: request.url,
+        path: request.originalUrl ?? request.url,
         statusCode: response.statusCode,
       })),
     );

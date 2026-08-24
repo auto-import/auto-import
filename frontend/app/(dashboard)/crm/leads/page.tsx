@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck Legacy mock implementation retained only as an exported reference.
 'use client';
 
 import { useState, useMemo } from 'react';
 import { Topbar } from '@/components';
-import { leads, utilisateurs, getLeadsParStatut } from '@/lib/mockData';
 import {
   LEAD_STATUT_LABELS,
   LEAD_SOURCE_LABELS,
@@ -19,6 +20,15 @@ import {
 } from 'lucide-react';
 import LeadDetailModal from '@/components/LeadDetailModal';
 import LeadFormModal from '@/components/LeadFormModal';
+
+export { default } from '@/components/crm/LeadsWorkspace';
+
+const leads: Lead[] = [];
+const utilisateurs: Array<{ id: string; avatar_initials: string }> = [];
+const getLeadsParStatut = (): Record<StatutLead, number> => ({
+  nouveau: 0, contacte: 0, interesse: 0, qualification: 0,
+  offre_envoyee: 0, negociation: 0, gagne: 0, perdu: 0,
+});
 
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const assigne = utilisateurs.find((u) => u.id === lead.assigne_a);
@@ -108,7 +118,7 @@ function KanbanColumn({
   );
 }
 
-export default function LeadsPage() {
+export function LegacyLeadsPage() {
   const [search, setSearch] = useState('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showForm, setShowForm] = useState(false);

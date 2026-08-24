@@ -11,12 +11,15 @@ import { ClientsModule } from './clients/clients.module';
 import { DossiersModule } from './dossiers/dossiers.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
+import { OfficesModule } from './offices/offices.module';
 import { VehicleRequestsModule } from './vehicle-requests/vehicle-requests.module';
 import { OrdersModule } from './orders/orders.module';
 import { PartnersModule } from './partners/partners.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { CrmModule } from './crm/crm.module';
+import { CallCenterModule } from './call-center/call-center.module';
 
 @Module({
   imports: [
@@ -35,9 +38,12 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     DossiersModule,
     VehiclesModule,
     WarehousesModule,
+    OfficesModule,
     VehicleRequestsModule,
     OrdersModule,
     PartnersModule,
+    CrmModule,
+    CallCenterModule,
   ],
   controllers: [AppController],
   providers: [

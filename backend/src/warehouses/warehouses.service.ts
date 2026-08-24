@@ -3,12 +3,18 @@ import {
   NotFoundException,
   Logger,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { paginate } from '../common/helpers/pagination.helper';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { CreateWarehouseLocationDto } from './dto/create-warehouse-location.dto';
-import { CreateStockMovementDto } from './dto/create-stock-movement.dto';
+import {
+  CreateStockMovementDto,
+  StockMovementType,
+} from './dto/create-stock-movement.dto';
 
 @Injectable()
 export class WarehousesService {
@@ -24,7 +30,7 @@ export class WarehousesService {
     const warehouse = await this.prisma.warehouse.create({
       data: {
         ...createWarehouseDto,
-        organizationId: createWarehouseDto.organizationId || organizationId,
+        organizationId,
       },
       include: {
         locations: true,
@@ -41,12 +47,12 @@ export class WarehousesService {
   async findAll(
     organizationId: string,
     page: number = 1,
-    limit: number = 10,
+    limit: number = 20,
     search?: string,
   ) {
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.WarehouseWhereInput = { organizationId };
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -71,18 +77,12 @@ export class WarehousesService {
       this.prisma.warehouse.count({ where }),
     ]);
 
-    return {
-      items: warehouses,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(warehouses, total, page, limit);
   }
 
-  async findOne(id: string, organizationId?: string) {
+  async findOne(id: string, organizationId: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, ...(organizationId && { organizationId }) },
+      where: { id, organizationId },
       include: {
         locations: true,
         organization: {
@@ -147,7 +147,7 @@ export class WarehousesService {
   async addLocation(
     warehouseId: string,
     locationDto: CreateWarehouseLocationDto,
-    organizationId?: string,
+    organizationId: string,
   ) {
     await this.findOne(warehouseId, organizationId);
 
@@ -164,7 +164,7 @@ export class WarehousesService {
     return location;
   }
 
-  async getLocations(warehouseId: string, organizationId?: string) {
+  async getLocations(warehouseId: string, organizationId: string) {
     await this.findOne(warehouseId, organizationId);
 
     return this.prisma.warehouseLocation.findMany({
@@ -175,7 +175,7 @@ export class WarehousesService {
   async removeLocation(
     warehouseId: string,
     locationId: string,
-    organizationId?: string,
+    organizationId: string,
   ) {
     await this.findOne(warehouseId, organizationId);
 
@@ -206,59 +206,75 @@ export class WarehousesService {
   async createStockMovement(
     dto: CreateStockMovementDto,
     performedBy: string,
-    organizationId?: string,
+    organizationId: string,
   ) {
-    // Verify vehicle exists in same organization if organizationId provided
-    const vehicle = await this.prisma.vehicle.findFirst({
-      where: { id: dto.vehicleId, ...(organizationId && { organizationId }) },
-    });
+    this.validateMovementShape(dto);
 
-    if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID ${dto.vehicleId} not found`);
-    }
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const vehicle = await transaction.vehicle.findFirst({
+          where: { id: dto.vehicleId, organizationId },
+        });
+        if (!vehicle) throw new NotFoundException('Vehicle not found');
 
-    // Create the movement record
-    const movement = await this.prisma.stockMovement.create({
-      data: {
-        ...dto,
-        performedBy,
+        const locationIds = [dto.fromLocationId, dto.toLocationId].filter(
+          (locationId): locationId is string => Boolean(locationId),
+        );
+        const locations = await transaction.warehouseLocation.findMany({
+          where: {
+            id: { in: locationIds },
+            warehouse: { organizationId },
+          },
+          select: { id: true },
+        });
+        if (
+          new Set(locations.map(({ id }) => id)).size !== locationIds.length
+        ) {
+          throw new NotFoundException('Warehouse location not found');
+        }
+        if (
+          dto.fromLocationId &&
+          vehicle.currentLocationId !== dto.fromLocationId
+        ) {
+          throw new ConflictException(
+            'Vehicle is not currently in the source location',
+          );
+        }
+
+        const movement = await transaction.stockMovement.create({
+          data: { ...dto, performedBy, organizationId },
+        });
+        const nextLocationId =
+          dto.type === StockMovementType.OUT ? null : dto.toLocationId;
+        const updated = await transaction.vehicle.updateMany({
+          where: {
+            id: dto.vehicleId,
+            organizationId,
+            currentLocationId: vehicle.currentLocationId,
+          },
+          data: { currentLocationId: nextLocationId },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException('Vehicle location changed concurrently');
+        }
+        return movement;
       },
-    });
-
-    // Update vehicle's current location if "in" or "transfer"
-    if (dto.toLocationId && (dto.type === 'in' || dto.type === 'transfer')) {
-      await this.prisma.vehicle.update({
-        where: { id: dto.vehicleId },
-        data: { currentLocationId: dto.toLocationId },
-      });
-    }
-
-    // If type is "out", clear the location
-    if (dto.type === 'out') {
-      await this.prisma.vehicle.update({
-        where: { id: dto.vehicleId },
-        data: { currentLocationId: null },
-      });
-    }
-
-    this.logger.log(
-      `Stock movement created: ${movement.type} for vehicle ${dto.vehicleId}`,
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-    return movement;
   }
 
   async getStockMovements(
+    organizationId: string,
     vehicleId?: string,
     page: number = 1,
-    limit: number = 10,
-    organizationId?: string,
+    limit: number = 20,
   ) {
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-    if (vehicleId) {
-      where.vehicleId = vehicleId;
-    }
+    const where: Prisma.StockMovementWhereInput = {
+      organizationId,
+      ...(vehicleId ? { vehicleId } : {}),
+    };
 
     const [movements, total] = await Promise.all([
       this.prisma.stockMovement.findMany({
@@ -270,12 +286,25 @@ export class WarehousesService {
       this.prisma.stockMovement.count({ where }),
     ]);
 
-    return {
-      items: movements,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(movements, total, page, limit);
+  }
+
+  private validateMovementShape(dto: CreateStockMovementDto): void {
+    if (dto.type === StockMovementType.IN && !dto.toLocationId) {
+      throw new BadRequestException('An inbound movement needs a destination');
+    }
+    if (dto.type === StockMovementType.OUT && !dto.fromLocationId) {
+      throw new BadRequestException('An outbound movement needs a source');
+    }
+    if (
+      dto.type === StockMovementType.TRANSFER &&
+      (!dto.fromLocationId ||
+        !dto.toLocationId ||
+        dto.fromLocationId === dto.toLocationId)
+    ) {
+      throw new BadRequestException(
+        'A transfer needs different source and destination locations',
+      );
+    }
   }
 }

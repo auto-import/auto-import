@@ -11,6 +11,7 @@ import { CreateDossierDto } from './dto/create-dossier.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { DossierType } from './dto/dossier-type.enum';
+import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
 export class DossiersService {
@@ -65,7 +66,7 @@ export class DossiersService {
     salesUserId: string,
     organizationId: string,
   ) {
-    const { clientId, type, vehicleId, vehicleIds, orderId, status } =
+    const { clientId, type, vehicleId, vehicleIds, orderId } =
       createDossierDto;
 
     // Check if client exists AND belongs to same organization
@@ -136,8 +137,7 @@ export class DossiersService {
     // Generate reference
     const reference = await this.generateReference();
     const dossierType = type || DossierType.VEHICLE_SALE_CIF;
-    const initialStatus =
-      status || this.workflowService.getInitialStatus(dossierType);
+    const initialStatus = this.workflowService.getInitialStatus(dossierType);
 
     const dossier = await this.prisma.$transaction(async (prisma) => {
       // Create dossier
@@ -255,7 +255,7 @@ export class DossiersService {
         vehicleId,
         dossier: {
           id: { not: dossierId },
-          status: { notIn: ['cloture', 'service_termine', 'annule'] },
+          status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
         },
       },
     });
@@ -342,8 +342,8 @@ export class DossiersService {
     });
 
     if (
-      vehicle?.status === 'in_transit' ||
-      vehicle?.status === 'in_customs' ||
+      vehicle?.status === 'inTransit' ||
+      vehicle?.status === 'inCustoms' ||
       vehicle?.status === 'sold'
     ) {
       throw new ConflictException(
@@ -418,7 +418,7 @@ export class DossiersService {
   async findAll(
     organizationId: string,
     page: number = 1,
-    limit: number = 10,
+    limit: number = 20,
     filters?: FilterDossierDto,
   ) {
     const skip = (page - 1) * limit;
@@ -474,13 +474,12 @@ export class DossiersService {
       this.prisma.dossier.count({ where }),
     ]);
 
-    return {
-      items: dossiers.map((d) => this.mapDossierWithVehicles(d)),
+    return paginate(
+      dossiers.map((d) => this.mapDossierWithVehicles(d)),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    );
   }
 
   async findOne(id: string, organizationId?: string) {
@@ -583,9 +582,9 @@ export class DossiersService {
     );
 
     const isClosing =
-      status === 'cloture' ||
-      status === 'service_termine' ||
-      status === 'annule';
+      status === 'closed' ||
+      status === 'serviceCompleted' ||
+      status === 'cancelled';
 
     const updatedDossier = await this.prisma.$transaction(async (prisma) => {
       // Update dossier status
@@ -619,7 +618,7 @@ export class DossiersService {
       });
 
       // If closing dossier successfully, update attached vehicles to 'sold'
-      if (status === 'cloture' || status === 'service_termine') {
+      if (status === 'closed' || status === 'serviceCompleted') {
         const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
         if (vehicleIds.length > 0) {
           await prisma.vehicle.updateMany({
@@ -694,76 +693,36 @@ export class DossiersService {
   }
 
   async getStatistics(organizationId: string) {
-    const stats = await this.prisma.$transaction([
+    const [total, statuses, types] = await Promise.all([
       this.prisma.dossier.count({ where: { organizationId } }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'prospection' },
+      this.prisma.dossier.groupBy({
+        by: ['status'],
+        where: { organizationId },
+        orderBy: { status: 'asc' },
+        _count: { id: true },
       }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'contrat_signe' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'recherche_vehicule' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'achat' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'shipping' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'douane' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'livraison' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, status: 'cloture' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, type: 'VEHICLE_SALE_CIF' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, type: 'VEHICLE_SALE_DDP' },
-      }),
-      this.prisma.dossier.count({
-        where: { organizationId, type: 'SHIPPING_ONLY' },
+      this.prisma.dossier.groupBy({
+        by: ['type'],
+        where: { organizationId },
+        orderBy: { type: 'asc' },
+        _count: { id: true },
       }),
     ]);
 
-    const [
-      total,
-      prospection,
-      contrat_signe,
-      recherche_vehicule,
-      achat,
-      shipping,
-      douane,
-      livraison,
-      cloture,
-      cifCount,
-      ddpCount,
-      shippingOnlyCount,
-    ] = stats;
+    const byStatus = Object.fromEntries(
+      statuses.map((entry) => [entry.status, entry._count.id]),
+    );
+    const byType = Object.fromEntries(
+      types.map((entry) => [entry.type, entry._count.id]),
+    );
+    const completed =
+      (byStatus.closed ?? 0) + (byStatus.serviceCompleted ?? 0);
 
     return {
       total,
-      byStatus: {
-        prospection,
-        contrat_signe,
-        recherche_vehicule,
-        achat,
-        shipping,
-        douane,
-        livraison,
-        cloture,
-      },
-      byType: {
-        VEHICLE_SALE_CIF: cifCount,
-        VEHICLE_SALE_DDP: ddpCount,
-        SHIPPING_ONLY: shippingOnlyCount,
-      },
-      completionRate: total > 0 ? (cloture / total) * 100 : 0,
+      byStatus,
+      byType,
+      completionRate: total > 0 ? (completed / total) * 100 : 0,
     };
   }
 }

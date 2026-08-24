@@ -1,16 +1,10 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any */
+// @ts-nocheck Legacy mock implementation retained only as an exported reference.
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Topbar, StatusBadge } from '@/components';
-import {
-  getClientCRMById,
-  getDossiersByClient,
-  getVehiculesByClient,
-  getPaiementsByClient,
-  getActivitesByClient,
-  utilisateurs,
-} from '@/lib/mockData';
 import {
   CLIENT_PROFILE_TABS,
   TYPE_CLIENT_LABELS,
@@ -33,6 +27,15 @@ import {
   FileText,
   Edit,
 } from 'lucide-react';
+
+export { default } from '@/components/crm/ClientProfileWorkspace';
+
+const getClientCRMById = (_id: string): any => undefined;
+const getDossiersByClient = (_id: string): any[] => [];
+const getVehiculesByClient = (_id: string): any[] => [];
+const getPaiementsByClient = (_id: string): any[] => [];
+const getActivitesByClient = (_id: string): any[] => [];
+const utilisateurs: any[] = [];
 
 interface ClientProfilePageProps {
   params: Promise<{ id: string }>;
@@ -88,7 +91,7 @@ function getInitials(prenom: string, nom: string): string {
   return `${prenom.charAt(0)}${nom.charAt(0)}`.toUpperCase();
 }
 
-export default function ClientProfilePage({ params }: ClientProfilePageProps) {
+export function LegacyClientProfilePage({ params }: ClientProfilePageProps) {
   const { id } = React.use(params);
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('overview');

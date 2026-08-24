@@ -7,6 +7,7 @@ import {
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DossierType } from './dossier-type.enum';
+import { DossierStatus } from '@auto-import/contracts';
 
 export class FilterDossierDto extends PaginationDto {
   @IsOptional()
@@ -14,8 +15,8 @@ export class FilterDossierDto extends PaginationDto {
   type?: DossierType;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(DossierStatus)
+  status?: DossierStatus;
 
   @IsOptional()
   @IsUUID()

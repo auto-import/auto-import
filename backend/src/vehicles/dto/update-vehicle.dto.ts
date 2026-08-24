@@ -8,7 +8,8 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AcquisitionType, VehicleStatus } from './create-vehicle.dto';
+import { AcquisitionType } from './create-vehicle.dto';
+import { VehicleStatus } from '@auto-import/contracts';
 
 export class UpdateVehicleDto {
   @IsOptional()

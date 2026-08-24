@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class UpdateRoleDto {
   @IsOptional()
@@ -10,10 +10,7 @@ export class UpdateRoleDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
-  scope?: string;
-
-  @IsOptional()
   @IsArray()
+  @IsUUID('4', { each: true })
   permissionIds?: string[];
 }

@@ -17,6 +17,9 @@ import { CreateCandidateDto } from './dto/create-candidate.dto';
 import { UpdateCandidateDto } from './dto/update-candidate.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Permission } from '@auto-import/contracts';
+import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
+import type { AuthenticatedUser } from '../auth/auth.types';
 
 @Controller('vehicle-requests')
 export class VehicleRequestsController {
@@ -29,23 +32,26 @@ export class VehicleRequestsController {
   // ──────────────────────────────────────────────
 
   @Get('statistics')
-  @RequirePermission('vehicles:read')
-  getStatistics(@CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_READ)
+  getStatistics(@CurrentUser() user: AuthenticatedUser) {
     return this.vehicleRequestsService.getStatistics(user.organizationId);
   }
 
   @Post('candidates')
-  @RequirePermission('vehicles:write')
-  addCandidate(@Body() dto: CreateCandidateDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
+  addCandidate(
+    @Body() dto: CreateCandidateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.vehicleRequestsService.addCandidate(dto, user.organizationId);
   }
 
   @Patch('candidates/:id')
-  @RequirePermission('vehicles:write')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
   updateCandidate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCandidateDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.updateCandidate(
       id,
@@ -55,10 +61,10 @@ export class VehicleRequestsController {
   }
 
   @Post('candidates/:id/validate')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
   validateCandidate(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.validateCandidate(
       id,
@@ -68,20 +74,20 @@ export class VehicleRequestsController {
   }
 
   @Post('candidates/:id/reject')
-  @RequirePermission('vehicles:write')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
   rejectCandidate(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.rejectCandidate(id, user.organizationId);
   }
 
   @Post(':id/confirm-purchase')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
   confirmPurchase(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: any,
-    @CurrentUser() user: any,
+    @Body() dto: ConfirmPurchaseDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.confirmPurchase(
       id,
@@ -96,14 +102,20 @@ export class VehicleRequestsController {
   // ──────────────────────────────────────────────
 
   @Post()
-  @RequirePermission('dossiers:write')
-  create(@Body() dto: CreateVehicleRequestDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
+  create(
+    @Body() dto: CreateVehicleRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.vehicleRequestsService.create(dto, user.organizationId);
   }
 
   @Get()
-  @RequirePermission('vehicles:read')
-  findAll(@Query() query: FilterVehicleRequestDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_READ)
+  findAll(
+    @Query() query: FilterVehicleRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.vehicleRequestsService.findAll(
       user.organizationId,
       query.page,
@@ -113,33 +125,39 @@ export class VehicleRequestsController {
   }
 
   @Get(':id')
-  @RequirePermission('vehicles:read')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_READ)
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.vehicleRequestsService.findOne(id, user.organizationId);
   }
 
   @Get(':id/candidates')
-  @RequirePermission('vehicles:read')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_READ)
   getCandidates(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.getCandidates(id, user.organizationId);
   }
 
   @Patch(':id')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateVehicleRequestDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.vehicleRequestsService.update(id, user.organizationId, dto);
   }
 
   @Delete(':id')
-  @RequirePermission('dossiers:write')
-  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.VEHICLE_REQUESTS_WRITE)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.vehicleRequestsService.remove(id, user.organizationId);
   }
 }

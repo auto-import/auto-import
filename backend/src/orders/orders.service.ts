@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-status.dto';
+import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
 export class OrdersService {
@@ -192,7 +193,7 @@ export class OrdersService {
   async findAll(
     organizationId: string,
     page: number = 1,
-    limit: number = 10,
+    limit: number = 20,
     filters?: any,
   ) {
     const skip = (page - 1) * limit;
@@ -257,13 +258,7 @@ export class OrdersService {
       this.prisma.order.count({ where }),
     ]);
 
-    return {
-      items: orders,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(orders, total, page, limit);
   }
 
   async findOne(id: string, organizationId?: string) {

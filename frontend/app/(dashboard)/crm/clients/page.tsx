@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck Legacy mock implementation retained only as an exported reference.
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -16,14 +18,20 @@ import {
 import Topbar from '@/components/Topbar';
 import StatusBadge from '@/components/StatusBadge';
 import DataTable from '@/components/DataTable';
-import { clientsCRM, utilisateurs, getDossiersByClient, getVehiculesByClient } from '@/lib/mockData';
 import { TYPE_CLIENT_LABELS } from '@/lib/constants';
 import type { ClientCRM, Column } from '@/types';
+
+export { default } from '@/components/crm/ClientsWorkspace';
+
+const clientsCRM: ClientCRM[] = [];
+const utilisateurs: Array<{ id: string; avatar_initials: string; nom: string }> = [];
+const getDossiersByClient = (_id: string): unknown[] => [];
+const getVehiculesByClient = (_id: string): unknown[] => [];
 
 const TYPE_CLIENT_FILTERS = ['tous', 'particulier', 'revendeur', 'importateur', 'societe'] as const;
 const STATUS_FILTERS = ['tous', 'actif', 'inactif', 'suspendu'] as const;
 
-export default function ClientsPage() {
+export function LegacyClientsPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('tous');

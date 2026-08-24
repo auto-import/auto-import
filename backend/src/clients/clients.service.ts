@@ -3,25 +3,60 @@ import {
   NotFoundException,
   Logger,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { paginate } from '../common/helpers/pagination.helper';
+import { Prisma } from '@prisma/client';
+import { ContactResolutionService } from '../crm/contact-resolution.service';
+import { CreateClientDto } from './dto/create-client.dto';
 
 @Injectable()
 export class ClientsService {
   private readonly logger = new Logger(ClientsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private readonly contacts?: ContactResolutionService,
+  ) {}
+
+  async create(dto: CreateClientDto, organizationId: string, userId: string) {
+    const assignedTo = dto.assignedTo ?? userId;
+    return this.prisma.$transaction(
+      async (tx) => {
+        const assignee = await tx.user.findFirst({
+          where: { id: assignedTo, organizationId, status: 'active' },
+          select: { id: true },
+        });
+        if (!assignee) throw new NotFoundException('Assignee not found');
+        const client = await tx.client.create({
+          data: { ...dto, assignedTo, organizationId },
+        });
+        if (this.contacts) {
+          await this.contacts.syncClientContacts(
+            tx,
+            organizationId,
+            client.id,
+            dto.phone,
+            dto.email,
+          );
+        }
+        return client;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
 
   async findAll(
     organizationId: string,
     page: number = 1,
-    limit: number = 10,
-    filters?: any,
+    limit: number = 20,
+    filters?: { search?: string },
   ) {
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.ClientWhereInput = { organizationId };
     if (filters?.search) {
       where.OR = [
         { firstName: { contains: filters.search, mode: 'insensitive' } },
@@ -65,19 +100,20 @@ export class ClientsService {
               createdAt: true,
             },
           },
+          assignee: { select: { id: true, firstName: true, lastName: true } },
+          contactPoints: true,
+          tasks: {
+            where: { status: { notIn: ['completed', 'cancelled'] } },
+            orderBy: { dueDate: 'asc' },
+            take: 1,
+          },
         },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.client.count({ where }),
     ]);
 
-    return {
-      items: clients,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(clients, total, page, limit);
   }
 
   async findOne(id: string, organizationId?: string) {
@@ -109,6 +145,9 @@ export class ClientsService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+        contactPoints: true,
+        tasks: { orderBy: { dueDate: 'asc' } },
       },
     });
 
@@ -117,10 +156,10 @@ export class ClientsService {
     }
 
     // Format dossiers with vehicles for backward compatibility
-    const formattedDossiers = client.dossiers.map((d: any) => ({
+    const formattedDossiers = client.dossiers.map((d) => ({
       ...d,
       vehicles: d.dossierVehicles
-        ? d.dossierVehicles.map((dv: any) => dv.vehicle)
+        ? d.dossierVehicles.map((dv) => dv.vehicle)
         : [],
       vehicle:
         d.dossierVehicles && d.dossierVehicles.length > 0
@@ -138,9 +177,9 @@ export class ClientsService {
       totalOrders: client.orders.length,
       activeDossiers: client.dossiers.filter(
         (d) =>
-          d.status !== 'cloture' &&
-          d.status !== 'service_termine' &&
-          d.status !== 'annule',
+          d.status !== 'closed' &&
+          d.status !== 'serviceCompleted' &&
+          d.status !== 'cancelled',
       ).length,
     };
 
@@ -154,14 +193,38 @@ export class ClientsService {
   ) {
     await this.findOne(id, organizationId);
 
-    const client = await this.prisma.client.update({
-      where: { id },
-      data: updateClientDto,
-      include: {
-        prospect: true,
-        dossiers: true,
-        orders: true,
-      },
+    const client = await this.prisma.$transaction(async (tx) => {
+      if (updateClientDto.assignedTo) {
+        const assignee = await tx.user.findFirst({
+          where: {
+            id: updateClientDto.assignedTo,
+            organizationId,
+            status: 'active',
+          },
+          select: { id: true },
+        });
+        if (!assignee) throw new NotFoundException('Assignee not found');
+      }
+      const updated = await tx.client.update({
+        where: { id },
+        data: updateClientDto,
+        include: { prospect: true, dossiers: true, orders: true },
+      });
+      if (
+        updateClientDto.phone !== undefined ||
+        updateClientDto.email !== undefined
+      ) {
+        if (this.contacts) {
+          await this.contacts.syncClientContacts(
+            tx,
+            organizationId,
+            id,
+            updateClientDto.phone,
+            updateClientDto.email,
+          );
+        }
+      }
+      return updated;
     });
 
     this.logger.log(
@@ -207,10 +270,10 @@ export class ClientsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return dossiers.map((d: any) => ({
+    return dossiers.map((d) => ({
       ...d,
       vehicles: d.dossierVehicles
-        ? d.dossierVehicles.map((dv: any) => dv.vehicle)
+        ? d.dossierVehicles.map((dv) => dv.vehicle)
         : [],
       vehicle:
         d.dossierVehicles && d.dossierVehicles.length > 0

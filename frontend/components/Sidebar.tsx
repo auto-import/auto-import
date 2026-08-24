@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Car,
@@ -18,11 +18,13 @@ import {
   FileText,
   CheckSquare,
   DollarSign,
-} from 'lucide-react';
-import type { ReactNode } from 'react';
-import { SIDEBAR_NAV_ITEMS } from '@/lib/constants';
-import { useAuth } from '@/components/AuthProvider';
-import type { Permission } from '@/types';
+  PhoneCall,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
+import type { ApiPermission } from "@/lib/api-contract";
 
 const ICON_MAP: Record<string, ReactNode> = {
   LayoutDashboard: <LayoutDashboard className="w-5 h-5" />,
@@ -40,31 +42,36 @@ const ICON_MAP: Record<string, ReactNode> = {
   FileText: <FileText className="w-5 h-5" />,
   CheckSquare: <CheckSquare className="w-5 h-5" />,
   DollarSign: <DollarSign className="w-5 h-5" />,
+  PhoneCall: <PhoneCall className="w-5 h-5" />,
 };
 
-const ROUTE_PERMISSIONS: Record<string, Permission> = {
-  '/': 'dashboard',
-  '/crm': 'crm_lecture',
-  '/offres': 'offres_lecture',
-  '/dossiers': 'dossiers_lecture',
-  '/vehicules': 'vehicules_lecture',
-  '/fournisseurs': 'fournisseurs_lecture',
-  '/expeditions': 'expeditions_lecture',
-  '/facturation': 'facturation_lecture',
-  '/finance': 'facturation_lecture',
-  '/documents': 'documents_lecture',
-  '/tasks': 'taches_lecture',
-  '/notifications': 'dashboard',
-  '/rapports': 'rapports',
-  '/utilisateurs': 'utilisateurs',
+const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
+  "/": Permission.DASHBOARD_READ,
+  "/crm": Permission.PROSPECTS_READ,
+  "/crm/call-center": Permission.CALL_CENTER_ACCESS,
+  "/offres": Permission.OFFERS_READ,
+  "/dossiers": Permission.DOSSIERS_READ,
+  "/vehicules": Permission.VEHICLES_READ,
+  "/fournisseurs": Permission.PARTNERS_READ,
+  "/expeditions": Permission.SHIPMENTS_READ,
+  "/facturation": Permission.PAYMENTS_READ,
+  "/finance": Permission.PAYMENTS_READ,
+  "/documents": Permission.DOCUMENTS_READ,
+  "/tasks": Permission.TASKS_READ,
+  "/notifications": Permission.DASHBOARD_READ,
+  "/rapports": Permission.REPORTS_READ,
+  "/utilisateurs": Permission.USERS_READ,
 };
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { hasPermission, currentUser } = useAuth();
+  const initials = currentUser
+    ? `${currentUser.firstName[0] ?? ""}${currentUser.lastName[0] ?? ""}`.toUpperCase()
+    : "";
 
   const isActive = (href: string): boolean => {
-    if (href === '/') return pathname === '/';
+    if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   };
 
@@ -81,7 +88,9 @@ export default function Sidebar() {
           <LayoutDashboard className="w-5 h-5 text-white" />
         </div>
         <div>
-          <span className="text-base font-bold text-foreground">CarImport DZ</span>
+          <span className="text-base font-bold text-foreground">
+            CarImport DZ
+          </span>
           <p className="text-[10px] text-muted">ERP v2.0</p>
         </div>
       </div>
@@ -96,9 +105,10 @@ export default function Sidebar() {
                   href={item.href}
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-                    ${active
-                      ? 'bg-sidebar-active-bg text-sidebar-active-text'
-                      : 'text-foreground hover:bg-sidebar-hover-bg'
+                    ${
+                      active
+                        ? "bg-sidebar-active-bg text-sidebar-active-text"
+                        : "text-foreground hover:bg-sidebar-hover-bg"
                     }
                   `}
                 >
@@ -114,11 +124,15 @@ export default function Sidebar() {
       <div className="px-3 py-4 border-t border-border">
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="w-8 h-8 rounded-full bg-status-blue-bg flex items-center justify-center text-[10px] font-bold text-status-blue-text">
-            {currentUser.avatar_initials}
+            {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{currentUser.prenom} {currentUser.nom}</p>
-            <p className="text-[11px] text-muted truncate">{currentUser.role === 'super_admin' ? 'Super Admin' : currentUser.departement || currentUser.role}</p>
+            <p className="text-sm font-medium truncate">
+              {currentUser?.firstName} {currentUser?.lastName}
+            </p>
+            <p className="text-[11px] text-muted truncate">
+              {currentUser?.roles[0]?.name ?? "Utilisateur"}
+            </p>
           </div>
         </div>
       </div>

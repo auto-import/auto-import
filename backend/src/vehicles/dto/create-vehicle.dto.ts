@@ -8,18 +8,11 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { VehicleStatus } from '@auto-import/contracts';
 
 export enum AcquisitionType {
   STOCK = 'stock',
   CLIENT_REQUEST = 'client_request',
-}
-
-export enum VehicleStatus {
-  AVAILABLE = 'available',
-  RESERVED = 'reserved',
-  SOLD = 'sold',
-  IN_TRANSIT = 'in_transit',
-  IN_CUSTOMS = 'in_customs',
 }
 
 export class CreateVehicleDto {

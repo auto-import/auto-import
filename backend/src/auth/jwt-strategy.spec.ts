@@ -2,18 +2,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from './auth.service';
 
 describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)', () => {
   let strategy: JwtStrategy;
-  let prisma: any;
+  let getCurrentUser: jest.MockedFunction<AuthService['getCurrentUser']>;
 
   beforeEach(async () => {
-    prisma = {
-      user: {
-        findUnique: jest.fn(),
-      },
-    };
+    getCurrentUser = jest.fn<
+      ReturnType<AuthService['getCurrentUser']>,
+      Parameters<AuthService['getCurrentUser']>
+    >();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -25,8 +24,8 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
           },
         },
         {
-          provide: PrismaService,
-          useValue: prisma,
+          provide: AuthService,
+          useValue: { getCurrentUser },
         },
       ],
     }).compile();
@@ -35,27 +34,15 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
   });
 
   it('should accept token for an active user with an active organization', async () => {
-    prisma.user.findUnique.mockResolvedValue({
+    getCurrentUser.mockResolvedValue({
       id: 'user-1',
       email: 'active@example.com',
       organizationId: 'org-1',
       firstName: 'Active',
       lastName: 'User',
-      status: 'active',
-      organization: {
-        id: 'org-1',
-        status: 'active',
-      },
-      userRoles: [
-        {
-          role: {
-            name: 'Commercial',
-            rolePermissions: [
-              { permission: { resource: 'dossiers', action: 'read' } },
-            ],
-          },
-        },
-      ],
+      office: null,
+      roles: [{ id: 'role-1', name: 'Commercial', scope: 'tenant' }],
+      permissions: ['dossiers:read'],
     });
 
     const payload = {
@@ -68,22 +55,14 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
     expect(result).toBeDefined();
     expect(result.id).toBe('user-1');
     expect(result.organizationId).toBe('org-1');
-    expect(result.roles).toContain('Commercial');
+    expect(result.roles[0]?.name).toBe('Commercial');
     expect(result.permissions).toContain('dossiers:read');
   });
 
   it('should reject token if user has been disabled (status !== active)', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'user-1',
-      email: 'disabled@example.com',
-      organizationId: 'org-1',
-      status: 'inactive',
-      organization: {
-        id: 'org-1',
-        status: 'active',
-      },
-      userRoles: [],
-    });
+    getCurrentUser.mockRejectedValue(
+      new UnauthorizedException('Account is inactive'),
+    );
 
     const payload = {
       sub: 'user-1',
@@ -97,7 +76,9 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
   });
 
   it('should reject token if user has been deleted from database', async () => {
-    prisma.user.findUnique.mockResolvedValue(null);
+    getCurrentUser.mockRejectedValue(
+      new UnauthorizedException('Invalid session'),
+    );
 
     const payload = {
       sub: 'deleted-user',
@@ -111,17 +92,9 @@ describe('JwtStrategy (Requirement 14: Disabled & Deleted User Token Security)',
   });
 
   it('should reject token if user organization is inactive/suspended', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'user-1',
-      email: 'user@example.com',
-      organizationId: 'org-1',
-      status: 'active',
-      organization: {
-        id: 'org-1',
-        status: 'suspended',
-      },
-      userRoles: [],
-    });
+    getCurrentUser.mockRejectedValue(
+      new UnauthorizedException('Organization is inactive'),
+    );
 
     const payload = {
       sub: 'user-1',

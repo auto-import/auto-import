@@ -1,7 +1,8 @@
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PermissionsGuard } from './permissions.guard';
-import { PERMISSION_KEY } from '../decorators/require-permission.decorator';
+import type { Permission } from '@auto-import/contracts';
+import type { AuthenticatedUser } from '../../auth/auth.types';
 
 describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
   let guard: PermissionsGuard;
@@ -13,8 +14,8 @@ describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
   });
 
   function createMockContext(
-    user: any,
-    requiredPermission?: string,
+    user: Partial<AuthenticatedUser> | null,
+    requiredPermission?: Permission,
   ): ExecutionContext {
     jest.spyOn(reflector, 'get').mockReturnValue(requiredPermission);
 
@@ -22,7 +23,7 @@ describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
       getHandler: jest.fn(),
       getClass: jest.fn(),
       switchToHttp: () => ({
-        getRequest: () => ({
+        getRequest: (): { user: Partial<AuthenticatedUser> | null } => ({
           user,
         }),
       }),
@@ -60,7 +61,7 @@ describe('PermissionsGuard (Phase 3-5 RBAC & Access Control)', () => {
     );
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     expect(() => guard.canActivate(context)).toThrow(
-      /Permission required: dossiers:write/,
+      'Insufficient permissions',
     );
   });
 });

@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { DossierType } from '../dto/dossier-type.enum';
+import { DossierStatus } from '@auto-import/contracts';
 import {
   WORKFLOW_STEPS_BY_TYPE,
   INITIAL_STATUS_BY_TYPE,
@@ -18,15 +19,14 @@ export class DossierWorkflowService {
    */
   normalizeStatus(status: string): string {
     if (!status) return status;
-    const lower = status.toLowerCase();
-    return LEGACY_STATUS_ALIASES[lower] || lower;
+    return LEGACY_STATUS_ALIASES[status.toLowerCase()] || status;
   }
 
   /**
    * Get the initial default status for a dossier type
    */
-  getInitialStatus(type: DossierType): string {
-    return INITIAL_STATUS_BY_TYPE[type] || 'offre_selectionnee';
+  getInitialStatus(type: DossierType): DossierStatus {
+    return INITIAL_STATUS_BY_TYPE[type] || DossierStatus.OFFER_SELECTED;
   }
 
   /**
@@ -34,21 +34,24 @@ export class DossierWorkflowService {
    */
   isTerminalStatus(status: string): boolean {
     if (!status) return false;
-    return TERMINAL_STATUSES.has(status.toLowerCase());
+    return TERMINAL_STATUSES.has(this.normalizeStatus(status));
   }
 
   /**
    * Get all ordered workflow steps for a dossier type
    */
-  getWorkflowSteps(type: DossierType): string[] {
+  getWorkflowSteps(type: DossierType): DossierStatus[] {
     return WORKFLOW_STEPS_BY_TYPE[type] || [];
   }
 
   /**
    * Get all allowed next transitions from currentStatus for a given dossier type
    */
-  getAllowedTransitions(type: DossierType, currentStatus: string): string[] {
-    const rawStatus = (currentStatus || '').toLowerCase();
+  getAllowedTransitions(
+    type: DossierType,
+    currentStatus: string,
+  ): DossierStatus[] {
+    const rawStatus = currentStatus || '';
 
     // Terminal states cannot transition to anything
     if (this.isTerminalStatus(rawStatus)) {
@@ -61,21 +64,18 @@ export class DossierWorkflowService {
     }
 
     const normalized = this.normalizeStatus(rawStatus);
-    const currentIndex = steps.indexOf(normalized);
+    const currentIndex = steps.indexOf(normalized as DossierStatus);
 
-    const allowed: string[] = [];
+    const allowed: DossierStatus[] = [];
 
     if (currentIndex !== -1 && currentIndex < steps.length - 1) {
       // Immediate next sequential step
       allowed.push(steps[currentIndex + 1]);
-    } else if (rawStatus === 'prospection') {
-      // Backward compatibility for legacy 'prospection'
-      allowed.push('client_confirme', 'contrat_signe');
     }
 
     // Cancellation is always an allowed option from any non-terminal state
-    if (!allowed.includes('annule')) {
-      allowed.push('annule');
+    if (!allowed.includes(DossierStatus.CANCELLED)) {
+      allowed.push(DossierStatus.CANCELLED);
     }
 
     return allowed;
@@ -84,22 +84,21 @@ export class DossierWorkflowService {
   /**
    * Get the immediate next sequential status
    */
-  getNextStatus(type: DossierType, currentStatus: string): string | null {
-    const rawStatus = (currentStatus || '').toLowerCase();
+  getNextStatus(
+    type: DossierType,
+    currentStatus: string,
+  ): DossierStatus | null {
+    const rawStatus = currentStatus || '';
     if (this.isTerminalStatus(rawStatus)) {
       return null;
     }
 
     const steps = this.getWorkflowSteps(type);
     const normalized = this.normalizeStatus(rawStatus);
-    const currentIndex = steps.indexOf(normalized);
+    const currentIndex = steps.indexOf(normalized as DossierStatus);
 
     if (currentIndex !== -1 && currentIndex < steps.length - 1) {
       return steps[currentIndex + 1];
-    }
-
-    if (rawStatus === 'prospection') {
-      return steps[1] || steps[0]; // 'client_confirme'
     }
 
     return null;
@@ -113,8 +112,8 @@ export class DossierWorkflowService {
     fromStatus: string,
     toStatus: string,
   ): void {
-    const from = (fromStatus || '').toLowerCase();
-    const to = (toStatus || '').toLowerCase();
+    const from = this.normalizeStatus(fromStatus || '');
+    const to = this.normalizeStatus(toStatus || '');
 
     if (this.isTerminalStatus(from)) {
       throw new ConflictException(
@@ -132,7 +131,8 @@ export class DossierWorkflowService {
     const normalizedTo = this.normalizeStatus(to);
 
     const isDirectlyAllowed =
-      allowed.includes(to) || allowed.includes(normalizedTo);
+      allowed.includes(to as DossierStatus) ||
+      allowed.includes(normalizedTo as DossierStatus);
 
     if (!isDirectlyAllowed) {
       throw new ConflictException(
