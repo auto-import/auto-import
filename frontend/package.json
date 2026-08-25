@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:text": "node scripts/check-ui-text.mjs",
+    "test:browser:phase2": "node scripts/phase2-browser-acceptance.mjs",
+    "test:browser:final": "node scripts/phase2-browser-acceptance.mjs",
+    "test:browser:dossier-ui": "node scripts/dossier-ui-browser-smoke.mjs"
   },
   "dependencies": {
     "@auto-import/contracts": "file:../contracts",

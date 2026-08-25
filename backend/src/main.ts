@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { PrismaService } from './prisma/prisma.service';
 import helmet from 'helmet';
 import { configureOpenApi } from './common/openapi';
 
@@ -62,6 +64,7 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
+    new AuditInterceptor(app.get(PrismaService)),
     new ResponseInterceptor(),
   );
 

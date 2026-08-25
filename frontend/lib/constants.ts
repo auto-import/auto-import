@@ -665,7 +665,9 @@ export const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: 'Tasks', href: '/tasks', icon: 'CheckSquare' },
   { label: 'Notifications', href: '/notifications', icon: 'Bell' },
   { label: 'Reports', href: '/rapports', icon: 'BarChart3' },
+  { label: 'Audit', href: '/audit', icon: 'ShieldCheck' },
   { label: 'Users & Roles', href: '/utilisateurs', icon: 'UserCog' },
+  { label: 'Settings', href: '/parametres', icon: 'Settings' },
 ];
 
 // ─── Dossier Detail Tabs ─────────────────────────────────────────────

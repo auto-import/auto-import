@@ -286,12 +286,126 @@ export default function DossierDetailWorkspace({
                 <button className={buttonClass} disabled={working || !vin.trim()} onClick={() => void confirmOfferPurchase()}>Confirmer et matérialiser le véhicule</button>
               </section>
             )}
-            <section className="card p-5">
-              <h2 className="font-semibold">Phase 2</h2>
-              <p className="mt-2 text-sm text-muted">
-                Finance, shipping, documents et preuves ne sont pas encore
-                implémentés. Aucun montant ni statut n’est fabriqué.
-              </p>
+            {/* Phase 2: Live Operational Sections */}
+            <section className="card p-6 space-y-6">
+              <div className="flex flex-wrap items-center justify-between border-b border-border pb-4 gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">Opérations, Finance & Documents</h2>
+                  <p className="text-xs text-muted">Contrôle des paiements, statut logistique, transit douanier et pièces justificatives</p>
+                </div>
+              </div>
+
+              {/* Financial Gating & Margin Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
+                  <p className="text-xs font-semibold text-muted uppercase">Porte 1 · Acompte 30%</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-foreground">
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[0]?.paidAmount ?? '0.00'} / {dossier.sections?.finance?.paymentPlan?.installments?.[0]?.amount ?? '30% requis'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">Requis avant confirmation d'achat fournisseur</p>
+                </div>
+
+                <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
+                  <p className="text-xs font-semibold text-muted uppercase">Porte 2 · Solde 70%</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-foreground">
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[1]?.paidAmount ?? '0.00'} / {dossier.sections?.finance?.paymentPlan?.installments?.[1]?.amount ?? '70% requis'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">Requis avant remise des documents / livraison</p>
+                </div>
+
+                <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
+                  <p className="text-xs font-semibold text-muted uppercase">Total Encaissé</p>
+                  <span className="text-lg font-bold text-status-green-text">
+                    {dossier.stats?.totalPayments ? `${dossier.stats.totalPayments.toLocaleString()} DZD` : '0 DZD'}
+                  </span>
+                  <p className="text-xs text-muted">
+                    {dossier.stats?.isFullyPaid ? '✅ Dossier intégralement soldé' : 'Solde restant à percevoir'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Invoices and Payments Section */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm text-foreground">Factures & Règlements associés</h3>
+                {!dossier.sections?.finance?.invoices?.length ? (
+                  <p className="text-xs text-muted">Aucune facture enregistrée pour ce dossier.</p>
+                ) : (
+                  <div className="divide-y border border-border rounded-input overflow-hidden text-sm">
+                    {dossier.sections.finance.invoices.map((inv) => (
+                      <div key={inv.id} className="p-3 flex justify-between items-center bg-background">
+                        <div>
+                          <span className="font-mono font-bold text-foreground">{inv.invoiceNumber}</span>
+                          <span className="ms-3 text-xs text-muted">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="font-semibold">{Number(inv.total).toLocaleString()} {inv.currency}</span>
+                          <span className="text-xs uppercase px-2 py-0.5 rounded bg-muted/20">{inv.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Customs & Shipping Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                <div className="border border-border rounded-input p-4 space-y-2">
+                  <h3 className="font-semibold text-sm text-foreground">Expédition & Conteneur</h3>
+                  {dossier.sections?.shipping ? (
+                    <div className="text-xs space-y-1 text-muted">
+                      <p>Conteneur : <strong className="text-foreground font-mono">{dossier.sections.shipping.containerNumber || 'N/A'}</strong></p>
+                      <p>Navire : <strong className="text-foreground">{dossier.sections.shipping.vesselName || 'N/A'}</strong> (BL: {dossier.sections.shipping.blNumber || '—'})</p>
+                      <p>Statut : <strong className="text-primary">{dossier.sections.shipping.status}</strong></p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted">Aucune expédition maritime active liée.</p>
+                  )}
+                </div>
+
+                <div className="border border-border rounded-input p-4 space-y-2">
+                  <h3 className="font-semibold text-sm text-foreground">Dédouanement</h3>
+                  {dossier.sections?.customs?.length ? (
+                    <div className="text-xs space-y-1 text-muted">
+                      <p>Dossier douane : <strong className="text-foreground font-mono">{dossier.sections.customs[0].reference}</strong></p>
+                      <p>Déclaration (DUM) : <strong className="text-foreground">{dossier.sections.customs[0].declarationNumber || 'En cours'}</strong></p>
+                      <p>Statut : <strong className="text-primary">{dossier.sections.customs[0].status}</strong></p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted">Dossier de transit douanier non ouvert.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Documents & Proofs Section */}
+              <div className="space-y-3 pt-2">
+                <h3 className="font-semibold text-sm text-foreground">Pièces justificatives & Documents déposés ({dossier.sections?.documents?.length || 0})</h3>
+                {!dossier.sections?.documents?.length ? (
+                  <p className="text-xs text-muted">Aucune pièce déposée. Déposez les contrats, justificatifs de paiement et mainlevées.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {dossier.sections.documents.map((doc) => (
+                      <div key={doc.id} className="p-3 border border-border rounded-input bg-surface/30 flex items-center justify-between text-xs">
+                        <div>
+                          <p className="font-semibold text-foreground truncate max-w-[180px]">{doc.title || doc.file?.originalName}</p>
+                          <p className="text-muted uppercase text-[10px]">{doc.kind} · {doc.documentType || 'general'}</p>
+                        </div>
+                        <a
+                          href={`/api/documents/${doc.id}/download`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 font-medium"
+                        >
+                          Ouvrir
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </section>
           </>
         )}

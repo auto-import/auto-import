@@ -34,7 +34,7 @@ export default function ClientsWorkspace() {
     <>
       <Topbar
         title="Clients"
-        subtitle="Relation client â€” donnÃ©es CRM persistantes"
+        subtitle="Relation client — données CRM persistantes"
       />
       <main className="space-y-6 p-8">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -55,7 +55,7 @@ export default function ClientsWorkspace() {
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted" />
             <input
               className="w-full rounded-input border border-border bg-background py-2 pl-9 pr-3 text-sm"
-              placeholder="Nom, email ou tÃ©lÃ©phone"
+              placeholder="Nom, email ou téléphone"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -76,17 +76,17 @@ export default function ClientsWorkspace() {
               onClick={() => void load()}
             >
               <RefreshCw className="h-4 w-4" />
-              RÃ©essayer
+              Réessayer
             </button>
           </div>
         )}
         <div className="card overflow-x-auto p-0">
           {loading ? (
             <p className="p-12 text-center text-muted">
-              Chargement des clientsâ€¦
+              Chargement des clients…
             </p>
           ) : clients.length === 0 ? (
-            <p className="p-12 text-center text-muted">Aucun client trouvÃ©.</p>
+            <p className="p-12 text-center text-muted">Aucun client trouvé.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -94,7 +94,7 @@ export default function ClientsWorkspace() {
                   <th className="p-4">Client</th>
                   <th className="p-4">Contact</th>
                   <th className="p-4">Agent</th>
-                  <th className="p-4">DerniÃ¨re interaction</th>
+                  <th className="p-4">Dernière interaction</th>
                   <th className="p-4">Prochaine action</th>
                   <th className="p-4">Statut</th>
                 </tr>
@@ -110,13 +110,13 @@ export default function ClientsWorkspace() {
                       {client.firstName} {client.lastName}
                     </td>
                     <td className="p-4">
-                      <p>{client.phone || "â€”"}</p>
+                      <p>{client.phone || "—"}</p>
                       <p className="text-xs text-muted">{client.email}</p>
                     </td>
                     <td className="p-4">
                       {client.assignee
                         ? `${client.assignee.firstName} ${client.assignee.lastName}`
-                        : "â€”"}
+                        : "—"}
                     </td>
                     <td className="p-4">
                       {formatDate(client.lastInteractionAt)}
@@ -176,7 +176,7 @@ function ClientForm({
       onSaved();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "CrÃ©ation impossible",
+        caught instanceof Error ? caught.message : "Création impossible",
       );
     } finally {
       setSaving(false);
@@ -195,7 +195,7 @@ function ClientForm({
         <input
           required
           className={input}
-          placeholder="PrÃ©nom"
+          placeholder="Prénom"
           value={values.firstName}
           onChange={(event) =>
             setValues({ ...values, firstName: event.target.value })
@@ -212,7 +212,7 @@ function ClientForm({
         />
         <input
           className={input}
-          placeholder="TÃ©lÃ©phone"
+          placeholder="Téléphone"
           value={values.phone}
           onChange={(event) =>
             setValues({ ...values, phone: event.target.value })
@@ -255,5 +255,5 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("fr-FR") : "â€”";
+  return value ? new Date(value).toLocaleDateString("fr-FR") : "—";
 }

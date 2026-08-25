@@ -137,8 +137,10 @@ export const DASHBOARD_ROUTE_PERMISSIONS: Array<{
   permission: ApiPermission;
 }> = [
   { prefix: "/utilisateurs", permission: Permission.USERS_READ },
-  { prefix: "/parametres", permission: Permission.SETTINGS_MANAGE },
+  { prefix: "/parametres", permission: Permission.SETTINGS_READ },
   { prefix: "/rapports", permission: Permission.REPORTS_READ },
+  { prefix: "/audit", permission: Permission.AUDIT_READ },
+  { prefix: "/tasks", permission: Permission.TASKS_READ },
   { prefix: "/crm", permission: Permission.PROSPECTS_READ },
   { prefix: "/clients", permission: Permission.CLIENTS_READ },
   { prefix: "/offres", permission: Permission.OFFERS_READ },
@@ -146,7 +148,9 @@ export const DASHBOARD_ROUTE_PERMISSIONS: Array<{
   { prefix: "/vehicules", permission: Permission.VEHICLES_READ },
   { prefix: "/fournisseurs", permission: Permission.PARTNERS_READ },
   { prefix: "/expeditions", permission: Permission.SHIPMENTS_READ },
+  { prefix: "/finance", permission: Permission.FINANCE_READ },
+  { prefix: "/documents", permission: Permission.DOCUMENTS_READ },
   { prefix: "/facturation", permission: Permission.PAYMENTS_READ },
-  { prefix: "/notifications", permission: Permission.DASHBOARD_READ },
+  { prefix: "/notifications", permission: Permission.NOTIFICATIONS_READ },
   { prefix: "/", permission: Permission.DASHBOARD_READ },
 ];

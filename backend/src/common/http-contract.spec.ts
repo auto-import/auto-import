@@ -45,6 +45,24 @@ describe('HTTP envelopes', () => {
     expect(new Date(response.timestamp).toISOString()).toBe(response.timestamp);
   });
 
+  it('serializes Prisma bigint values without turning a successful write into a 500', async () => {
+    const interceptor = new ResponseInterceptor<{ size: bigint }>();
+    const context = {
+      switchToHttp: () => ({
+        getResponse: () => ({ statusCode: 201 }),
+        getRequest: () => ({ url: '/api/documents/upload' }),
+      }),
+    } as ExecutionContext;
+    const next: CallHandler<{ size: bigint }> = {
+      handle: () => of({ size: 42n }),
+    };
+
+    const response = await lastValueFrom(interceptor.intercept(context, next));
+
+    expect(response.data).toEqual({ size: '42' });
+    expect(() => JSON.stringify(response)).not.toThrow();
+  });
+
   it('normalizes validation errors without exposing a stack', () => {
     let sent: unknown;
     const json = jest.fn((body: unknown) => {

@@ -19,7 +19,7 @@ describe("LeadsWorkspace", () => {
   it("renders the API empty state without falling back to mocks", async () => {
     mocks.listProspects.mockResolvedValue({ items: [], pagination: {} });
     render(<LeadsWorkspace />);
-    expect(screen.getByText("Chargement du pipelineâ€¦")).toBeTruthy();
+    expect(screen.getByText("Chargement du pipeline…")).toBeTruthy();
     await waitFor(() =>
       expect(
         screen.getByText("Aucun lead ne correspond aux filtres."),

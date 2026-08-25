@@ -128,6 +128,32 @@ export async function apiRequest<T>(
   return parseResponse<T>(response);
 }
 
+export async function apiDownload(
+  path: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const request = async (retry: boolean): Promise<Response> => {
+    const headers = new Headers();
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers,
+      credentials: "include",
+    });
+    if (response.status === 401 && retry) {
+      await refreshAccessToken();
+      return request(false);
+    }
+    return response;
+  };
+  const response = await request(true);
+  if (!response.ok) {
+    await parseResponse(response);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename =
+    /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "export.csv";
+  return { blob: await response.blob(), filename };
+}
+
 export const authApi = {
   async login(email: string, password: string): Promise<AuthenticatedUser> {
     const result = await apiRequest<AuthResult>(

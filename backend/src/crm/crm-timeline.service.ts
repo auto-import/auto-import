@@ -130,7 +130,7 @@ export class CrmTimelineService {
       ...calls.map((item) => ({
         id: `call:${item.id}`,
         type: 'CALL',
-        title: `Appel ${item.direction.toLowerCase()} â€” ${item.state}`,
+        title: `Appel ${item.direction.toLowerCase()} — ${item.state}`,
         description: item.notes,
         occurredAt: item.receivedAt,
         metadata: {
@@ -174,14 +174,14 @@ export class CrmTimelineService {
       ...notes.map((item) => ({
         id: `note:${item.id}`,
         type: 'NOTE',
-        title: `Note â€” ${item.author.firstName} ${item.author.lastName}`,
+        title: `Note — ${item.author.firstName} ${item.author.lastName}`,
         description: item.content,
         occurredAt: item.occurredAt,
       })),
       ...statuses.map((item) => ({
         id: `status:${item.id}`,
         type: 'STATUS_CHANGE',
-        title: `${item.fromStatus ?? 'â€”'} â†’ ${item.toStatus}`,
+        title: `${item.fromStatus ?? '—'} → ${item.toStatus}`,
         description: item.reason,
         occurredAt: item.occurredAt,
       })),

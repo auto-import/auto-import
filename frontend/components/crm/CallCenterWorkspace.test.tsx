@@ -110,7 +110,7 @@ describe("CallCenterWorkspace", () => {
       expect(screen.getAllByText("Appel 0000").length).toBeGreaterThan(0),
     );
     fireEvent.click(screen.getAllByText("Appel 0000")[0]);
-    fireEvent.change(screen.getByLabelText("EmployÃ© destinataire"), {
+    fireEvent.change(screen.getByLabelText("Employé destinataire"), {
       target: { value: "agent-1" },
     });
     fireEvent.click(screen.getByText("Assigner"));

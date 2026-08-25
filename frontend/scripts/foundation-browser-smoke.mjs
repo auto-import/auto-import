@@ -230,8 +230,17 @@ try {
   await waitForButton("Bureaux", false);
   await waitForButton("Rôles", false);
 
+  const forbiddenApi = await fetch(`${apiUrl}/finance/summary`, {
+    headers: { Authorization: `Bearer ${limitedLogin.data.accessToken}` },
+  });
+  if (forbiddenApi.status !== 403) {
+    throw new Error(`Restricted finance API returned ${forbiddenApi.status}, expected 403`);
+  }
+  await browser.send("Page.navigate", { url: `${frontendUrl}/finance` });
+  await waitForText("Accès interdit");
+
   console.log(
-    "BROWSER_SMOKE admin=user-role-office-create limited=read-only-controls-hidden",
+    "BROWSER_SMOKE admin=user-role-office-create limited=read-only-controls-hidden direct-route-api=forbidden",
   );
 } finally {
   const users = (

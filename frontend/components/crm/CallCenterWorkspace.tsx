@@ -135,7 +135,7 @@ export default function CallCenterWorkspace() {
       <>
         <Topbar title="Call Center" />
         <div className="p-12 text-center text-muted">
-          Chargement du centre omnicanalâ€¦
+          Chargement du centre omnicanal…
         </div>
       </>
     );
@@ -150,8 +150,8 @@ export default function CallCenterWorkspace() {
           className={`rounded-card px-4 py-2 text-sm ${connected ? "bg-status-green-bg text-status-green-text" : "bg-status-amber-bg text-status-amber-text"}`}
         >
           {connected
-            ? "Temps rÃ©el connectÃ©"
-            : "Hors ligne / reconnexion en cours â€” les donnÃ©es REST restent disponibles"}
+            ? "Temps réel connecté"
+            : "Hors ligne / reconnexion en cours — les données REST restent disponibles"}
         </div>
         {error && (
           <div className="flex items-center justify-between rounded-card bg-status-red-bg p-4 text-status-red-text">
@@ -163,22 +163,22 @@ export default function CallCenterWorkspace() {
         )}
         {kpis && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <Metric label="ReÃ§us" value={kpis.dispatcher.callsReceived} />
+            <Metric label="Reçus" value={kpis.dispatcher.callsReceived} />
             <Metric
-              label="DispatchÃ©s"
+              label="Dispatchés"
               value={kpis.dispatcher.callsDispatched}
             />
             <Metric
-              label="ManquÃ©s"
+              label="Manqués"
               value={kpis.dispatcher.missedOrUnassigned}
             />
-            <Metric label="RÃ©pondus" value={kpis.agent.answeredCalls} />
+            <Metric label="Répondus" value={kpis.agent.answeredCalls} />
             <Metric
-              label="DurÃ©e moy."
+              label="Durée moy."
               value={`${kpis.agent.averageTalkSeconds}s`}
             />
             <Metric
-              label="Leads qualifiÃ©s"
+              label="Leads qualifiés"
               value={kpis.agent.qualifiedLeads}
             />
             <Metric
@@ -205,7 +205,7 @@ export default function CallCenterWorkspace() {
           <section className="card xl:col-span-2">
             <PanelTitle
               icon={<PhoneCall className="h-5 w-5" />}
-              title={`File dâ€™attente (${queue.length})`}
+              title={`File d’attente (${queue.length})`}
             />
             {queue.length === 0 ? (
               <Empty text="Aucun appel en attente." />
@@ -241,7 +241,7 @@ export default function CallCenterWorkspace() {
           <section className="card">
             <PanelTitle
               icon={<Users className="h-5 w-5" />}
-              title="PrÃ©sence agents"
+              title="Présence agents"
             />
             <div className="space-y-2">
               {presence.map((item) => (
@@ -264,7 +264,7 @@ export default function CallCenterWorkspace() {
                 </div>
               ))}
               {presence.length === 0 && (
-                <Empty text="Aucune prÃ©sence enregistrÃ©e." />
+                <Empty text="Aucune présence enregistrée." />
               )}
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -361,7 +361,7 @@ export default function CallCenterWorkspace() {
                       <p className="text-xs text-muted">
                         {task.dueDate
                           ? new Date(task.dueDate).toLocaleString("fr-FR")
-                          : "Sans Ã©chÃ©ance"}
+                          : "Sans échéance"}
                       </p>
                     </div>
                     <button
@@ -372,7 +372,7 @@ export default function CallCenterWorkspace() {
                       }
                       className="rounded-button border border-border px-2 py-1 text-xs"
                     >
-                      TerminÃ©
+                      Terminé
                     </button>
                   </div>
                 ))}
@@ -389,7 +389,7 @@ export default function CallCenterWorkspace() {
                     {new Date(appointment.scheduledStart).toLocaleString(
                       "fr-FR",
                     )}{" "}
-                    Â· {appointment.status}
+                    · {appointment.status}
                   </p>
                 </div>
               ))}
@@ -400,10 +400,10 @@ export default function CallCenterWorkspace() {
         <section className="card">
           <PanelTitle
             icon={<Phone className="h-5 w-5" />}
-            title={`Appels manquÃ©s (${missed.length})`}
+            title={`Appels manqués (${missed.length})`}
           />
           {missed.length === 0 ? (
-            <Empty text="Aucun appel manquÃ©." />
+            <Empty text="Aucun appel manqué." />
           ) : (
             <div className="grid gap-3 md:grid-cols-3">
               {missed.map((call) => (
@@ -452,15 +452,15 @@ function CallScreen({
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-status-blue-text">
-            Screen pop Â· {call.state}
+            Screen pop · {call.state}
           </p>
           <h2 className="text-xl font-bold">
             {contact
               ? `${contact.firstName} ${contact.lastName}`
-              : "Contact en rÃ©solution"}
+              : "Contact en résolution"}
           </h2>
           <p className="text-sm text-muted">
-            {call.externalNumber} Â· {call.client ? "Client" : "Lead"}
+            {call.externalNumber} · {call.client ? "Client" : "Lead"}
           </p>
         </div>
         <button onClick={onClose}>Fermer</button>
@@ -468,7 +468,7 @@ function CallScreen({
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="space-y-3">
           <label className="block text-xs text-muted">
-            EmployÃ© destinataire
+            Employé destinataire
             <select
               className="mt-1 w-full rounded-input border border-border bg-background px-3 py-2 text-sm"
               value={agentId}
@@ -490,13 +490,13 @@ function CallScreen({
                   callCenterApi.assign(
                     call.id,
                     agentId,
-                    call.handlingEmployee ? "Transfert simulÃ©" : "Dispatch",
+                    call.handlingEmployee ? "Transfert simulé" : "Dispatch",
                   ),
                 )
               }
               className="rounded-button bg-foreground px-3 py-2 text-sm text-white"
             >
-              {call.handlingEmployee ? "TransfÃ©rer" : "Assigner"}
+              {call.handlingEmployee ? "Transférer" : "Assigner"}
             </button>
             {answerableStates.includes(call.state) && (
               <button
@@ -508,7 +508,7 @@ function CallScreen({
                 }
                 className="rounded-button border border-border px-3 py-2 text-sm"
               >
-                RÃ©pondre
+                Répondre
               </button>
             )}
             {call.state === CallState.ANSWERED && (
@@ -529,18 +529,18 @@ function CallScreen({
             Dispatcher:{" "}
             {call.dispatcher
               ? `${call.dispatcher.firstName} ${call.dispatcher.lastName}`
-              : "â€”"}
+              : "—"}
             <br />
             Traitant:{" "}
             {call.handlingEmployee
               ? `${call.handlingEmployee.firstName} ${call.handlingEmployee.lastName}`
-              : "â€”"}
+              : "—"}
           </p>
         </div>
         <div className="space-y-2">
           <input
             className="w-full rounded-input border border-border bg-background px-3 py-2 text-sm"
-            placeholder="RÃ©sultat de lâ€™appel"
+            placeholder="Résultat de l’appel"
             value={outcome}
             onChange={(event) => setOutcome(event.target.value)}
           />
@@ -593,7 +593,7 @@ function CallScreen({
             }
             className="w-full rounded-button bg-status-blue-text px-3 py-2 text-sm text-white disabled:opacity-40"
           >
-            Enregistrer le rÃ©sultat et la prochaine action
+            Enregistrer le résultat et la prochaine action
           </button>
         </div>
       </div>
@@ -613,13 +613,13 @@ function ConversationPanel({
   reload: () => Promise<void>;
 }) {
   const [text, setText] = useState("");
-  if (!conversation) return <Empty text="SÃ©lectionnez une conversation." />;
+  if (!conversation) return <Empty text="Sélectionnez une conversation." />;
   return (
     <div className="flex flex-col">
       <div className="mb-3">
         <p className="font-semibold">{contactName(conversation)}</p>
         <p className="text-xs text-muted">
-          Envoi simulÃ© â€” aucune livraison externe
+          Envoi simulé — aucune livraison externe
         </p>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto">
@@ -638,7 +638,7 @@ function ConversationPanel({
           className="min-w-0 flex-1 rounded-input border border-border bg-background px-3 py-2 text-sm"
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="RÃ©ponse simulÃ©e"
+          placeholder="Réponse simulée"
         />
         <button
           disabled={busy || !text.trim()}
@@ -671,14 +671,14 @@ function SimulatorPanel({
   run: (work: () => Promise<unknown>) => Promise<void>;
 }) {
   const [phone, setPhone] = useState("0550000000");
-  const [message, setMessage] = useState("Bonjour, je cherche un vÃ©hicule");
+  const [message, setMessage] = useState("Bonjour, je cherche un véhicule");
   return (
     <section className="card border-dashed">
       <div className="mb-3">
-        <h2 className="font-semibold">Simulateurs de dÃ©veloppement</h2>
+        <h2 className="font-semibold">Simulateurs de développement</h2>
         <p className="text-xs text-muted">
           Les actions ci-dessous sont locales, persistantes et explicitement
-          simulÃ©es.
+          simulées.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -748,7 +748,7 @@ function CallCard({ call, onSelect }: { call: ApiCall; onSelect: () => void }) {
         </span>
       </div>
       <p className="text-xs text-muted">
-        {call.externalNumber} Â·{" "}
+        {call.externalNumber} ·{" "}
         {new Date(call.receivedAt).toLocaleTimeString("fr-FR")}
       </p>
     </button>

@@ -265,7 +265,7 @@ export class CallCenterService {
             channel.organizationId,
             created.id,
             resolved.created
-              ? 'Nouvel appel â€” lead crÃ©Ã© automatiquement'
+              ? 'Nouvel appel — lead créé automatiquement'
               : 'Nouvel appel entrant',
             resolved.normalizedValue,
           );
@@ -664,14 +664,17 @@ export class CallCenterService {
         if (assigneeId) {
           await tx.notification.create({
             data: {
+              organizationId: channel.organizationId,
               userId: assigneeId,
               type: 'WHATSAPP_INBOUND',
               title: resolved.created
-                ? 'Nouveau WhatsApp â€” lead crÃ©Ã©'
+                ? 'Nouveau WhatsApp — lead créé'
                 : 'Nouveau message WhatsApp',
               content: event.text,
               relatedType: 'whatsappConversation',
               relatedId: conversation.id,
+              category: 'whatsapp',
+              dedupeKey: `whatsapp:${event.providerMessageId}`,
             },
           });
         }
@@ -925,12 +928,15 @@ export class CallCenterService {
       }
       await tx.notification.create({
         data: {
+          organizationId,
           userId: dto.assignedTo,
           type: 'APPOINTMENT_CREATED',
           title: 'Nouveau rendez-vous',
           content: dto.title,
           relatedType: 'appointment',
           relatedId: created.id,
+          category: 'appointment',
+          dedupeKey: `appointment:${created.id}`,
         },
       });
       return created;
@@ -1131,12 +1137,16 @@ export class CallCenterService {
     });
     await tx.notification.create({
       data: {
+        organizationId: call.organizationId,
         userId: assignedTo,
         type: 'MISSED_CALL',
-        title: 'Appel manquÃ© â€” rappel requis',
+        title: 'Appel manqué — rappel requis',
         content: call.externalNumber,
         relatedType: 'task',
         relatedId: task.id,
+        category: 'call',
+        severity: 'warning',
+        dedupeKey: `missed-call:${call.id}`,
       },
     });
   }
@@ -1169,13 +1179,17 @@ export class CallCenterService {
     if (dispatchers.length > 0) {
       await tx.notification.createMany({
         data: dispatchers.map(({ id }) => ({
+          organizationId,
           userId: id,
           type: 'INBOUND_CALL',
           title,
           content,
           relatedType: 'call',
           relatedId: callId,
+          category: 'call',
+          dedupeKey: `inbound-call:${callId}`,
         })),
+        skipDuplicates: true,
       });
     }
   }

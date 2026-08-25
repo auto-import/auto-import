@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -610,10 +611,37 @@ export class DossiersService {
           include: { offer: { include: { supplier: true } } },
         },
         purchases: {
-          include: { supplier: true, vehicle: { include: { specs: true } } },
+          include: {
+            supplier: true,
+            vehicle: { include: { specs: true } },
+            payments: true,
+          },
+        },
+        invoices: {
+          include: { items: true, allocations: true },
+        },
+        paymentPlans: {
+          include: { installments: true },
+        },
+        payments: {
+          where: { status: 'CONFIRMED' },
+        },
+        documents: {
+          include: { file: true },
+        },
+        customsFiles: {
+          include: { shipment: true, brokerPartner: true },
         },
         history: {
           orderBy: { createdAt: 'desc' },
+        },
+        tasks: {
+          orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+          include: {
+            assignee: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
         },
       },
     });
@@ -623,38 +651,44 @@ export class DossiersService {
     }
 
     // Calculate additional stats
-    const stats = {
-      totalVehicles: dossier.dossierVehicles.length,
-      totalPayments:
-        dossier.order?.invoices?.reduce(
-          (sum, inv) =>
-            sum + inv.payments.reduce((s, p) => s + p.amount.toNumber(), 0),
-          0,
-        ) || 0,
-      totalInvoiceAmount:
-        dossier.order?.invoices?.reduce(
-          (sum, inv) => sum + inv.total.toNumber(),
-          0,
-        ) || 0,
-      isFullyPaid: false,
-    };
+    const totalPayments = (dossier.payments || []).reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
+    const totalInvoiceAmount = (dossier.invoices || []).reduce(
+      (sum, inv) => sum + Number(inv.total),
+      0,
+    );
 
-    if (
-      stats.totalInvoiceAmount > 0 &&
-      stats.totalPayments >= stats.totalInvoiceAmount
-    ) {
-      stats.isFullyPaid = true;
-    }
+    const stats = {
+      totalVehicles: dossier.dossierVehicles
+        ? dossier.dossierVehicles.length
+        : 0,
+      totalPayments,
+      totalInvoiceAmount,
+      isFullyPaid:
+        totalInvoiceAmount > 0 && totalPayments >= totalInvoiceAmount,
+    };
 
     const mapped = this.mapDossierWithVehicles(dossier);
     return {
       ...mapped,
       stats,
       sections: {
-        finance: null,
-        shipping: null,
-        documents: [],
-        proofs: [],
+        finance: {
+          invoices: dossier.invoices || [],
+          paymentPlan:
+            (dossier.paymentPlans && dossier.paymentPlans[0]) || null,
+          payments: dossier.payments || [],
+        },
+        shipping:
+          (dossier.customsFiles && dossier.customsFiles[0]?.shipment) || null,
+        customs: dossier.customsFiles || [],
+        documents: dossier.documents || [],
+        proofs: (dossier.documents || []).filter(
+          (d) => d.kind === 'PROOF' || d.kind === 'PAYMENT_RECEIPT',
+        ),
+        tasks: dossier.tasks || [],
       },
     };
   }
@@ -676,6 +710,66 @@ export class DossiersService {
       currentStatus,
       status,
     );
+
+    // Enforce Phase 2 Payment Gates
+    if (
+      status === DossierStatus.PURCHASE_CONFIRMED ||
+      status === DossierStatus.SUPPLIER_PAID
+    ) {
+      const plan = await this.prisma.paymentPlan.findFirst({
+        where: {
+          dossierId: id,
+          organizationId: dossier.organizationId,
+          status: 'active',
+        },
+        include: {
+          installments: { orderBy: { installmentNumber: 'asc' } },
+        },
+      });
+      if (plan && plan.installments.length > 0) {
+        const firstInst = plan.installments[0];
+        const confirmedPayments = await this.prisma.payment.findMany({
+          where: { dossierId: id, status: 'CONFIRMED' },
+        });
+        const totalPaid = confirmedPayments.reduce(
+          (sum, p) => sum.add(p.amount),
+          new Prisma.Decimal(0),
+        );
+        if (totalPaid.lessThan(firstInst.amount)) {
+          throw new BadRequestException(
+            `Payment Gate Failed: Upfront deposit of ${firstInst.amount.toString()} ${plan.currency} must be confirmed before advancing to ${status}. Currently confirmed: ${totalPaid.toString()}`,
+          );
+        }
+      }
+    }
+
+    if (
+      status === DossierStatus.DOCUMENTS_DELIVERED ||
+      status === DossierStatus.DELIVERED_TO_CLIENT ||
+      status === DossierStatus.CLIENT_REGISTERED
+    ) {
+      const plan = await this.prisma.paymentPlan.findFirst({
+        where: {
+          dossierId: id,
+          organizationId: dossier.organizationId,
+          status: 'active',
+        },
+      });
+      if (plan) {
+        const confirmedPayments = await this.prisma.payment.findMany({
+          where: { dossierId: id, status: 'CONFIRMED' },
+        });
+        const totalPaid = confirmedPayments.reduce(
+          (sum, p) => sum.add(p.amount),
+          new Prisma.Decimal(0),
+        );
+        if (totalPaid.lessThan(plan.totalAmount)) {
+          throw new BadRequestException(
+            `Payment Gate Failed: Full 100% balance of ${plan.totalAmount.toString()} ${plan.currency} must be confirmed before final delivery/documents release. Currently confirmed: ${totalPaid.toString()}`,
+          );
+        }
+      }
+    }
 
     const isClosing =
       status === DossierStatus.CLOSED ||
@@ -702,7 +796,7 @@ export class DossiersService {
       });
 
       // Create history entry
-      await prisma.dossierStatusHistory.create({
+      const history = await prisma.dossierStatusHistory.create({
         data: {
           dossierId: id,
           fromStatus: currentStatus,
@@ -712,6 +806,29 @@ export class DossiersService {
             comment || `Status changed from '${currentStatus}' to '${status}'`,
         },
       });
+
+      const recipients = [updated.salesUserId, updated.opsUserId].filter(
+        (recipient, index, values): recipient is string =>
+          Boolean(recipient) && values.indexOf(recipient) === index,
+      );
+      if (recipients.length > 0) {
+        await prisma.notification.createMany({
+          data: recipients.map((recipient) => ({
+            organizationId: updated.organizationId,
+            userId: recipient,
+            type: 'DOSSIER_STATUS_CHANGED',
+            category: 'workflow',
+            severity: 'info',
+            title: `Dossier ${updated.reference} mis à jour`,
+            content: `${currentStatus} → ${status}`,
+            relatedType: 'dossier',
+            relatedId: id,
+            entityUrl: `/dossiers/${id}`,
+            dedupeKey: `dossier-status:${history.id}:${recipient}`,
+          })),
+          skipDuplicates: true,
+        });
+      }
 
       if (status === DossierStatus.CANCELLED) {
         const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);

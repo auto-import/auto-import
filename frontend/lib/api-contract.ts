@@ -24,6 +24,12 @@ import {
   ReservationStatus,
   PurchaseStatus,
   Currency,
+  InvoiceStatus,
+  PaymentPlanStrategy,
+  InstallmentStatus,
+  DueTrigger,
+  CostType,
+  DocumentKind,
 } from "@auto-import/contracts";
 import type {
   CustomsStatus as CustomsStatusValue,
@@ -41,6 +47,12 @@ import type {
   CallState as CallStateValue,
   LeadQualification as LeadQualificationValue,
   VehicleSource as VehicleSourceValue,
+  InvoiceStatus as InvoiceStatusValue,
+  PaymentPlanStrategy as PaymentPlanStrategyValue,
+  InstallmentStatus as InstallmentStatusValue,
+  DueTrigger as DueTriggerValue,
+  CostType as CostTypeValue,
+  DocumentKind as DocumentKindValue,
 } from "@auto-import/contracts";
 
 export {
@@ -69,6 +81,12 @@ export {
   ReservationStatus,
   PurchaseStatus,
   Currency,
+  InvoiceStatus,
+  PaymentPlanStrategy,
+  InstallmentStatus,
+  DueTrigger,
+  CostType,
+  DocumentKind,
 };
 
 export type ApiDossierType = DossierTypeValue;
@@ -86,6 +104,12 @@ export type ApiAgentPresenceStatus = AgentPresenceStatusValue;
 export type ApiCallState = CallStateValue;
 export type ApiLeadQualification = LeadQualificationValue;
 export type ApiVehicleSource = VehicleSourceValue;
+export type ApiInvoiceStatus = InvoiceStatusValue;
+export type ApiPaymentPlanStrategy = PaymentPlanStrategyValue;
+export type ApiInstallmentStatus = InstallmentStatusValue;
+export type ApiDueTrigger = DueTriggerValue;
+export type ApiCostType = CostTypeValue;
+export type ApiDocumentKind = DocumentKindValue;
 
 export interface ApiSuccessResponse<T> {
   success: true;
@@ -156,7 +180,7 @@ export const DOSSIER_STATUS_LABELS_API: Record<ApiDossierStatus, string> = {
 };
 
 export const VEHICLE_STATUS_LABELS_API: Record<ApiVehicleStatus, string> = {
-  [VehicleStatus.PRE_PURCHASE]: "PrÃ©-achat",
+  [VehicleStatus.PRE_PURCHASE]: "Pré-achat",
   [VehicleStatus.AVAILABLE]: "Disponible",
   [VehicleStatus.RESERVED]: "Réservé",
   [VehicleStatus.IN_TRANSIT]: "En transit",

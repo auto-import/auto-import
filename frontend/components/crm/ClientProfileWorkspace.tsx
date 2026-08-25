@@ -56,7 +56,7 @@ export default function ClientProfileWorkspace({
       await load();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Note non enregistrÃ©e",
+        caught instanceof Error ? caught.message : "Note non enregistrée",
       );
     }
   }
@@ -73,7 +73,7 @@ export default function ClientProfileWorkspace({
         </button>
         {loading ? (
           <div className="card p-12 text-center text-muted">
-            Chargement du profilâ€¦
+            Chargement du profil…
           </div>
         ) : error || !client ? (
           <div className="card p-8 text-status-red-text">
@@ -83,7 +83,7 @@ export default function ClientProfileWorkspace({
               className="mt-3 flex items-center gap-1 text-sm"
             >
               <RefreshCw className="h-4 w-4" />
-              RÃ©essayer
+              Réessayer
             </button>
           </div>
         ) : (
@@ -115,7 +115,7 @@ export default function ClientProfileWorkspace({
                       <User className="h-4 w-4" />
                       {client.assignee
                         ? `${client.assignee.firstName} ${client.assignee.lastName}`
-                        : "Non assignÃ©"}
+                        : "Non assigné"}
                     </span>
                   </div>
                 </div>
@@ -133,7 +133,7 @@ export default function ClientProfileWorkspace({
                 value={
                   client.nextActionAt
                     ? new Date(client.nextActionAt).toLocaleDateString("fr-FR")
-                    : "â€”"
+                    : "—"
                 }
                 icon={<Calendar className="h-4 w-4" />}
               />
@@ -154,7 +154,7 @@ export default function ClientProfileWorkspace({
                   Ajouter
                 </button>
               </div>
-              <h2 className="mb-4 font-semibold">Timeline unifiÃ©e</h2>
+              <h2 className="mb-4 font-semibold">Timeline unifiée</h2>
               <UnifiedTimeline items={timeline} />
             </section>
           </>

@@ -174,6 +174,58 @@ const RecordStatus = Object.freeze({
   SUSPENDED: 'suspended',
 });
 
+const InvoiceStatus = Object.freeze({
+  DRAFT: 'DRAFT',
+  ISSUED: 'ISSUED',
+  PARTIALLY_PAID: 'PARTIALLY_PAID',
+  PAID: 'PAID',
+  OVERDUE: 'OVERDUE',
+  VOIDED: 'VOIDED',
+});
+
+const PaymentPlanStrategy = Object.freeze({
+  THIRTY_SEVENTY: 'THIRTY_SEVENTY',
+  FULL_UPFRONT: 'FULL_UPFRONT',
+});
+
+const InstallmentStatus = Object.freeze({
+  PENDING: 'PENDING',
+  DUE: 'DUE',
+  PARTIALLY_PAID: 'PARTIALLY_PAID',
+  PAID: 'PAID',
+  OVERDUE: 'OVERDUE',
+  CANCELLED: 'CANCELLED',
+});
+
+const DueTrigger = Object.freeze({
+  ON_PLAN_CREATION: 'ON_PLAN_CREATION',
+  BEFORE_PURCHASE: 'BEFORE_PURCHASE',
+  ON_VEHICLE_RECOVERY: 'ON_VEHICLE_RECOVERY',
+  FIXED_DATE: 'FIXED_DATE',
+});
+
+const CostType = Object.freeze({
+  PURCHASE: 'PURCHASE',
+  SUPPLIER: 'SUPPLIER',
+  SHIPPING: 'SHIPPING',
+  CUSTOMS: 'CUSTOMS',
+  DUTY: 'DUTY',
+  TAX: 'TAX',
+  INSURANCE: 'INSURANCE',
+  STORAGE: 'STORAGE',
+  OTHER: 'OTHER',
+});
+
+const DocumentKind = Object.freeze({
+  VEHICLE_PHOTO: 'VEHICLE_PHOTO',
+  DOSSIER_DOCUMENT: 'DOSSIER_DOCUMENT',
+  PROOF: 'PROOF',
+  CONTRACT: 'CONTRACT',
+  CUSTOMS_DOCUMENT: 'CUSTOMS_DOCUMENT',
+  PAYMENT_RECEIPT: 'PAYMENT_RECEIPT',
+  BUSINESS_DOCUMENT: 'BUSINESS_DOCUMENT',
+});
+
 const Permission = Object.freeze({
   DASHBOARD_READ: 'dashboard:read',
   USERS_READ: 'users:read',
@@ -208,6 +260,25 @@ const Permission = Object.freeze({
   OFFERS_READ_MARGIN: 'offers:readMargin',
   PAYMENTS_READ: 'payments:read',
   PAYMENTS_WRITE: 'payments:write',
+  PAYMENTS_CONFIRM: 'payments:confirm',
+  PAYMENTS_REVERSE: 'payments:reverse',
+  INVOICES_READ: 'invoices:read',
+  INVOICES_WRITE: 'invoices:write',
+  INVOICES_ISSUE: 'invoices:issue',
+  INVOICES_VOID: 'invoices:void',
+  PAYMENT_PLANS_READ: 'paymentPlans:read',
+  PAYMENT_PLANS_WRITE: 'paymentPlans:write',
+  SUPPLIER_PAYMENTS_READ: 'supplierPayments:read',
+  SUPPLIER_PAYMENTS_WRITE: 'supplierPayments:write',
+  SUPPLIER_PAYMENTS_CONFIRM: 'supplierPayments:confirm',
+  SUPPLIER_PAYMENTS_REVERSE: 'supplierPayments:reverse',
+  COSTS_READ: 'costs:read',
+  COSTS_WRITE: 'costs:write',
+  EXCHANGE_RATES_READ: 'exchangeRates:read',
+  EXCHANGE_RATES_WRITE: 'exchangeRates:write',
+  FINANCE_READ: 'finance:read',
+  FINANCE_WRITE: 'finance:write',
+  FINANCE_ADMIN: 'finance:admin',
   SHIPMENTS_READ: 'shipments:read',
   SHIPMENTS_WRITE: 'shipments:write',
   CUSTOMS_READ: 'customs:read',
@@ -216,6 +287,10 @@ const Permission = Object.freeze({
   DOCUMENTS_WRITE: 'documents:write',
   TASKS_READ: 'tasks:read',
   TASKS_WRITE: 'tasks:write',
+  TASKS_ASSIGN: 'tasks:assign',
+  NOTIFICATIONS_READ: 'notifications:read',
+  NOTIFICATIONS_MANAGE: 'notifications:manage',
+  AUDIT_READ: 'audit:read',
   CRM_TIMELINE_READ: 'crmTimeline:read',
   CRM_TIMELINE_WRITE: 'crmTimeline:write',
   CALL_CENTER_ACCESS: 'callCenter:access',
@@ -228,6 +303,9 @@ const Permission = Object.freeze({
   CRM_KPI_ORGANIZATION: 'crmKpi:organization',
   CHANNELS_MANAGE: 'channels:manage',
   REPORTS_READ: 'reports:read',
+  REPORTS_EXPORT: 'reports:export',
+  SETTINGS_READ: 'settings:read',
+  SETTINGS_WRITE: 'settings:write',
   SETTINGS_MANAGE: 'settings:manage',
 });
 
@@ -296,11 +374,17 @@ module.exports = {
   CandidateStatus,
   CallState,
   CommerceRecordStatus,
+  CostType,
   Currency,
+  DocumentKind,
+  DueTrigger,
+  InstallmentStatus,
+  InvoiceStatus,
   LeadQualification,
   OfferStatus,
   OfferReservationStatus,
   OrderStatus,
+  PaymentPlanStrategy,
   PaymentStatus,
   Permission,
   PartnerType,

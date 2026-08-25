@@ -39,7 +39,7 @@ export default function LeadFormDialog({
       setError(
         caught instanceof Error
           ? caught.message
-          : "Impossible dâ€™enregistrer le lead",
+          : "Impossible d’enregistrer le lead",
       );
     } finally {
       setSaving(false);
@@ -57,7 +57,7 @@ export default function LeadFormDialog({
           <div>
             <h2 className="text-lg font-semibold">Nouveau lead</h2>
             <p className="text-sm text-muted">
-              CoordonnÃ©es normalisÃ©es pour les appels et WhatsApp.
+              Coordonnées normalisées pour les appels et WhatsApp.
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Fermer">
@@ -73,7 +73,7 @@ export default function LeadFormDialog({
           <input
             required
             className={input}
-            placeholder="PrÃ©nom"
+            placeholder="Prénom"
             value={values.firstName}
             onChange={(event) =>
               setValues({ ...values, firstName: event.target.value })
@@ -90,7 +90,7 @@ export default function LeadFormDialog({
           />
           <input
             className={input}
-            placeholder="TÃ©lÃ©phone"
+            placeholder="Téléphone"
             value={values.phone}
             onChange={(event) =>
               setValues({ ...values, phone: event.target.value })
@@ -138,7 +138,7 @@ export default function LeadFormDialog({
             }
           >
             <option value={LeadQualification.UNCLASSIFIED}>
-              Non qualifiÃ©
+              Non qualifié
             </option>
             <option value={LeadQualification.HOT}>Hot</option>
             <option value={LeadQualification.WARM}>Warm</option>
@@ -166,7 +166,7 @@ export default function LeadFormDialog({
             disabled={saving}
             className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50"
           >
-            {saving ? "Enregistrementâ€¦" : "CrÃ©er le lead"}
+            {saving ? "Enregistrement…" : "Créer le lead"}
           </button>
         </div>
       </form>

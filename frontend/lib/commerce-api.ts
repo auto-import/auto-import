@@ -5,6 +5,13 @@ import type {
   ApiVehicleStatus,
   PaginatedData,
 } from "@/lib/api-contract";
+import type {
+  ApiInvoice,
+  ApiPayment,
+  ApiPaymentPlan,
+} from "@/lib/finance-api";
+import type { ApiCustomsFile, ApiShipment } from "@/lib/logistics-api";
+import type { ApiDossierDocument } from "@/lib/documents-api";
 
 export interface ApiPartner {
   id: string;
@@ -130,11 +137,22 @@ export interface ApiDossier {
     createdAt: string;
     user?: { firstName: string; lastName: string };
   }>;
+  stats?: {
+    totalVehicles: number;
+    totalPayments: number;
+    totalInvoiceAmount: number;
+    isFullyPaid: boolean;
+  };
   sections?: {
-    finance: null;
-    shipping: null;
-    documents: unknown[];
-    proofs: unknown[];
+    finance?: {
+      invoices: ApiInvoice[];
+      paymentPlan?: ApiPaymentPlan | null;
+      payments: ApiPayment[];
+    };
+    shipping?: ApiShipment | null;
+    customs?: ApiCustomsFile[];
+    documents?: ApiDossierDocument[];
+    proofs?: ApiDossierDocument[];
   };
 }
 

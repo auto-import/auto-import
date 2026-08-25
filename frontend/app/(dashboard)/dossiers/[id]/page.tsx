@@ -1,1 +1,1 @@
-export { default } from "@/components/commerce/DossierDetailWorkspace";
+export { default } from "@/components/commerce/DossierDetailExperience";

@@ -39,7 +39,7 @@ export default function LeadDetailDialog({
       onUpdated();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Mise Ã  jour impossible",
+        caught instanceof Error ? caught.message : "Mise à jour impossible",
       );
     } finally {
       setSaving(false);
@@ -55,7 +55,7 @@ export default function LeadDetailDialog({
       onUpdated();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Note non enregistrÃ©e",
+        caught instanceof Error ? caught.message : "Note non enregistrée",
       );
     } finally {
       setSaving(false);
@@ -86,7 +86,7 @@ export default function LeadDetailDialog({
               {current.firstName} {current.lastName}
             </h2>
             <p className="text-sm text-muted">
-              {current.phone || "Sans tÃ©lÃ©phone"} Â·{" "}
+              {current.phone || "Sans téléphone"} ·{" "}
               {current.source || "Source inconnue"}
             </p>
           </div>
@@ -134,7 +134,7 @@ export default function LeadDetailDialog({
             >
               {Object.values(LeadQualification).map((value) => (
                 <option key={value} value={value}>
-                  {value === "UNCLASSIFIED" ? "Non qualifiÃ©" : value}
+                  {value === "UNCLASSIFIED" ? "Non qualifié" : value}
                 </option>
               ))}
             </select>
@@ -144,7 +144,7 @@ export default function LeadDetailDialog({
             <p>
               {current.assignee
                 ? `${current.assignee.firstName} ${current.assignee.lastName}`
-                : "Non assignÃ©"}
+                : "Non assigné"}
             </p>
           </div>
         </div>
@@ -153,7 +153,7 @@ export default function LeadDetailDialog({
             className={`${control} flex-1`}
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="Ajouter une note Ã  la timeline"
+            placeholder="Ajouter une note à la timeline"
           />
           <button
             disabled={saving || !note.trim()}
@@ -174,7 +174,7 @@ export default function LeadDetailDialog({
         </div>
         <UnifiedTimeline
           items={timeline}
-          emptyMessage="Aucune interaction enregistrÃ©e."
+          emptyMessage="Aucune interaction enregistrée."
         />
       </div>
     </div>

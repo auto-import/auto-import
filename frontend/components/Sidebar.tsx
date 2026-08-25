@@ -19,6 +19,7 @@ import {
   CheckSquare,
   DollarSign,
   PhoneCall,
+  ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
@@ -43,6 +44,7 @@ const ICON_MAP: Record<string, ReactNode> = {
   CheckSquare: <CheckSquare className="w-5 h-5" />,
   DollarSign: <DollarSign className="w-5 h-5" />,
   PhoneCall: <PhoneCall className="w-5 h-5" />,
+  ShieldCheck: <ShieldCheck className="w-5 h-5" />,
 };
 
 const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
@@ -55,11 +57,13 @@ const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
   "/fournisseurs": Permission.PARTNERS_READ,
   "/expeditions": Permission.SHIPMENTS_READ,
   "/facturation": Permission.PAYMENTS_READ,
-  "/finance": Permission.PAYMENTS_READ,
+  "/finance": Permission.FINANCE_READ,
   "/documents": Permission.DOCUMENTS_READ,
   "/tasks": Permission.TASKS_READ,
-  "/notifications": Permission.DASHBOARD_READ,
+  "/notifications": Permission.NOTIFICATIONS_READ,
   "/rapports": Permission.REPORTS_READ,
+  "/audit": Permission.AUDIT_READ,
+  "/parametres": Permission.SETTINGS_READ,
   "/utilisateurs": Permission.USERS_READ,
 };
 
@@ -82,7 +86,7 @@ export default function Sidebar() {
   });
 
   return (
-    <aside className="w-64 h-screen bg-sidebar-bg border-e border-border flex flex-col shrink-0 sticky top-0">
+    <aside className="hidden w-64 h-screen bg-sidebar-bg border-e border-border md:flex flex-col shrink-0 sticky top-0">
       <div className="flex items-center gap-3 px-5 py-5 border-b border-border">
         <div className="w-9 h-9 bg-foreground rounded-lg flex items-center justify-center">
           <LayoutDashboard className="w-5 h-5 text-white" />

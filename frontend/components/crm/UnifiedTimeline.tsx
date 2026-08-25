@@ -19,7 +19,7 @@ const icons: Record<string, React.ReactNode> = {
 
 export default function UnifiedTimeline({
   items,
-  emptyMessage = "Aucun Ã©vÃ©nement.",
+  emptyMessage = "Aucun événement.",
 }: {
   items: TimelineItem[];
   emptyMessage?: string;

@@ -22,6 +22,11 @@ import { CrmModule } from './crm/crm.module';
 import { CallCenterModule } from './call-center/call-center.module';
 import { OffersModule } from './offers/offers.module';
 import { PurchasesModule } from './purchases/purchases.module';
+import { FinanceModule } from './finance/finance.module';
+import { ShipmentsModule } from './shipments/shipments.module';
+import { CustomsModule } from './customs/customs.module';
+import { DocumentsModule } from './documents/documents.module';
+import { Phase3Module } from './phase3/phase3.module';
 
 @Module({
   imports: [
@@ -48,6 +53,11 @@ import { PurchasesModule } from './purchases/purchases.module';
     CallCenterModule,
     OffersModule,
     PurchasesModule,
+    FinanceModule,
+    ShipmentsModule,
+    CustomsModule,
+    DocumentsModule,
+    Phase3Module,
   ],
   controllers: [AppController],
   providers: [

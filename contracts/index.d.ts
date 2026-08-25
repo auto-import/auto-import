@@ -159,6 +159,64 @@ export const CustomsStatus: {
 };
 export type CustomsStatus = ValueOf<typeof CustomsStatus>;
 
+export const InvoiceStatus: {
+  readonly DRAFT: 'DRAFT';
+  readonly ISSUED: 'ISSUED';
+  readonly PARTIALLY_PAID: 'PARTIALLY_PAID';
+  readonly PAID: 'PAID';
+  readonly OVERDUE: 'OVERDUE';
+  readonly VOIDED: 'VOIDED';
+};
+export type InvoiceStatus = ValueOf<typeof InvoiceStatus>;
+
+export const PaymentPlanStrategy: {
+  readonly THIRTY_SEVENTY: 'THIRTY_SEVENTY';
+  readonly FULL_UPFRONT: 'FULL_UPFRONT';
+};
+export type PaymentPlanStrategy = ValueOf<typeof PaymentPlanStrategy>;
+
+export const InstallmentStatus: {
+  readonly PENDING: 'PENDING';
+  readonly DUE: 'DUE';
+  readonly PARTIALLY_PAID: 'PARTIALLY_PAID';
+  readonly PAID: 'PAID';
+  readonly OVERDUE: 'OVERDUE';
+  readonly CANCELLED: 'CANCELLED';
+};
+export type InstallmentStatus = ValueOf<typeof InstallmentStatus>;
+
+export const DueTrigger: {
+  readonly ON_PLAN_CREATION: 'ON_PLAN_CREATION';
+  readonly BEFORE_PURCHASE: 'BEFORE_PURCHASE';
+  readonly ON_VEHICLE_RECOVERY: 'ON_VEHICLE_RECOVERY';
+  readonly FIXED_DATE: 'FIXED_DATE';
+};
+export type DueTrigger = ValueOf<typeof DueTrigger>;
+
+export const CostType: {
+  readonly PURCHASE: 'PURCHASE';
+  readonly SUPPLIER: 'SUPPLIER';
+  readonly SHIPPING: 'SHIPPING';
+  readonly CUSTOMS: 'CUSTOMS';
+  readonly DUTY: 'DUTY';
+  readonly TAX: 'TAX';
+  readonly INSURANCE: 'INSURANCE';
+  readonly STORAGE: 'STORAGE';
+  readonly OTHER: 'OTHER';
+};
+export type CostType = ValueOf<typeof CostType>;
+
+export const DocumentKind: {
+  readonly VEHICLE_PHOTO: 'VEHICLE_PHOTO';
+  readonly DOSSIER_DOCUMENT: 'DOSSIER_DOCUMENT';
+  readonly PROOF: 'PROOF';
+  readonly CONTRACT: 'CONTRACT';
+  readonly CUSTOMS_DOCUMENT: 'CUSTOMS_DOCUMENT';
+  readonly PAYMENT_RECEIPT: 'PAYMENT_RECEIPT';
+  readonly BUSINESS_DOCUMENT: 'BUSINESS_DOCUMENT';
+};
+export type DocumentKind = ValueOf<typeof DocumentKind>;
+
 export const RecordStatus: {
   readonly ACTIVE: 'active'; readonly INACTIVE: 'inactive';
   readonly SUSPENDED: 'suspended';
@@ -182,17 +240,29 @@ export const Permission: {
   readonly OFFERS_READ: 'offers:read'; readonly OFFERS_WRITE: 'offers:write';
   readonly OFFERS_READ_PURCHASE_PRICE: 'offers:readPurchasePrice'; readonly OFFERS_READ_MARGIN: 'offers:readMargin';
   readonly PAYMENTS_READ: 'payments:read'; readonly PAYMENTS_WRITE: 'payments:write';
+  readonly PAYMENTS_CONFIRM: 'payments:confirm'; readonly PAYMENTS_REVERSE: 'payments:reverse';
+  readonly INVOICES_READ: 'invoices:read'; readonly INVOICES_WRITE: 'invoices:write';
+  readonly INVOICES_ISSUE: 'invoices:issue'; readonly INVOICES_VOID: 'invoices:void';
+  readonly PAYMENT_PLANS_READ: 'paymentPlans:read'; readonly PAYMENT_PLANS_WRITE: 'paymentPlans:write';
+  readonly SUPPLIER_PAYMENTS_READ: 'supplierPayments:read'; readonly SUPPLIER_PAYMENTS_WRITE: 'supplierPayments:write';
+  readonly SUPPLIER_PAYMENTS_CONFIRM: 'supplierPayments:confirm'; readonly SUPPLIER_PAYMENTS_REVERSE: 'supplierPayments:reverse';
+  readonly COSTS_READ: 'costs:read'; readonly COSTS_WRITE: 'costs:write';
+  readonly EXCHANGE_RATES_READ: 'exchangeRates:read'; readonly EXCHANGE_RATES_WRITE: 'exchangeRates:write';
+  readonly FINANCE_READ: 'finance:read'; readonly FINANCE_WRITE: 'finance:write'; readonly FINANCE_ADMIN: 'finance:admin';
   readonly SHIPMENTS_READ: 'shipments:read'; readonly SHIPMENTS_WRITE: 'shipments:write';
   readonly CUSTOMS_READ: 'customs:read'; readonly CUSTOMS_WRITE: 'customs:write';
   readonly DOCUMENTS_READ: 'documents:read'; readonly DOCUMENTS_WRITE: 'documents:write';
-  readonly TASKS_READ: 'tasks:read'; readonly TASKS_WRITE: 'tasks:write';
+  readonly TASKS_READ: 'tasks:read'; readonly TASKS_WRITE: 'tasks:write'; readonly TASKS_ASSIGN: 'tasks:assign';
+  readonly NOTIFICATIONS_READ: 'notifications:read'; readonly NOTIFICATIONS_MANAGE: 'notifications:manage';
+  readonly AUDIT_READ: 'audit:read';
   readonly CRM_TIMELINE_READ: 'crmTimeline:read'; readonly CRM_TIMELINE_WRITE: 'crmTimeline:write';
   readonly CALL_CENTER_ACCESS: 'callCenter:access'; readonly CALL_CENTER_DISPATCH: 'callCenter:dispatch';
   readonly CALL_CENTER_HANDLE: 'callCenter:handle'; readonly WHATSAPP_HANDLE: 'whatsapp:handle';
   readonly APPOINTMENTS_READ: 'appointments:read'; readonly APPOINTMENTS_WRITE: 'appointments:write';
   readonly CRM_KPI_OWN: 'crmKpi:own'; readonly CRM_KPI_ORGANIZATION: 'crmKpi:organization';
   readonly CHANNELS_MANAGE: 'channels:manage';
-  readonly REPORTS_READ: 'reports:read'; readonly SETTINGS_MANAGE: 'settings:manage';
+  readonly REPORTS_READ: 'reports:read'; readonly REPORTS_EXPORT: 'reports:export';
+  readonly SETTINGS_READ: 'settings:read'; readonly SETTINGS_WRITE: 'settings:write'; readonly SETTINGS_MANAGE: 'settings:manage';
 };
 export type Permission = ValueOf<typeof Permission>;
 

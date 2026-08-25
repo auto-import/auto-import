@@ -90,7 +90,7 @@ export default function LeadsWorkspace() {
     <>
       <Topbar
         title="Leads"
-        subtitle="Pipeline commercial â€” donnÃ©es CRM en temps rÃ©el"
+        subtitle="Pipeline commercial — données CRM en temps réel"
       />
       <main className="space-y-6 p-8">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -119,7 +119,7 @@ export default function LeadsWorkspace() {
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted" />
             <input
               className="w-full rounded-input border border-border bg-background py-2 pl-9 pr-3 text-sm"
-              placeholder="Nom, tÃ©lÃ©phone ou email"
+              placeholder="Nom, téléphone ou email"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -163,13 +163,13 @@ export default function LeadsWorkspace() {
               className="mt-2 flex items-center gap-1 font-medium"
             >
               <RefreshCw className="h-4 w-4" />
-              RÃ©essayer
+              Réessayer
             </button>
           </div>
         )}
         {loading ? (
           <div className="card p-12 text-center text-muted">
-            Chargement du pipelineâ€¦
+            Chargement du pipeline…
           </div>
         ) : leads.length === 0 ? (
           <div className="card p-12 text-center text-muted">
@@ -228,7 +228,7 @@ export default function LeadsWorkspace() {
                             )}
                           </span>
                         ) : lead.lastInteractionAt ? (
-                          `DerniÃ¨re interaction ${new Date(lead.lastInteractionAt).toLocaleDateString("fr-FR")}`
+                          `Dernière interaction ${new Date(lead.lastInteractionAt).toLocaleDateString("fr-FR")}`
                         ) : (
                           "Aucune interaction"
                         )}

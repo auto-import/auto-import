@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import DossierCreateWorkspace from "@/components/commerce/DossierCreateWorkspace";
+import DossierCreateWorkspace from "@/components/commerce/DossierWizardWorkspace";
 
 export default function DossierCreatePage() {
   return (

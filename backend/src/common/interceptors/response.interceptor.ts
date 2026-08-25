@@ -9,6 +9,15 @@ import { map } from 'rxjs/operators';
 import { ApiSuccessResponse } from '../dto/response.dto';
 import { Request, Response as ExpressResponse } from 'express';
 
+function makeJsonSafe<T>(data: T): T {
+  if (data === undefined) return data;
+  return JSON.parse(
+    JSON.stringify(data, (_key, value: unknown) =>
+      typeof value === 'bigint' ? value.toString() : value,
+    ),
+  ) as T;
+}
+
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<
   T,
@@ -25,7 +34,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<
     return next.handle().pipe(
       map((data) => ({
         success: true as const,
-        data,
+        data: makeJsonSafe(data),
         timestamp: new Date().toISOString(),
         path: request.originalUrl ?? request.url,
         statusCode: response.statusCode,
