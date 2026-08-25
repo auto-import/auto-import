@@ -53,6 +53,20 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
       },
+      user: {
+        count: jest.fn().mockResolvedValue(1),
+      },
+      commerceSequence: {
+        upsert: jest.fn().mockResolvedValue({ value: 1 }),
+      },
+      offerReservation: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      chinaOffer: {
+        update: jest.fn(),
+      },
       vehicle: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),

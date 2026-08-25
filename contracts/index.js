@@ -39,6 +39,7 @@ const DossierStatus = Object.freeze({
 });
 
 const VehicleStatus = Object.freeze({
+  PRE_PURCHASE: 'prePurchase',
   AVAILABLE: 'available',
   RESERVED: 'reserved',
   IN_TRANSIT: 'inTransit',
@@ -46,6 +47,45 @@ const VehicleStatus = Object.freeze({
   DELIVERED: 'delivered',
   SOLD: 'sold',
 });
+
+const VehicleSource = Object.freeze({
+  STOCK: 'stock',
+  CLIENT_REQUEST: 'clientRequest',
+  CHINA_OFFER: 'chinaOffer',
+  EXTERNAL: 'external',
+});
+
+const PartnerType = Object.freeze({
+  SUPPLIER: 'supplier', CARRIER: 'carrier', CUSTOMS_BROKER: 'customsBroker',
+  LOGISTICS: 'logistics', OTHER: 'other',
+});
+
+const CommerceRecordStatus = Object.freeze({
+  ACTIVE: 'active', INACTIVE: 'inactive', ARCHIVED: 'archived',
+});
+
+const OfferReservationStatus = Object.freeze({
+  ACTIVE: 'active', CONSUMED: 'consumed', RELEASED: 'released', EXPIRED: 'expired',
+});
+
+const VehicleRequestStatus = Object.freeze({
+  OPEN: 'open', SOURCING: 'sourcing', CANDIDATE_SELECTED: 'candidateSelected',
+  PURCHASED: 'purchased', CANCELLED: 'cancelled',
+});
+
+const CandidateStatus = Object.freeze({
+  PROPOSED: 'proposed', VALIDATED: 'validated', REJECTED: 'rejected',
+});
+
+const ReservationStatus = Object.freeze({
+  ACTIVE: 'active', RELEASED: 'released', EXPIRED: 'expired', CONSUMED: 'consumed',
+});
+
+const PurchaseStatus = Object.freeze({
+  PENDING: 'pending', CONFIRMED: 'confirmed', CANCELLED: 'cancelled',
+});
+
+const Currency = Object.freeze({ DZD: 'DZD', USD: 'USD', CNY: 'CNY', EUR: 'EUR' });
 
 const OrderStatus = Object.freeze({
   DRAFT: 'draft',
@@ -158,6 +198,8 @@ const Permission = Object.freeze({
   VEHICLE_REQUESTS_WRITE: 'vehicleRequests:write',
   ORDERS_READ: 'orders:read',
   ORDERS_WRITE: 'orders:write',
+  PURCHASES_READ: 'purchases:read',
+  PURCHASES_WRITE: 'purchases:write',
   PARTNERS_READ: 'partners:read',
   PARTNERS_WRITE: 'partners:write',
   OFFERS_READ: 'offers:read',
@@ -251,14 +293,23 @@ module.exports = {
   DossierStatus,
   DossierType,
   AgentPresenceStatus,
+  CandidateStatus,
   CallState,
+  CommerceRecordStatus,
+  Currency,
   LeadQualification,
   OfferStatus,
+  OfferReservationStatus,
   OrderStatus,
   PaymentStatus,
   Permission,
+  PartnerType,
+  PurchaseStatus,
   ProspectStatus,
   RecordStatus,
   ShipmentStatus,
+  ReservationStatus,
+  VehicleRequestStatus,
+  VehicleSource,
   VehicleStatus,
 };

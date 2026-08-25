@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsUUID } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class FilterVehicleDto extends PaginationDto {
@@ -21,4 +21,8 @@ export class FilterVehicleDto extends PaginationDto {
   @IsOptional()
   @IsString()
   condition?: string;
+
+  @IsOptional() @IsUUID() supplierId?: string;
+  @IsOptional() @IsUUID() locationId?: string;
+  @IsOptional() @IsString() vin?: string;
 }

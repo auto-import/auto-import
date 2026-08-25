@@ -15,6 +15,15 @@ import {
   AgentPresenceStatus,
   CallState,
   LeadQualification,
+  VehicleSource,
+  PartnerType,
+  CommerceRecordStatus,
+  OfferReservationStatus,
+  VehicleRequestStatus,
+  CandidateStatus,
+  ReservationStatus,
+  PurchaseStatus,
+  Currency,
 } from "@auto-import/contracts";
 import type {
   CustomsStatus as CustomsStatusValue,
@@ -31,6 +40,7 @@ import type {
   AgentPresenceStatus as AgentPresenceStatusValue,
   CallState as CallStateValue,
   LeadQualification as LeadQualificationValue,
+  VehicleSource as VehicleSourceValue,
 } from "@auto-import/contracts";
 
 export {
@@ -50,6 +60,15 @@ export {
   AgentPresenceStatus,
   CallState,
   LeadQualification,
+  VehicleSource,
+  PartnerType,
+  CommerceRecordStatus,
+  OfferReservationStatus,
+  VehicleRequestStatus,
+  CandidateStatus,
+  ReservationStatus,
+  PurchaseStatus,
+  Currency,
 };
 
 export type ApiDossierType = DossierTypeValue;
@@ -66,6 +85,7 @@ export type ApiPermission = PermissionValue;
 export type ApiAgentPresenceStatus = AgentPresenceStatusValue;
 export type ApiCallState = CallStateValue;
 export type ApiLeadQualification = LeadQualificationValue;
+export type ApiVehicleSource = VehicleSourceValue;
 
 export interface ApiSuccessResponse<T> {
   success: true;
@@ -136,6 +156,7 @@ export const DOSSIER_STATUS_LABELS_API: Record<ApiDossierStatus, string> = {
 };
 
 export const VEHICLE_STATUS_LABELS_API: Record<ApiVehicleStatus, string> = {
+  [VehicleStatus.PRE_PURCHASE]: "PrÃ©-achat",
   [VehicleStatus.AVAILABLE]: "Disponible",
   [VehicleStatus.RESERVED]: "Réservé",
   [VehicleStatus.IN_TRANSIT]: "En transit",

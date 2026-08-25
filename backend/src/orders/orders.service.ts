@@ -9,6 +9,16 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-status.dto';
 import { paginate } from '../common/helpers/pagination.helper';
+import { Prisma } from '@prisma/client';
+import type { OrderItemDto } from './dto/create-order.dto';
+
+export interface OrderFilters {
+  status?: string;
+  clientId?: string;
+  orderNumber?: string;
+  fromDate?: string;
+  toDate?: string;
+}
 
 @Injectable()
 export class OrdersService {
@@ -16,26 +26,17 @@ export class OrdersService {
 
   constructor(private prisma: PrismaService) {}
 
-  private async generateOrderNumber(): Promise<string> {
-    const year = new Date().getFullYear();
-    const lastOrder = await this.prisma.order.findFirst({
-      where: {
-        orderNumber: {
-          startsWith: `ORD-${year}-`,
-        },
-      },
-      orderBy: {
-        orderNumber: 'desc',
-      },
+  private async generateOrderNumber(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<string> {
+    const year = new Date().getUTCFullYear();
+    const sequence = await tx.commerceSequence.upsert({
+      where: { organizationId_key: { organizationId, key: `order:${year}` } },
+      create: { organizationId, key: `order:${year}`, value: 1 },
+      update: { value: { increment: 1 } },
     });
-
-    let sequence = 1;
-    if (lastOrder) {
-      const parts = lastOrder.orderNumber.split('-');
-      sequence = parseInt(parts[2]) + 1;
-    }
-
-    return `ORD-${year}-${String(sequence).padStart(6, '0')}`;
+    return `ORD-${year}-${String(sequence.value).padStart(6, '0')}`;
   }
 
   async create(
@@ -43,8 +44,7 @@ export class OrdersService {
     userId: string,
     organizationId: string,
   ) {
-    const { clientId, prospectId, dossierId, items, currency, status } =
-      createOrderDto;
+    const { clientId, prospectId, dossierId, items, currency } = createOrderDto;
 
     // Check if client exists and belongs to same organization
     const client = await this.prisma.client.findFirst({
@@ -85,11 +85,14 @@ export class OrdersService {
       if (dossier.orderId) {
         throw new ConflictException('Dossier already has an order');
       }
+      if (dossier.clientId !== clientId) {
+        throw new ConflictException('Order and dossier client must match');
+      }
     }
 
     // Validate vehicles belong to organization, are available/not sold, and calculate totals
     let subtotal = 0;
-    const validatedItems: any[] = [];
+    const validatedItems: OrderItemDto[] = [];
 
     for (const item of items) {
       const vehicle = await this.prisma.vehicle.findFirst({
@@ -102,9 +105,9 @@ export class OrdersService {
         );
       }
 
-      if (vehicle.status === 'sold') {
+      if (vehicle.status !== 'available') {
         throw new ConflictException(
-          `Vehicle ${vehicle.brand} ${vehicle.model} is already sold`,
+          `Vehicle ${vehicle.brand} ${vehicle.model} is not available`,
         );
       }
 
@@ -113,10 +116,13 @@ export class OrdersService {
       validatedItems.push(item);
     }
 
-    const orderNumber = await this.generateOrderNumber();
     const total = subtotal;
 
     const order = await this.prisma.$transaction(async (prisma) => {
+      const orderNumber = await this.generateOrderNumber(
+        prisma,
+        organizationId,
+      );
       // Create order with organizationId
       const newOrder = await prisma.order.create({
         data: {
@@ -125,7 +131,7 @@ export class OrdersService {
           clientId,
           prospectId,
           createdBy: userId,
-          status: status || 'draft',
+          status: 'draft',
           subtotal,
           discount: 0,
           total,
@@ -148,19 +154,23 @@ export class OrdersService {
         });
 
         // Reserve the vehicle
-        await prisma.vehicle.update({
-          where: { id: item.vehicleId },
+        const reserved = await prisma.vehicle.updateMany({
+          where: { id: item.vehicleId, organizationId, status: 'available' },
           data: { status: 'reserved' },
         });
+        if (reserved.count !== 1)
+          throw new ConflictException('Vehicle was reserved concurrently');
 
         // Create reservation
         await prisma.reservation.create({
           data: {
+            organizationId,
             vehicleId: item.vehicleId,
             orderId: newOrder.id,
             reservedBy: userId,
             status: 'active',
             reservedAt: new Date(),
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           },
         });
       }
@@ -186,7 +196,7 @@ export class OrdersService {
       return newOrder;
     });
 
-    this.logger.log(`Order created: ${orderNumber} (${order.id})`);
+    this.logger.log(`Order created: ${order.orderNumber} (${order.id})`);
     return this.findOne(order.id, organizationId);
   }
 
@@ -194,11 +204,12 @@ export class OrdersService {
     organizationId: string,
     page: number = 1,
     limit: number = 20,
-    filters?: any,
+    filters?: OrderFilters,
   ) {
+    await this.expireReservations(organizationId);
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.OrderWhereInput = { organizationId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.clientId) where.clientId = filters.clientId;
@@ -207,10 +218,12 @@ export class OrdersService {
         contains: filters.orderNumber,
         mode: 'insensitive',
       };
-    if (filters?.fromDate)
-      where.orderDate = { gte: new Date(filters.fromDate) };
-    if (filters?.toDate)
-      where.orderDate = { ...where.orderDate, lte: new Date(filters.toDate) };
+    if (filters?.fromDate || filters?.toDate) {
+      const orderDate: Prisma.DateTimeFilter = {};
+      if (filters.fromDate) orderDate.gte = new Date(filters.fromDate);
+      if (filters.toDate) orderDate.lte = new Date(filters.toDate);
+      where.orderDate = orderDate;
+    }
 
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -262,6 +275,7 @@ export class OrdersService {
   }
 
   async findOne(id: string, organizationId?: string) {
+    if (organizationId) await this.expireReservations(organizationId, id);
     const order = await this.prisma.order.findFirst({
       where: { id, ...(organizationId && { organizationId }) },
       include: {
@@ -335,6 +349,91 @@ export class OrdersService {
     };
   }
 
+  async update(
+    id: string,
+    dto: UpdateOrderDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const order = await this.findOne(id, organizationId);
+    if (order.status !== 'draft') {
+      throw new ConflictException('Only draft orders can be edited');
+    }
+    if (!dto.items) return order;
+    const items = dto.items;
+    return this.prisma.$transaction(async (tx) => {
+      const oldVehicleIds = order.items.map((item) => item.vehicleId);
+      await tx.reservation.updateMany({
+        where: { orderId: id, organizationId, status: 'active' },
+        data: {
+          status: 'released',
+          releasedAt: new Date(),
+          releaseReason: 'orderEdited',
+        },
+      });
+      await tx.vehicle.updateMany({
+        where: {
+          id: { in: oldVehicleIds },
+          organizationId,
+          status: 'reserved',
+        },
+        data: { status: 'available' },
+      });
+      await tx.orderItem.deleteMany({ where: { orderId: id } });
+      let subtotal = 0;
+      for (const item of items) {
+        const vehicle = await tx.vehicle.findFirst({
+          where: { id: item.vehicleId, organizationId },
+        });
+        if (!vehicle) throw new NotFoundException('Vehicle not found');
+        const reserved = await tx.vehicle.updateMany({
+          where: { id: item.vehicleId, organizationId, status: 'available' },
+          data: { status: 'reserved' },
+        });
+        if (reserved.count !== 1)
+          throw new ConflictException('Vehicle is not available');
+        const unitPrice =
+          item.unitPrice ?? vehicle.sellingPrice?.toNumber() ?? 0;
+        const discount = item.discount ?? 0;
+        const total = unitPrice - discount;
+        subtotal += total;
+        await tx.orderItem.create({
+          data: {
+            orderId: id,
+            vehicleId: item.vehicleId,
+            unitPrice,
+            discount,
+            total,
+          },
+        });
+        await tx.reservation.create({
+          data: {
+            organizationId,
+            vehicleId: item.vehicleId,
+            orderId: id,
+            reservedBy: userId,
+            status: 'active',
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        });
+      }
+      const updated = await tx.order.update({
+        where: { id },
+        data: { subtotal, total: subtotal },
+      });
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: id,
+          changedBy: userId,
+          fromStatus: order.status,
+          toStatus: order.status,
+          comment: 'Order items updated',
+        },
+      });
+      return updated;
+    });
+  }
+
   async updateStatus(
     id: string,
     updateStatusDto: UpdateOrderStatusDto,
@@ -345,12 +444,10 @@ export class OrdersService {
     const { status, comment } = updateStatusDto;
 
     // Status transition validation
-    const validTransitions = {
+    const validTransitions: Record<string, string[]> = {
       draft: ['confirmed', 'cancelled'],
       confirmed: ['processing', 'cancelled'],
-      processing: ['shipped', 'cancelled'],
-      shipped: ['delivered', 'cancelled'],
-      delivered: ['completed'],
+      processing: ['completed', 'cancelled'],
       completed: [],
       cancelled: [],
     };
@@ -361,7 +458,7 @@ export class OrdersService {
       );
     }
 
-    const updatedOrder = await this.prisma.$transaction(async (prisma) => {
+    await this.prisma.$transaction(async (prisma) => {
       const updated = await prisma.order.update({
         where: { id },
         data: {
@@ -383,10 +480,16 @@ export class OrdersService {
       // If order is completed or cancelled, release vehicle reservations
       if (status === 'completed' || status === 'cancelled') {
         await prisma.reservation.updateMany({
-          where: { orderId: id, status: 'active' },
+          where: {
+            orderId: id,
+            organizationId: order.organizationId,
+            status: 'active',
+          },
           data: {
-            status: 'released',
-            releasedAt: new Date(),
+            status: status === 'completed' ? 'consumed' : 'released',
+            releasedAt: status === 'cancelled' ? new Date() : undefined,
+            releaseReason:
+              status === 'cancelled' ? 'orderCancelled' : undefined,
           },
         });
 
@@ -443,43 +546,47 @@ export class OrdersService {
       );
     }
 
-    await this.prisma.$transaction(async (prisma) => {
-      // Release vehicle reservations
-      await prisma.reservation.updateMany({
-        where: { orderId: id },
-        data: {
-          status: 'released',
-          releasedAt: new Date(),
-        },
-      });
+    if (order.status === 'cancelled') return order;
+    return this.updateStatus(
+      id,
+      { status: 'cancelled', comment: 'Order cancelled' },
+      order.createdBy,
+      organizationId,
+    );
+  }
 
-      // Update vehicle statuses
-      await prisma.vehicle.updateMany({
+  async expireReservations(
+    organizationId: string,
+    orderId?: string,
+  ): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const expired = await tx.reservation.findMany({
         where: {
-          id: {
-            in: order.items.map((item) => item.vehicleId),
-          },
+          organizationId,
+          status: 'active',
+          expiresAt: { lte: new Date() },
+          ...(orderId ? { orderId } : {}),
         },
-        data: { status: 'available' },
       });
-
-      // Delete order items
-      await prisma.orderItem.deleteMany({
-        where: { orderId: id },
-      });
-
-      // Delete status history
-      await prisma.orderStatusHistory.deleteMany({
-        where: { orderId: id },
-      });
-
-      // Delete order
-      await prisma.order.delete({
-        where: { id },
-      });
+      for (const reservation of expired) {
+        await tx.reservation.update({
+          where: { id: reservation.id },
+          data: {
+            status: 'expired',
+            releasedAt: new Date(),
+            releaseReason: 'expired',
+          },
+        });
+        await tx.vehicle.updateMany({
+          where: {
+            id: reservation.vehicleId,
+            organizationId,
+            status: 'reserved',
+          },
+          data: { status: 'available' },
+        });
+      }
+      return expired.length;
     });
-
-    this.logger.log(`Order deleted: ${order.orderNumber} (${id})`);
-    return { message: 'Order deleted successfully' };
   }
 }

@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  IsIn,
   Min,
   Max,
 } from 'class-validator';
@@ -12,7 +13,9 @@ import { VehicleStatus } from '@auto-import/contracts';
 
 export enum AcquisitionType {
   STOCK = 'stock',
-  CLIENT_REQUEST = 'client_request',
+  CLIENT_REQUEST = 'clientRequest',
+  CHINA_OFFER = 'chinaOffer',
+  EXTERNAL = 'external',
 }
 
 export class CreateVehicleDto {
@@ -54,7 +57,7 @@ export class CreateVehicleDto {
   sellingPrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['DZD', 'USD', 'CNY', 'EUR'])
   currency?: string;
 
   @IsOptional()

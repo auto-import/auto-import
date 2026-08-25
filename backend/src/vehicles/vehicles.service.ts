@@ -19,6 +19,11 @@ export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
   async create(createVehicleDto: CreateVehicleDto, organizationId: string) {
+    if (!createVehicleDto.vin && createVehicleDto.status !== 'prePurchase') {
+      throw new ConflictException(
+        'VIN is required outside the pre-purchase state',
+      );
+    }
     const vehicle = await this.prisma.$transaction(
       async (transaction) => {
         if (createVehicleDto.vin) {
@@ -77,6 +82,10 @@ export class VehiclesService {
     if (filters.condition) {
       where.condition = filters.condition;
     }
+    if (filters.supplierId) where.supplierId = filters.supplierId;
+    if (filters.locationId) where.currentLocationId = filters.locationId;
+    if (filters.vin) where.vin = { contains: filters.vin, mode: 'insensitive' };
+    where.archivedAt = null;
 
     const [vehicles, total] = await Promise.all([
       this.prisma.vehicle.findMany({
@@ -85,6 +94,10 @@ export class VehiclesService {
         take: limit,
         include: {
           specs: true,
+          supplier: { select: { id: true, name: true, country: true } },
+          currentLocation: {
+            include: { warehouse: { select: { id: true, name: true } } },
+          },
           photos: {
             include: { file: true },
             orderBy: { sortOrder: 'asc' },
@@ -129,6 +142,16 @@ export class VehiclesService {
             proposedPrice: true,
           },
         },
+        supplier: true,
+        currentLocation: { include: { warehouse: true } },
+        stockMovements: {
+          include: {
+            fromLocation: true,
+            toLocation: true,
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -153,6 +176,13 @@ export class VehiclesService {
           where: { id, organizationId },
         });
         if (!existingVehicle) throw new NotFoundException('Vehicle not found');
+        const nextStatus = updateVehicleDto.status ?? existingVehicle.status;
+        const nextVin = updateVehicleDto.vin ?? existingVehicle.vin;
+        if (!nextVin && nextStatus !== 'prePurchase') {
+          throw new ConflictException(
+            'VIN is required outside the pre-purchase state',
+          );
+        }
         if (updateVehicleDto.vin) {
           const duplicate = await transaction.vehicle.findFirst({
             where: { vin: updateVehicleDto.vin, NOT: { id } },
@@ -195,10 +225,13 @@ export class VehiclesService {
       throw new ConflictException('Cannot delete vehicle with active dossiers');
     }
 
-    await this.prisma.vehicle.delete({ where: { id } });
+    const archived = await this.prisma.vehicle.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+    });
 
     this.logger.log(`Vehicle deleted: ${id}`);
-    return { message: 'Vehicle deleted successfully' };
+    return archived;
   }
 
   // ──────────────────────────────────────────────

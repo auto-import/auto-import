@@ -20,6 +20,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { CrmModule } from './crm/crm.module';
 import { CallCenterModule } from './call-center/call-center.module';
+import { OffersModule } from './offers/offers.module';
+import { PurchasesModule } from './purchases/purchases.module';
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { CallCenterModule } from './call-center/call-center.module';
     PartnersModule,
     CrmModule,
     CallCenterModule,
+    OffersModule,
+    PurchasesModule,
   ],
   controllers: [AppController],
   providers: [

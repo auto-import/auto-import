@@ -44,4 +44,16 @@ export class CreateDossierDto {
   @IsOptional()
   @IsUUID()
   orderId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  offerReservationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  salesUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  opsUserId?: string;
 }

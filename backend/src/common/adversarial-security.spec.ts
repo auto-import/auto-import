@@ -135,6 +135,8 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
       },
       reservation: {
         create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
         updateMany: jest.fn(),
       },
       orderItem: {
@@ -194,6 +196,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
 
       await vehiclesService.create(
         {
+          vin: 'L6TDBE2E0RA000001',
           brand: 'Geely',
           model: 'Coolray',
           acquisitionType: 'stock' as any,

@@ -9,6 +9,7 @@ import { DossiersService } from '../dossiers/dossiers.service';
 import { PartnersService } from '../partners/partners.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DossierType } from '@auto-import/contracts';
 
 describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audit', () => {
   let vehicleRequestsService: VehicleRequestsService;
@@ -74,7 +75,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       },
       purchase: {
         create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(null),
         count: jest.fn(),
+      },
+      commerceSequence: {
+        upsert: jest.fn().mockResolvedValue({ value: 5 }),
       },
       client: {
         findFirst: jest.fn(),
@@ -157,6 +162,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'open',
       });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
@@ -184,6 +190,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'open',
       });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
@@ -203,6 +210,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'open',
       });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
@@ -280,12 +288,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         },
         data: { status: 'reserved' },
       });
-      expect(prisma.dossier.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'dossier-1' },
-          data: { status: 'purchaseConfirmed' },
-        }),
-      );
+      expect(prisma.dossier.update).not.toHaveBeenCalled();
+      expect(prisma.vehicleRequest.update).toHaveBeenCalledWith({
+        where: { id: 'vr-1' },
+        data: { status: 'candidateSelected' },
+      });
     });
 
     it('Concurrency Safety: should REJECT validation if vehicle was concurrently reserved by another transaction (updateMany count = 0)', async () => {
@@ -327,6 +334,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'candidateSelected',
         candidates: [
           {
             id: 'cand-1',
@@ -342,7 +350,8 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         ],
         dossier: {
           id: 'dossier-1',
-          status: 'contractSigned',
+          type: DossierType.VEHICLE_SALE_CIF,
+          status: 'depositReceived',
         },
       });
 
@@ -419,6 +428,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'candidateSelected',
         candidates: [{ id: 'cand-1', vehicleId: 'veh-1', status: 'validated' }],
       });
 
@@ -621,16 +631,18 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('PartnersService.remove: blocks deleting partner if vehicles are linked', async () => {
+    it('PartnersService.remove: archives a referenced partner without deleting it', async () => {
       prisma.partner.findFirst.mockResolvedValue({
         id: 'partner-1',
         organizationId: ORG_A,
       });
       prisma.vehicle.count.mockResolvedValue(3); // 3 vehicles linked to this supplier
 
-      await expect(partnersService.remove('partner-1', ORG_A)).rejects.toThrow(
-        ConflictException,
+      prisma.partner.update.mockResolvedValue({ id: 'partner-1', status: 'archived' });
+      await expect(partnersService.remove('partner-1', ORG_A)).resolves.toEqual(
+        expect.objectContaining({ status: 'archived' }),
       );
+      expect(prisma.partner.delete).not.toHaveBeenCalled();
     });
   });
 });

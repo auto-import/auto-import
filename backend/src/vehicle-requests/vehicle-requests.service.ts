@@ -13,10 +13,13 @@ import { CreateCandidateDto } from './dto/create-candidate.dto';
 import { UpdateCandidateDto } from './dto/update-candidate.dto';
 import { paginate } from '../common/helpers/pagination.helper';
 import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
+import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DossierStatus, DossierType } from '@auto-import/contracts';
 
 @Injectable()
 export class VehicleRequestsService {
   private readonly logger = new Logger(VehicleRequestsService.name);
+  private readonly dossierWorkflow = new DossierWorkflowService();
 
   constructor(private prisma: PrismaService) {}
 
@@ -219,6 +222,11 @@ export class VehicleRequestsService {
           where: { id, organizationId },
         });
         if (!existing) throw new NotFoundException('Vehicle request not found');
+        if (['purchased', 'cancelled'].includes(existing.status)) {
+          throw new ConflictException(
+            `Cannot edit a request in '${existing.status}'`,
+          );
+        }
         await this.validateRequestRelations(transaction, dto, organizationId);
         return transaction.vehicleRequest.update({
           where: { id },
@@ -241,28 +249,28 @@ export class VehicleRequestsService {
       throw new ConflictException('Cannot delete request linked to a dossier');
     }
 
-    // Block if any candidate is validated
-    const validatedCandidates = request.candidates.filter(
-      (c) => c.status === 'validated',
-    );
-    if (validatedCandidates.length > 0) {
-      throw new ConflictException(
-        'Cannot delete request with validated candidates',
-      );
-    }
-
-    // Delete candidates first (referential integrity), then the request
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vehicleCandidate.deleteMany({
-        where: { vehicleRequestId: id },
-      });
-      await tx.vehicleRequest.delete({
+    if (request.status === 'cancelled') return request;
+    const reservedVehicleIds = request.candidates
+      .filter((candidate) => candidate.status === 'validated')
+      .map((candidate) => candidate.vehicleId);
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      if (reservedVehicleIds.length) {
+        await tx.vehicle.updateMany({
+          where: {
+            id: { in: reservedVehicleIds },
+            organizationId,
+            status: 'reserved',
+          },
+          data: { status: 'available' },
+        });
+      }
+      return tx.vehicleRequest.update({
         where: { id },
+        data: { status: 'cancelled' },
       });
     });
-
-    this.logger.log(`Vehicle request deleted: ${id}`);
-    return { message: 'Vehicle request deleted successfully' };
+    this.logger.log(`Vehicle request cancelled: ${id}`);
+    return cancelled;
   }
 
   // ──────────────────────────────────────────────
@@ -277,6 +285,11 @@ export class VehicleRequestsService {
     if (!request) {
       throw new NotFoundException(
         `Vehicle request with ID ${dto.vehicleRequestId} not found in your organization`,
+      );
+    }
+    if (!['open', 'sourcing'].includes(request.status)) {
+      throw new ConflictException(
+        `Cannot add a candidate to a request in '${request.status}'`,
       );
     }
 
@@ -329,6 +342,13 @@ export class VehicleRequestsService {
           vehicleRequest: true,
         },
       });
+
+      if (request.status === 'open') {
+        await this.prisma.vehicleRequest.update({
+          where: { id: request.id },
+          data: { status: 'sourcing' },
+        });
+      }
 
       this.logger.log(
         `Candidate added: vehicle ${dto.vehicleId} → request ${dto.vehicleRequestId}`,
@@ -461,7 +481,7 @@ export class VehicleRequestsService {
       // 5. Update request status → validated
       await tx.vehicleRequest.update({
         where: { id: candidate.vehicleRequestId },
-        data: { status: 'validated' },
+        data: { status: 'candidateSelected' },
       });
 
       // 6. If request has a linked dossier, bind vehicle and advance status
@@ -481,21 +501,13 @@ export class VehicleRequestsService {
           update: {},
         });
 
-        await tx.dossier.update({
-          where: { id: candidate.vehicleRequest.dossier.id },
-          data: {
-            status: 'purchaseConfirmed',
-          },
-        });
-
-        // Record status transition in dossier history
         await tx.dossierStatusHistory.create({
           data: {
             dossierId: candidate.vehicleRequest.dossier.id,
             fromStatus: candidate.vehicleRequest.dossier.status,
-            toStatus: 'purchaseConfirmed',
+            toStatus: candidate.vehicleRequest.dossier.status,
             changedBy: userId || 'system',
-            comment: `Vehicle candidate ${candidateId} validated — vehicle ${candidate.vehicleId} assigned to dossier`,
+            comment: `Vehicle candidate ${candidateId} validated and assigned to dossier`,
           },
         });
       }
@@ -550,6 +562,17 @@ export class VehicleRequestsService {
     userId: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      const existingPurchase = await tx.purchase.findUnique({
+        where: { vehicleRequestId: requestId },
+      });
+      if (existingPurchase) {
+        return {
+          message: 'Purchase was already confirmed',
+          requestId,
+          vehicleId: existingPurchase.vehicleId,
+          purchase: existingPurchase,
+        };
+      }
       const request = await tx.vehicleRequest.findFirst({
         where: { id: requestId, organizationId },
         include: {
@@ -563,6 +586,14 @@ export class VehicleRequestsService {
       if (!request) {
         throw new NotFoundException(
           `Vehicle request with ID ${requestId} not found in your organization`,
+        );
+      }
+      if (request.status === 'cancelled') {
+        throw new ConflictException('A cancelled request cannot be purchased');
+      }
+      if (request.dossier?.type === DossierType.SHIPPING_ONLY) {
+        throw new ConflictException(
+          'Shipping-only dossiers cannot enter purchase states',
         );
       }
 
@@ -603,6 +634,15 @@ export class VehicleRequestsService {
       if (!targetVehicleId) {
         throw new ConflictException('A vehicle is required for purchase');
       }
+      const selectedCandidate = request.candidates.find(
+        (candidate) => candidate.vehicleId === targetVehicleId,
+      );
+      if (!selectedCandidate) {
+        throw new ConflictException(
+          'The selected vehicle is not a candidate for this request',
+        );
+      }
+      targetCandidateId = selectedCandidate.id;
 
       // Validate vehicle belongs to organization
       const vehicle = await tx.vehicle.findFirst({
@@ -624,6 +664,13 @@ export class VehicleRequestsService {
       });
       if (!supplier) {
         throw new NotFoundException('Supplier not found');
+      }
+      const purchasePrice =
+        dto.purchasePrice != null
+          ? dto.purchasePrice
+          : vehicle.purchasePrice?.toNumber();
+      if (purchasePrice == null || purchasePrice <= 0) {
+        throw new ConflictException('A positive purchase price is required');
       }
 
       // Concurrency-safe reservation & state check
@@ -694,14 +741,19 @@ export class VehicleRequestsService {
         });
       }
 
-      // Update request status to validated
+      // Mark the request purchased only after all consistency checks passed.
       await tx.vehicleRequest.update({
         where: { id: requestId },
-        data: { status: 'validated' },
+        data: { status: 'purchased' },
       });
 
       // If request has linked dossier, bind vehicle and advance workflow
       if (request.dossier) {
+        this.dossierWorkflow.validateTransition(
+          request.dossier.type,
+          request.dossier.status,
+          DossierStatus.PURCHASE_CONFIRMED,
+        );
         await tx.dossierVehicle.upsert({
           where: {
             dossierId_vehicleId: {
@@ -719,24 +771,32 @@ export class VehicleRequestsService {
 
         await tx.dossier.update({
           where: { id: request.dossier.id },
-          data: { status: 'purchaseConfirmed' },
+          data: { status: DossierStatus.PURCHASE_CONFIRMED },
         });
 
         await tx.dossierStatusHistory.create({
           data: {
             dossierId: request.dossier.id,
             fromStatus: request.dossier.status,
-            toStatus: 'purchaseConfirmed',
+            toStatus: DossierStatus.PURCHASE_CONFIRMED,
             changedBy: userId,
             comment: `Purchase confirmed for vehicle ${vehicle.brand} ${vehicle.model} (${vehicle.vin || targetVehicleId})${supplier ? ` from supplier ${supplier.name}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}`,
           },
         });
       }
 
-      // Generate purchase record
-      const purchaseYear = new Date().getFullYear();
-      const countPurchases = await tx.purchase.count();
-      const purchaseNumber = `PUR-${purchaseYear}-${String(countPurchases + 1).padStart(5, '0')}`;
+      const purchaseYear = new Date().getUTCFullYear();
+      const sequence = await tx.commerceSequence.upsert({
+        where: {
+          organizationId_key: {
+            organizationId,
+            key: `purchase:${purchaseYear}`,
+          },
+        },
+        create: { organizationId, key: `purchase:${purchaseYear}`, value: 1 },
+        update: { value: { increment: 1 } },
+      });
+      const purchaseNumber = `PUR-${purchaseYear}-${String(sequence.value).padStart(5, '0')}`;
 
       const purchase = await tx.purchase.create({
         data: {
@@ -744,13 +804,29 @@ export class VehicleRequestsService {
           purchaseNumber,
           supplierId,
           vehicleId: targetVehicleId,
-          purchasePrice:
-            dto.purchasePrice != null
-              ? dto.purchasePrice
-              : vehicle.purchasePrice || 0,
+          purchasePrice,
           currency: dto.currency || vehicle.currency || 'USD',
           status: 'confirmed',
           purchaseDate: new Date(),
+          vehicleRequestId: requestId,
+          candidateId: targetCandidateId,
+          dossierId: request.dossier?.id,
+          orderId: request.dossier?.orderId,
+          confirmedBy: userId,
+          supplierSnapshot: {
+            id: supplier.id,
+            name: supplier.name,
+            country: supplier.country,
+            paymentTerms: supplier.paymentTerms,
+          },
+          vehicleSnapshot: {
+            id: vehicle.id,
+            vin: vehicle.vin,
+            brand: vehicle.brand,
+            model: vehicle.model,
+            year: vehicle.year,
+            condition: vehicle.condition,
+          },
         },
       });
 

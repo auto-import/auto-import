@@ -40,6 +40,10 @@ model Organization {
   vehicleRequests       VehicleRequest[]
   partners              Partner[]
   purchases             Purchase[]
+  chinaOffers           ChinaOffer[]
+  offerReservations     OfferReservation[]
+  commerceSequences     CommerceSequence[]
+  vehicleReservations   Reservation[]
   shipments             Shipment[]
   customsFiles          CustomsFile[]
   customerDeposits      CustomerDeposit[]
@@ -116,6 +120,7 @@ model User {
   createdOrders         Order[]
   orderStatusChanges    OrderStatusHistory[]
   reservations          Reservation[]
+  confirmedPurchases    Purchase[]              @relation("PurchaseConfirmer")
   uploadedDocuments     BusinessDocument[]
   assignedTasks         Task[]                  @relation("TaskAssignee")
   createdTasks          Task[]                  @relation("TaskCreator")
@@ -279,6 +284,7 @@ model Client {
   appointments          Appointment[]
   tasks                 Task[]
   crmNotes              CrmNote[]
+  offerReservations     OfferReservation[]
 
   @@index([organizationId, createdAt])
   @@index([organizationId, email])
@@ -669,15 +675,92 @@ model Partner {
   phone          String?
   email          String?
   address        String?
+  website        String?
+  paymentTerms   String?
+  deliveryTerms  String?
+  specialties    String[]     @default([])
+  notes          String?
   status         String       @default("active")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  suppliedVehicles Vehicle[]  @relation("VehicleSupplier")
+  suppliedVehicles Vehicle[]    @relation("VehicleSupplier")
   purchases        Purchase[]
+  chinaOffers      ChinaOffer[]
   shipments        Shipment[]
 
   @@index([organizationId, type, status])
+}
+
+model CommerceSequence {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  value          Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+
+  @@id([organizationId, key])
+}
+
+model ChinaOffer {
+  id                 String       @id @default(uuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  supplierId         String
+  supplier           Partner      @relation(fields: [supplierId], references: [id])
+  reference          String
+  brand              String
+  model              String
+  version            String?
+  year               Int?
+  condition          String
+  mileage            Int?
+  specification      Json
+  purchasePrice      Decimal?     @db.Decimal(12, 2)
+  cifPrice           Decimal      @db.Decimal(12, 2)
+  ddpPrice           Decimal      @db.Decimal(12, 2)
+  currency           String
+  validFrom          DateTime
+  validUntil         DateTime
+  availableQuantity  Int
+  reservedQuantity   Int          @default(0)
+  estimatedDelayDays Int?
+  status             String       @default("available")
+  notes              String?
+  archivedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  reservations OfferReservation[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId, status, validUntil])
+  @@index([organizationId, supplierId, createdAt])
+}
+
+model OfferReservation {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  offerId        String
+  offer          ChinaOffer   @relation(fields: [offerId], references: [id])
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id])
+  dossierId      String?      @unique
+  dossier        Dossier?     @relation(fields: [dossierId], references: [id])
+  quantity       Int          @default(1)
+  status         String       @default("active")
+  expiresAt      DateTime?
+  releasedAt     DateTime?
+  releaseReason  String?
+  createdBy      String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  purchase       Purchase?
+
+  @@index([organizationId, status, expiresAt])
+  @@index([offerId, status])
+  @@index([clientId, createdAt])
 }
 
 // ──────────────────────────────────────────────
@@ -691,30 +774,33 @@ enum DossierType {
 }
 
 model Dossier {
-  id               String          @id @default(uuid())
+  id               String            @id @default(uuid())
   organizationId   String
-  organization     Organization    @relation(fields: [organizationId], references: [id])
-  reference        String          @unique // CA-2026-0001
-  type             DossierType     @default(VEHICLE_SALE_CIF)
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  reference        String // CA-2026-00001
+  type             DossierType       @default(VEHICLE_SALE_CIF)
   clientId         String
-  client           Client          @relation(fields: [clientId], references: [id])
-  vehicleRequestId String?         @unique
-  vehicleRequest   VehicleRequest? @relation(fields: [vehicleRequestId], references: [id])
-  orderId          String?         @unique
-  order            Order?          @relation(fields: [orderId], references: [id])
-  status           String          @default("offerSelected")
+  client           Client            @relation(fields: [clientId], references: [id])
+  vehicleRequestId String?           @unique
+  vehicleRequest   VehicleRequest?   @relation(fields: [vehicleRequestId], references: [id])
+  orderId          String?           @unique
+  order            Order?            @relation(fields: [orderId], references: [id])
+  offerReservation OfferReservation?
+  status           String            @default("offerSelected")
   salesUserId      String
-  salesUser        User            @relation("DossierSalesUser", fields: [salesUserId], references: [id])
+  salesUser        User              @relation("DossierSalesUser", fields: [salesUserId], references: [id])
   opsUserId        String?
-  opsUser          User?           @relation("DossierOperationsUser", fields: [opsUserId], references: [id])
-  openedAt         DateTime        @default(now())
+  opsUser          User?             @relation("DossierOperationsUser", fields: [opsUserId], references: [id])
+  openedAt         DateTime          @default(now())
   closedAt         DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   history         DossierStatusHistory[]
   dossierVehicles DossierVehicle[]
+  purchases       Purchase[]
 
+  @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
   @@index([organizationId, type, openedAt])
   @@index([clientId])
@@ -769,6 +855,7 @@ model Vehicle {
   currentLocationId String?
   currentLocation   WarehouseLocation? @relation(fields: [currentLocationId], references: [id])
   acquiredAt        DateTime?
+  archivedAt        DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -885,10 +972,11 @@ model StockMovement {
   user           User               @relation(fields: [performedBy], references: [id])
   type           String
   reason         String?
+  occurredAt     DateTime           @default(now())
   createdAt      DateTime           @default(now())
 
-  @@index([organizationId, createdAt])
-  @@index([vehicleId, createdAt])
+  @@index([organizationId, occurredAt])
+  @@index([vehicleId, occurredAt])
   @@index([fromLocationId])
   @@index([toLocationId])
   @@index([performedBy])
@@ -923,6 +1011,7 @@ model VehicleRequest {
 
   candidates VehicleCandidate[]
   dossier    Dossier?
+  purchase   Purchase?
 
   @@index([organizationId, status, createdAt])
   @@index([prospectId])
@@ -942,6 +1031,7 @@ model VehicleCandidate {
   notes            String?
   presentedAt      DateTime?
   validatedAt      DateTime?
+  purchase         Purchase?
 
   @@unique([vehicleRequestId, vehicleId])
   @@index([vehicleId])
@@ -951,7 +1041,7 @@ model Order {
   id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  orderNumber    String       @unique
+  orderNumber    String
   clientId       String
   client         Client       @relation(fields: [clientId], references: [id])
   prospectId     String?
@@ -976,7 +1066,9 @@ model Order {
   paymentPlans     PaymentPlan[]
   deposits         CustomerDeposit[]
   shipmentVehicles ShipmentVehicle[]
+  purchases        Purchase[]
 
+  @@unique([organizationId, orderNumber])
   @@index([organizationId, status, orderDate])
   @@index([clientId])
   @@index([prospectId])
@@ -1015,18 +1107,22 @@ model OrderStatusHistory {
 }
 
 model Reservation {
-  id         String    @id @default(uuid())
-  vehicleId  String
-  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id])
-  orderId    String?
-  order      Order?    @relation(fields: [orderId], references: [id])
-  reservedBy String
-  user       User      @relation(fields: [reservedBy], references: [id])
-  status     String    @default("active")
-  reservedAt DateTime  @default(now())
-  expiresAt  DateTime?
-  releasedAt DateTime?
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  vehicleId      String
+  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
+  orderId        String?
+  order          Order?       @relation(fields: [orderId], references: [id])
+  reservedBy     String
+  user           User         @relation(fields: [reservedBy], references: [id])
+  status         String       @default("active")
+  reservedAt     DateTime     @default(now())
+  expiresAt      DateTime?
+  releasedAt     DateTime?
+  releaseReason  String?
 
+  @@index([organizationId, status, expiresAt])
   @@index([vehicleId, status])
   @@index([orderId])
   @@index([reservedBy])
@@ -1037,26 +1133,43 @@ model Reservation {
 // ──────────────────────────────────────────────
 
 model Purchase {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  purchaseNumber String       @unique
-  supplierId     String
-  supplier       Partner      @relation(fields: [supplierId], references: [id])
-  vehicleId      String
-  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
-  purchasePrice  Decimal      @db.Decimal(12, 2)
-  currency       String
-  status         String       @default("pending")
-  purchaseDate   DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                 String            @id @default(uuid())
+  organizationId     String
+  organization       Organization      @relation(fields: [organizationId], references: [id])
+  purchaseNumber     String
+  supplierId         String
+  supplier           Partner           @relation(fields: [supplierId], references: [id])
+  vehicleId          String
+  vehicle            Vehicle           @relation(fields: [vehicleId], references: [id])
+  purchasePrice      Decimal           @db.Decimal(12, 2)
+  currency           String
+  status             String            @default("pending")
+  purchaseDate       DateTime?
+  vehicleRequestId   String?           @unique
+  vehicleRequest     VehicleRequest?   @relation(fields: [vehicleRequestId], references: [id])
+  candidateId        String?           @unique
+  candidate          VehicleCandidate? @relation(fields: [candidateId], references: [id])
+  dossierId          String?
+  dossier            Dossier?          @relation(fields: [dossierId], references: [id])
+  orderId            String?
+  order              Order?            @relation(fields: [orderId], references: [id])
+  confirmedBy        String?
+  confirmer          User?             @relation("PurchaseConfirmer", fields: [confirmedBy], references: [id])
+  supplierSnapshot   Json?
+  vehicleSnapshot    Json?
+  offerReservationId String?           @unique
+  offerReservation   OfferReservation? @relation(fields: [offerReservationId], references: [id])
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   payments SupplierPayment[]
 
+  @@unique([organizationId, purchaseNumber])
   @@index([organizationId, status, purchaseDate])
   @@index([supplierId])
   @@index([vehicleId])
+  @@index([dossierId])
+  @@index([orderId])
 }
 
 model SupplierPayment {

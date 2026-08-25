@@ -41,11 +41,59 @@ export const DossierStatus: {
 export type DossierStatus = ValueOf<typeof DossierStatus>;
 
 export const VehicleStatus: {
+  readonly PRE_PURCHASE: 'prePurchase';
   readonly AVAILABLE: 'available'; readonly RESERVED: 'reserved';
   readonly IN_TRANSIT: 'inTransit'; readonly IN_CUSTOMS: 'inCustoms';
   readonly DELIVERED: 'delivered'; readonly SOLD: 'sold';
 };
 export type VehicleStatus = ValueOf<typeof VehicleStatus>;
+
+export const VehicleSource: {
+  readonly STOCK: 'stock'; readonly CLIENT_REQUEST: 'clientRequest';
+  readonly CHINA_OFFER: 'chinaOffer'; readonly EXTERNAL: 'external';
+};
+export type VehicleSource = ValueOf<typeof VehicleSource>;
+
+export const PartnerType: {
+  readonly SUPPLIER: 'supplier'; readonly CARRIER: 'carrier';
+  readonly CUSTOMS_BROKER: 'customsBroker'; readonly LOGISTICS: 'logistics'; readonly OTHER: 'other';
+};
+export type PartnerType = ValueOf<typeof PartnerType>;
+
+export const CommerceRecordStatus: {
+  readonly ACTIVE: 'active'; readonly INACTIVE: 'inactive'; readonly ARCHIVED: 'archived';
+};
+export type CommerceRecordStatus = ValueOf<typeof CommerceRecordStatus>;
+
+export const OfferReservationStatus: {
+  readonly ACTIVE: 'active'; readonly CONSUMED: 'consumed';
+  readonly RELEASED: 'released'; readonly EXPIRED: 'expired';
+};
+export type OfferReservationStatus = ValueOf<typeof OfferReservationStatus>;
+
+export const VehicleRequestStatus: {
+  readonly OPEN: 'open'; readonly SOURCING: 'sourcing';
+  readonly CANDIDATE_SELECTED: 'candidateSelected'; readonly PURCHASED: 'purchased'; readonly CANCELLED: 'cancelled';
+};
+export type VehicleRequestStatus = ValueOf<typeof VehicleRequestStatus>;
+
+export const CandidateStatus: {
+  readonly PROPOSED: 'proposed'; readonly VALIDATED: 'validated'; readonly REJECTED: 'rejected';
+};
+export type CandidateStatus = ValueOf<typeof CandidateStatus>;
+
+export const ReservationStatus: {
+  readonly ACTIVE: 'active'; readonly RELEASED: 'released'; readonly EXPIRED: 'expired'; readonly CONSUMED: 'consumed';
+};
+export type ReservationStatus = ValueOf<typeof ReservationStatus>;
+
+export const PurchaseStatus: {
+  readonly PENDING: 'pending'; readonly CONFIRMED: 'confirmed'; readonly CANCELLED: 'cancelled';
+};
+export type PurchaseStatus = ValueOf<typeof PurchaseStatus>;
+
+export const Currency: { readonly DZD: 'DZD'; readonly USD: 'USD'; readonly CNY: 'CNY'; readonly EUR: 'EUR' };
+export type Currency = ValueOf<typeof Currency>;
 
 export const OrderStatus: {
   readonly DRAFT: 'draft'; readonly CONFIRMED: 'confirmed';
@@ -129,6 +177,7 @@ export const Permission: {
   readonly WAREHOUSES_READ: 'warehouses:read'; readonly WAREHOUSES_WRITE: 'warehouses:write';
   readonly VEHICLE_REQUESTS_READ: 'vehicleRequests:read'; readonly VEHICLE_REQUESTS_WRITE: 'vehicleRequests:write';
   readonly ORDERS_READ: 'orders:read'; readonly ORDERS_WRITE: 'orders:write';
+  readonly PURCHASES_READ: 'purchases:read'; readonly PURCHASES_WRITE: 'purchases:write';
   readonly PARTNERS_READ: 'partners:read'; readonly PARTNERS_WRITE: 'partners:write';
   readonly OFFERS_READ: 'offers:read'; readonly OFFERS_WRITE: 'offers:write';
   readonly OFFERS_READ_PURCHASE_PRICE: 'offers:readPurchasePrice'; readonly OFFERS_READ_MARGIN: 'offers:readMargin';

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsIn, IsArray } from 'class-validator';
 
 export class UpdatePartnerDto {
   @IsOptional()
@@ -7,7 +7,7 @@ export class UpdatePartnerDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['supplier', 'carrier', 'customs_broker', 'logistics', 'other'])
+  @IsIn(['supplier', 'carrier', 'customsBroker', 'logistics', 'other'])
   type?: string;
 
   @IsOptional()
@@ -34,8 +34,14 @@ export class UpdatePartnerDto {
   @IsString()
   address?: string;
 
+  @IsOptional() @IsString() website?: string;
+  @IsOptional() @IsString() paymentTerms?: string;
+  @IsOptional() @IsString() deliveryTerms?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) specialties?: string[];
+  @IsOptional() @IsString() notes?: string;
+
   @IsOptional()
   @IsString()
-  @IsIn(['active', 'inactive', 'suspended'])
+  @IsIn(['active', 'inactive', 'archived'])
   status?: string;
 }

@@ -15,6 +15,7 @@ import {
   CreateStockMovementDto,
   StockMovementType,
 } from './dto/create-stock-movement.dto';
+import { UpdateWarehouseLocationDto } from './dto/update-warehouse-location.dto';
 
 @Injectable()
 export class WarehousesService {
@@ -172,6 +173,23 @@ export class WarehousesService {
     });
   }
 
+  async updateLocation(
+    warehouseId: string,
+    locationId: string,
+    dto: UpdateWarehouseLocationDto,
+    organizationId: string,
+  ) {
+    await this.findOne(warehouseId, organizationId);
+    const location = await this.prisma.warehouseLocation.findFirst({
+      where: { id: locationId, warehouseId },
+    });
+    if (!location) throw new NotFoundException('Warehouse location not found');
+    return this.prisma.warehouseLocation.update({
+      where: { id: locationId },
+      data: dto,
+    });
+  }
+
   async removeLocation(
     warehouseId: string,
     locationId: string,
@@ -241,8 +259,20 @@ export class WarehousesService {
           );
         }
 
+        const { occurredAt, ...movementData } = dto;
         const movement = await transaction.stockMovement.create({
-          data: { ...dto, performedBy, organizationId },
+          data: {
+            ...movementData,
+            occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
+            performedBy,
+            organizationId,
+          },
+          include: {
+            fromLocation: true,
+            toLocation: true,
+            vehicle: true,
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
         });
         const nextLocationId =
           dto.type === StockMovementType.OUT ? null : dto.toLocationId;
@@ -281,12 +311,46 @@ export class WarehousesService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        include: {
+          fromLocation: true,
+          toLocation: true,
+          vehicle: true,
+          user: { select: { id: true, firstName: true, lastName: true } },
+        },
+        orderBy: { occurredAt: 'desc' },
       }),
       this.prisma.stockMovement.count({ where }),
     ]);
 
     return paginate(movements, total, page, limit);
+  }
+
+  async getStockSummary(organizationId: string) {
+    const [total, byWarehouse, unlocated] = await Promise.all([
+      this.prisma.vehicle.count({
+        where: { organizationId, archivedAt: null },
+      }),
+      this.prisma.warehouse.findMany({
+        where: { organizationId },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          locations: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              _count: { select: { vehicles: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.vehicle.count({
+        where: { organizationId, currentLocationId: null, archivedAt: null },
+      }),
+    ]);
+    return { total, unlocated, warehouses: byWarehouse };
   }
 
   private validateMovementShape(dto: CreateStockMovementDto): void {

@@ -5,10 +5,8 @@ import {
   ValidateNested,
   IsNumber,
   Min,
-  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderStatus } from '@auto-import/contracts';
 
 export class UpdateOrderItemDto {
   @IsUUID()
@@ -28,10 +26,6 @@ export class UpdateOrderItemDto {
 }
 
 export class UpdateOrderDto {
-  @IsOptional()
-  @IsEnum(OrderStatus)
-  status?: OrderStatus;
-
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

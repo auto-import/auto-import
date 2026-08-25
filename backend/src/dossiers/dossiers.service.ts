@@ -3,7 +3,6 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
-  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
@@ -12,6 +11,9 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { DossierType } from './dto/dossier-type.enum';
 import { paginate } from '../common/helpers/pagination.helper';
+import { DossierStatus } from '@auto-import/contracts';
+import { Prisma } from '@prisma/client';
+import { UpdateDossierDto } from './dto/update-dossier.dto';
 
 @Injectable()
 export class DossiersService {
@@ -22,36 +24,31 @@ export class DossiersService {
     private workflowService: DossierWorkflowService,
   ) {}
 
-  private async generateReference(): Promise<string> {
-    const year = new Date().getFullYear();
-    const lastDossier = await this.prisma.dossier.findFirst({
-      where: {
-        reference: {
-          startsWith: `CA-${year}-`,
-        },
-      },
-      orderBy: {
-        reference: 'desc',
-      },
+  private async generateReference(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<string> {
+    const year = new Date().getUTCFullYear();
+    const sequence = await tx.commerceSequence.upsert({
+      where: { organizationId_key: { organizationId, key: `dossier:${year}` } },
+      create: { organizationId, key: `dossier:${year}`, value: 1 },
+      update: { value: { increment: 1 } },
     });
-
-    let sequence = 1;
-    if (lastDossier) {
-      const parts = lastDossier.reference.split('-');
-      sequence = parseInt(parts[2]) + 1;
-    }
-
-    return `CA-${year}-${String(sequence).padStart(4, '0')}`;
+    return `CA-${year}-${String(sequence.value).padStart(5, '0')}`;
   }
 
-  private mapDossierWithVehicles(dossier: any) {
-    if (!dossier) return null;
-    const vehicles = dossier.dossierVehicles
-      ? dossier.dossierVehicles.map((dv: any) => ({
-          ...dv.vehicle,
-          assignedAt: dv.assignedAt,
-        }))
-      : [];
+  private mapDossierWithVehicles<
+    T extends {
+      dossierVehicles: Array<{
+        vehicle: { id: string };
+        assignedAt: Date;
+      }>;
+    },
+  >(dossier: T) {
+    const vehicles = dossier.dossierVehicles.map((link) => ({
+      ...link.vehicle,
+      assignedAt: link.assignedAt,
+    }));
     return {
       ...dossier,
       vehicles,
@@ -66,8 +63,15 @@ export class DossiersService {
     salesUserId: string,
     organizationId: string,
   ) {
-    const { clientId, type, vehicleId, vehicleIds, orderId } =
-      createDossierDto;
+    const {
+      clientId,
+      type,
+      vehicleId,
+      vehicleIds,
+      orderId,
+      offerReservationId,
+      opsUserId,
+    } = createDossierDto;
 
     // Check if client exists AND belongs to same organization
     const client = await this.prisma.client.findFirst({
@@ -77,6 +81,19 @@ export class DossiersService {
     if (!client) {
       throw new NotFoundException(
         `Client with ID ${clientId} not found in your organization`,
+      );
+    }
+
+    const salesUserIdToUse = createDossierDto.salesUserId ?? salesUserId;
+    const teamIds = [
+      ...new Set([salesUserIdToUse, opsUserId].filter(Boolean)),
+    ] as string[];
+    const teamCount = await this.prisma.user.count({
+      where: { id: { in: teamIds }, organizationId, status: 'active' },
+    });
+    if (teamCount !== teamIds.length) {
+      throw new NotFoundException(
+        'One or more dossier team members are invalid',
       );
     }
 
@@ -120,6 +137,9 @@ export class DossiersService {
           `Order with ID ${orderId} not found in your organization`,
         );
       }
+      if (order.clientId !== clientId) {
+        throw new ConflictException('Order and dossier client must match');
+      }
     }
 
     // Validate vehicleRequestId belongs to same org if provided
@@ -132,14 +152,55 @@ export class DossiersService {
           `Vehicle request with ID ${createDossierDto.vehicleRequestId} not found in your organization`,
         );
       }
+      if (vehicleRequest.clientId && vehicleRequest.clientId !== clientId) {
+        throw new ConflictException(
+          'Vehicle request and dossier client must match',
+        );
+      }
     }
 
-    // Generate reference
-    const reference = await this.generateReference();
     const dossierType = type || DossierType.VEHICLE_SALE_CIF;
     const initialStatus = this.workflowService.getInitialStatus(dossierType);
 
+    if (offerReservationId) {
+      if (dossierType === DossierType.SHIPPING_ONLY) {
+        throw new ConflictException(
+          'Shipping-only dossiers cannot consume a China offer',
+        );
+      }
+      const reservation = await this.prisma.offerReservation.findFirst({
+        where: {
+          id: offerReservationId,
+          organizationId,
+          clientId,
+          status: 'active',
+          dossierId: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        include: { offer: true },
+      });
+      if (!reservation || reservation.offer.validUntil < new Date()) {
+        throw new ConflictException('Offer reservation is invalid or expired');
+      }
+    }
+
     const dossier = await this.prisma.$transaction(async (prisma) => {
+      const reference = await this.generateReference(prisma, organizationId);
+      if (uniqueVehicleIds.length > 0) {
+        const reserved = await prisma.vehicle.updateMany({
+          where: {
+            id: { in: uniqueVehicleIds },
+            organizationId,
+            status: 'available',
+          },
+          data: { status: 'reserved' },
+        });
+        if (reserved.count !== uniqueVehicleIds.length) {
+          throw new ConflictException(
+            'One or more vehicles are no longer available',
+          );
+        }
+      }
       // Create dossier
       const newDossier = await prisma.dossier.create({
         data: {
@@ -150,7 +211,8 @@ export class DossiersService {
           vehicleRequestId: createDossierDto.vehicleRequestId,
           orderId,
           status: initialStatus,
-          salesUserId,
+          salesUserId: salesUserIdToUse,
+          opsUserId,
           openedAt: new Date(),
           dossierVehicles:
             uniqueVehicleIds.length > 0
@@ -175,6 +237,9 @@ export class DossiersService {
             },
           },
           order: true,
+          offerReservation: {
+            include: { offer: { include: { supplier: true } } },
+          },
         },
       });
 
@@ -183,7 +248,7 @@ export class DossiersService {
         data: {
           dossierId: newDossier.id,
           toStatus: newDossier.status,
-          changedBy: salesUserId,
+          changedBy: salesUserIdToUse,
           comment:
             uniqueVehicleIds.length > 0
               ? `Dossier created with ${uniqueVehicleIds.length} vehicle(s)`
@@ -191,19 +256,29 @@ export class DossiersService {
         },
       });
 
-      // Reserve all assigned vehicles
-      if (uniqueVehicleIds.length > 0) {
-        await prisma.vehicle.updateMany({
-          where: { id: { in: uniqueVehicleIds } },
-          data: { status: 'reserved' },
+      if (offerReservationId) {
+        const linked = await prisma.offerReservation.updateMany({
+          where: {
+            id: offerReservationId,
+            organizationId,
+            clientId,
+            status: 'active',
+            dossierId: null,
+          },
+          data: { dossierId: newDossier.id },
         });
+        if (linked.count !== 1) {
+          throw new ConflictException(
+            'Offer reservation was linked concurrently',
+          );
+        }
       }
 
       return newDossier;
     });
 
     this.logger.log(
-      `Dossier created: ${reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`,
+      `Dossier created: ${dossier.reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`,
     );
     return this.mapDossierWithVehicles(dossier);
   }
@@ -220,7 +295,9 @@ export class DossiersService {
     });
 
     if (!dossier) {
-      throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
+      throw new NotFoundException(
+        `Dossier with ID ${dossierId} not found in your organization`,
+      );
     }
 
     if (this.workflowService.isTerminalStatus(dossier.status)) {
@@ -250,15 +327,17 @@ export class DossiersService {
     }
 
     // Check if vehicle is already attached to another active dossier
-    const conflictingActiveDossier = await this.prisma.dossierVehicle.findFirst({
-      where: {
-        vehicleId,
-        dossier: {
-          id: { not: dossierId },
-          status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+    const conflictingActiveDossier = await this.prisma.dossierVehicle.findFirst(
+      {
+        where: {
+          vehicleId,
+          dossier: {
+            id: { not: dossierId },
+            status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+          },
         },
       },
-    });
+    );
     if (conflictingActiveDossier) {
       throw new ConflictException(
         `Vehicle ${vehicleId} is already attached to another active dossier`,
@@ -325,7 +404,9 @@ export class DossiersService {
     });
 
     if (!dossier) {
-      throw new NotFoundException(`Dossier with ID ${dossierId} not found in your organization`);
+      throw new NotFoundException(
+        `Dossier with ID ${dossierId} not found in your organization`,
+      );
     }
 
     const link = dossier.dossierVehicles.find(
@@ -423,7 +504,7 @@ export class DossiersService {
   ) {
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.DossierWhereInput = { organizationId };
 
     if (filters?.type) where.type = filters.type;
     if (filters?.status) where.status = filters.status;
@@ -525,6 +606,12 @@ export class DossiersService {
             },
           },
         },
+        offerReservation: {
+          include: { offer: { include: { supplier: true } } },
+        },
+        purchases: {
+          include: { supplier: true, vehicle: { include: { specs: true } } },
+        },
         history: {
           orderBy: { createdAt: 'desc' },
         },
@@ -560,7 +647,16 @@ export class DossiersService {
     }
 
     const mapped = this.mapDossierWithVehicles(dossier);
-    return { ...mapped, stats };
+    return {
+      ...mapped,
+      stats,
+      sections: {
+        finance: null,
+        shipping: null,
+        documents: [],
+        proofs: [],
+      },
+    };
   }
 
   async updateStatus(
@@ -576,17 +672,17 @@ export class DossiersService {
 
     // Validate transition through workflow state machine
     this.workflowService.validateTransition(
-      dossier.type as DossierType,
+      dossier.type,
       currentStatus,
       status,
     );
 
     const isClosing =
-      status === 'closed' ||
-      status === 'serviceCompleted' ||
-      status === 'cancelled';
+      status === DossierStatus.CLOSED ||
+      status === DossierStatus.SERVICE_COMPLETED ||
+      status === DossierStatus.CANCELLED;
 
-    const updatedDossier = await this.prisma.$transaction(async (prisma) => {
+    await this.prisma.$transaction(async (prisma) => {
       // Update dossier status
       const updated = await prisma.dossier.update({
         where: { id },
@@ -617,13 +713,87 @@ export class DossiersService {
         },
       });
 
-      // If closing dossier successfully, update attached vehicles to 'sold'
-      if (status === 'closed' || status === 'serviceCompleted') {
+      if (status === DossierStatus.CANCELLED) {
+        const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
+        if (vehicleIds.length > 0) {
+          await prisma.vehicle.updateMany({
+            where: {
+              id: { in: vehicleIds },
+              organizationId: updated.organizationId,
+              status: 'reserved',
+            },
+            data: { status: 'available' },
+          });
+        }
+        if (updated.orderId) {
+          await prisma.reservation.updateMany({
+            where: {
+              orderId: updated.orderId,
+              organizationId: updated.organizationId,
+              status: 'active',
+            },
+            data: {
+              status: 'released',
+              releasedAt: new Date(),
+              releaseReason: 'dossierCancelled',
+            },
+          });
+        }
+        const offerReservation = await prisma.offerReservation.findFirst({
+          where: {
+            dossierId: id,
+            organizationId: updated.organizationId,
+            status: 'active',
+          },
+        });
+        if (offerReservation) {
+          await prisma.offerReservation.update({
+            where: { id: offerReservation.id },
+            data: {
+              status: 'released',
+              releasedAt: new Date(),
+              releaseReason: 'dossierCancelled',
+            },
+          });
+          await prisma.chinaOffer.update({
+            where: { id: offerReservation.offerId },
+            data: {
+              reservedQuantity: { decrement: offerReservation.quantity },
+            },
+          });
+        }
+      }
+
+      // Only a completed vehicle-sale dossier can mark its vehicles sold.
+      if (
+        status === DossierStatus.CLOSED &&
+        updated.type !== DossierType.SHIPPING_ONLY
+      ) {
         const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
         if (vehicleIds.length > 0) {
           await prisma.vehicle.updateMany({
             where: { id: { in: vehicleIds } },
             data: { status: 'sold' },
+          });
+        }
+        const offerReservation = await prisma.offerReservation.findFirst({
+          where: {
+            dossierId: id,
+            organizationId: updated.organizationId,
+            status: 'active',
+          },
+        });
+        if (offerReservation) {
+          await prisma.offerReservation.update({
+            where: { id: offerReservation.id },
+            data: { status: 'consumed' },
+          });
+          await prisma.chinaOffer.update({
+            where: { id: offerReservation.offerId },
+            data: {
+              reservedQuantity: { decrement: offerReservation.quantity },
+              availableQuantity: { decrement: offerReservation.quantity },
+            },
           });
         }
       }
@@ -637,6 +807,41 @@ export class DossiersService {
     return this.findOne(id, organizationId);
   }
 
+  async update(
+    id: string,
+    dto: UpdateDossierDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id, organizationId },
+    });
+    if (!dossier) throw new NotFoundException('Dossier not found');
+    const ids = [
+      ...new Set([dto.salesUserId, dto.opsUserId].filter(Boolean)),
+    ] as string[];
+    if (ids.length) {
+      const valid = await this.prisma.user.count({
+        where: { id: { in: ids }, organizationId, status: 'active' },
+      });
+      if (valid !== ids.length)
+        throw new NotFoundException('Dossier team member not found');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.dossier.update({ where: { id }, data: dto });
+      await tx.dossierStatusHistory.create({
+        data: {
+          dossierId: id,
+          fromStatus: dossier.status,
+          toStatus: dossier.status,
+          changedBy: userId,
+          comment: 'Dossier team updated',
+        },
+      });
+      return updated;
+    });
+  }
+
   async advanceStatus(
     id: string,
     comment?: string,
@@ -645,7 +850,7 @@ export class DossiersService {
   ) {
     const dossier = await this.findOne(id, organizationId);
     const nextStatus = this.workflowService.getNextStatus(
-      dossier.type as DossierType,
+      dossier.type,
       dossier.status,
     );
 
@@ -669,7 +874,7 @@ export class DossiersService {
   async getAllowedTransitions(id: string, organizationId?: string) {
     const dossier = await this.findOne(id, organizationId);
     const allowed = this.workflowService.getAllowedTransitions(
-      dossier.type as DossierType,
+      dossier.type,
       dossier.status,
     );
 
@@ -715,8 +920,7 @@ export class DossiersService {
     const byType = Object.fromEntries(
       types.map((entry) => [entry.type, entry._count.id]),
     );
-    const completed =
-      (byStatus.closed ?? 0) + (byStatus.serviceCompleted ?? 0);
+    const completed = (byStatus.closed ?? 0) + (byStatus.serviceCompleted ?? 0);
 
     return {
       total,
