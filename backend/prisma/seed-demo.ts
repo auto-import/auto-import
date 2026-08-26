@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import {
   Prisma,
   PrismaClient,
@@ -167,27 +168,36 @@ async function seedFoundation(): Promise<void> {
     const rolePermissions: Record<string, readonly string[]> = {
       Admin: ALL_PERMISSIONS,
       Manager: ALL_PERMISSIONS.filter(
-        (permission) => !permission.includes('manage'),
+        (permission) =>
+          !permission.includes('manage') && permission !== 'notifications:send',
       ),
-      Commercial: ALL_PERMISSIONS.filter((permission) =>
-        /^(prospects|clients|dossiers|vehicles|offers|tasks|notifications|crmTimeline|appointments|dashboard|documents):/.test(
-          permission,
-        ),
+      Commercial: ALL_PERMISSIONS.filter(
+        (permission) =>
+          permission !== 'notifications:send' &&
+          /^(prospects|clients|dossiers|vehicles|offers|tasks|notifications|crmTimeline|appointments|dashboard|documents):/.test(
+            permission,
+          ),
       ),
-      'Call Center': ALL_PERMISSIONS.filter((permission) =>
-        /^(prospects|clients|callCenter|whatsapp|crmTimeline|appointments|crmKpi|tasks|notifications|dashboard):/.test(
-          permission,
-        ),
+      'Call Center': ALL_PERMISSIONS.filter(
+        (permission) =>
+          permission !== 'notifications:send' &&
+          /^(prospects|clients|callCenter|whatsapp|crmTimeline|appointments|crmKpi|tasks|notifications|dashboard):/.test(
+            permission,
+          ),
       ),
-      Finance: ALL_PERMISSIONS.filter((permission) =>
-        /^(finance|invoices|paymentPlans|payments|supplierPayments|costs|exchangeRates|reports|dashboard|clients|dossiers|documents|tasks|notifications):/.test(
-          permission,
-        ),
+      Finance: ALL_PERMISSIONS.filter(
+        (permission) =>
+          permission !== 'notifications:send' &&
+          /^(finance|invoices|paymentPlans|payments|supplierPayments|costs|exchangeRates|reports|dashboard|clients|dossiers|documents|tasks|notifications):/.test(
+            permission,
+          ),
       ),
-      Logistics: ALL_PERMISSIONS.filter((permission) =>
-        /^(vehicles|warehouses|partners|offers|purchases|shipments|customs|documents|dossiers|tasks|notifications|dashboard):/.test(
-          permission,
-        ),
+      Logistics: ALL_PERMISSIONS.filter(
+        (permission) =>
+          permission !== 'notifications:send' &&
+          /^(vehicles|warehouses|partners|offers|purchases|shipments|customs|documents|dossiers|tasks|notifications|dashboard):/.test(
+            permission,
+          ),
       ),
       'Read-only': readOnly,
     };
@@ -960,8 +970,8 @@ async function seedCommerceAndDossiers(): Promise<void> {
             targetIndex === -1
               ? 'cancelled'
               : workflow[
-              targetIndex === -2 ? workflow.length - 2 : targetIndex
-              ],
+                  targetIndex === -2 ? workflow.length - 2 : targetIndex
+                ],
         });
       }
     }
@@ -1316,7 +1326,7 @@ async function seedFinanceLogistics(): Promise<void> {
         const amount = installmentAmounts[installmentIndex];
         const installmentPaid =
           invoiceStatus === 'PAID' ||
-            (invoiceStatus === 'PARTIALLY_PAID' && installmentIndex === 0)
+          (invoiceStatus === 'PARTIALLY_PAID' && installmentIndex === 0)
             ? amount
             : money(0);
         const installmentStatus = installmentPaid.equals(amount)
@@ -1621,14 +1631,14 @@ async function seedFinanceLogistics(): Promise<void> {
           : status === 'loading'
             ? ['booked', 'loading']
             : [
-              'booked',
-              'loading',
-              'inTransit',
-              ...(['arrived', 'delivered'].includes(status)
-                ? ['arrived']
-                : []),
-              ...(status === 'delivered' ? ['delivered'] : []),
-            ];
+                'booked',
+                'loading',
+                'inTransit',
+                ...(['arrived', 'delivered'].includes(status)
+                  ? ['arrived']
+                  : []),
+                ...(status === 'delivered' ? ['delivered'] : []),
+              ];
       for (
         let historyIndex = 0;
         historyIndex < history.length;
@@ -1816,6 +1826,39 @@ const onePixelPng = Buffer.from(
   'base64',
 );
 
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1)
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type, 'ascii');
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([name, data])));
+  return Buffer.concat([length, name, data, checksum]);
+}
+
+function colorPng(red: number, green: number, blue: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(1, 0);
+  header.writeUInt32BE(1, 4);
+  header[8] = 8;
+  header[9] = 2;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(Buffer.from([0, red, green, blue]))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 async function ensureFixture(
   organizationId: string,
   index: number | string,
@@ -1995,6 +2038,73 @@ async function seedDocumentsAndOperations(): Promise<void> {
         });
       }
     });
+  }
+  const galleryColors = [
+    [32, 108, 180],
+    [220, 86, 64],
+    [54, 158, 92],
+  ] as const;
+  for (let vehicleIndex = 0; vehicleIndex < 22; vehicleIndex += 1) {
+    for (
+      let sortOrder = vehicleIndex === 0 ? 1 : 0;
+      sortOrder < 3;
+      sortOrder += 1
+    ) {
+      const fixtureKey = `vehicle-gallery:${vehicleIndex}:${sortOrder}`;
+      const [red, green, blue] =
+        galleryColors[(vehicleIndex + sortOrder) % galleryColors.length];
+      const spec: FixtureSpec = {
+        category: 'vehicle_photo',
+        kind: 'VEHICLE_PHOTO',
+        mimeType: 'image/png',
+        name: `vehicle-${vehicleIndex + 1}-${sortOrder + 1}.png`,
+        bytes: colorPng(red, green, blue),
+      };
+      const stored = await ensureFixture(PRIMARY_ORG_ID, fixtureKey, spec);
+      const fileId = key('file', `${PRIMARY_ORG_ID}:${fixtureKey}`);
+      await prisma.$transaction(async (tx) => {
+        await tx.fileAsset.upsert({
+          where: { id: fileId },
+          update: {
+            storageKey: stored.storageKey,
+            size: stored.size,
+            checksum: stored.checksum,
+            mimeType: spec.mimeType,
+            status: 'active',
+          },
+          create: {
+            id: fileId,
+            organizationId: PRIMARY_ORG_ID,
+            storageKey: stored.storageKey,
+            originalName: spec.name,
+            mimeType: spec.mimeType,
+            size: stored.size,
+            checksum: stored.checksum,
+            category: spec.kind,
+            status: 'active',
+            uploadedBy: userId('logistics'),
+            createdAt: at(config.anchor, -6),
+          },
+        });
+        await tx.vehiclePhoto.upsert({
+          where: { id: key('vehicle-photo', `${vehicleIndex}:${sortOrder}`) },
+          update: {
+            vehicleId: vehicleId(vehicleIndex),
+            fileId,
+            sortOrder,
+            isPrimary: sortOrder === 0,
+          },
+          create: {
+            id: key('vehicle-photo', `${vehicleIndex}:${sortOrder}`),
+            vehicleId: vehicleId(vehicleIndex),
+            fileId,
+            sortOrder,
+            isPrimary: sortOrder === 0,
+            createdAt: at(config.anchor, -6),
+          },
+        });
+      });
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -2359,6 +2469,66 @@ async function seedSecondaryTenant(): Promise<void> {
       },
     });
   });
+  const colors = [
+    [76, 126, 178],
+    [202, 97, 72],
+    [68, 146, 105],
+  ] as const;
+  for (let sortOrder = 0; sortOrder < 3; sortOrder += 1) {
+    const fixtureKey = `secondary-vehicle-gallery:${sortOrder}`;
+    const [red, green, blue] = colors[sortOrder];
+    const spec: FixtureSpec = {
+      category: 'vehicle_photo',
+      kind: 'VEHICLE_PHOTO',
+      mimeType: 'image/png',
+      name: `secondary-vehicle-${sortOrder + 1}.png`,
+      bytes: colorPng(red, green, blue),
+    };
+    const galleryFile = await ensureFixture(SECONDARY_ORG_ID, fixtureKey, spec);
+    const fileId = key('file', `${SECONDARY_ORG_ID}:${fixtureKey}`);
+    await prisma.$transaction(async (tx) => {
+      await tx.fileAsset.upsert({
+        where: { id: fileId },
+        update: {
+          storageKey: galleryFile.storageKey,
+          size: galleryFile.size,
+          checksum: galleryFile.checksum,
+          mimeType: spec.mimeType,
+          status: 'active',
+        },
+        create: {
+          id: fileId,
+          organizationId: SECONDARY_ORG_ID,
+          storageKey: galleryFile.storageKey,
+          originalName: spec.name,
+          mimeType: spec.mimeType,
+          size: galleryFile.size,
+          checksum: galleryFile.checksum,
+          category: spec.kind,
+          status: 'active',
+          uploadedBy: userId('secondary-admin'),
+          createdAt: at(config.anchor, -6),
+        },
+      });
+      await tx.vehiclePhoto.upsert({
+        where: { id: key('secondary-vehicle-photo', sortOrder) },
+        update: {
+          vehicleId: key('secondary-vehicle', 0),
+          fileId,
+          sortOrder,
+          isPrimary: sortOrder === 0,
+        },
+        create: {
+          id: key('secondary-vehicle-photo', sortOrder),
+          vehicleId: key('secondary-vehicle', 0),
+          fileId,
+          sortOrder,
+          isPrimary: sortOrder === 0,
+          createdAt: at(config.anchor, -6),
+        },
+      });
+    });
+  }
 }
 
 async function printSummary(): Promise<void> {

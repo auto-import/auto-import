@@ -28,6 +28,7 @@ type AuthUserRecord = Prisma.UserGetPayload<{
 
 @Injectable()
 export class AuthService {
+  private readonly passwordAttempts = new Map<string, number[]>();
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -177,6 +178,74 @@ export class AuthService {
       });
     }
     return { message: 'Logged out successfully' };
+  }
+
+  async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    confirmation: string,
+    refreshToken: string | undefined,
+    metadata: SessionMetadata,
+  ) {
+    const now = Date.now();
+    const attempts = (this.passwordAttempts.get(userId) ?? []).filter(
+      (timestamp) => timestamp > now - 15 * 60_000,
+    );
+    if (attempts.length >= 5) {
+      throw new UnauthorizedException('Password change unavailable');
+    }
+    if (newPassword !== confirmation || newPassword === currentPassword) {
+      throw new UnauthorizedException('Password change unavailable');
+    }
+    if (!refreshToken) throw new UnauthorizedException('Invalid session');
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: AUTH_USER_INCLUDE,
+    });
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      this.passwordAttempts.set(userId, [...attempts, now]);
+      throw new UnauthorizedException('Password change unavailable');
+    }
+    this.assertActiveAccount(user);
+    const currentSession = await this.prisma.refreshSession.findUnique({
+      where: { tokenHash: this.hashRefreshToken(refreshToken) },
+    });
+    if (
+      !currentSession ||
+      currentSession.userId !== userId ||
+      currentSession.revokedAt
+    ) {
+      throw new UnauthorizedException('Invalid session');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const nextRefreshToken = this.createRefreshToken();
+    const refreshExpiresAt = new Date(now + this.refreshSessionTtlMs);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      await tx.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date(), rotatedAt: new Date() },
+      });
+      await tx.refreshSession.create({
+        data: {
+          userId,
+          tokenHash: this.hashRefreshToken(nextRefreshToken),
+          expiresAt: refreshExpiresAt,
+          ipAddress: metadata.ipAddress,
+          userAgent: metadata.userAgent,
+        },
+      });
+    });
+    this.passwordAttempts.delete(userId);
+    const principal = this.toAuthenticatedUser(user);
+    return {
+      accessToken: this.createAccessToken(principal),
+      refreshToken: nextRefreshToken,
+      refreshExpiresAt,
+      user: principal,
+      sessionBehavior: 'current_rotated_other_sessions_revoked' as const,
+    };
   }
 
   get refreshSessionTtlMs(): number {

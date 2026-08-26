@@ -13,6 +13,7 @@ export interface AuthenticatedUser {
   office: { id: string; name: string } | null;
   roles: Array<{ id: string; name: string; scope: string }>;
   permissions: ApiPermission[];
+  avatarUrl?: string | null;
 }
 
 interface AuthResult {
@@ -150,8 +151,16 @@ export async function apiDownload(
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const filename =
-    /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "export.csv";
+    /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "export.pdf";
   return { blob: await response.blob(), filename };
+}
+
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  method = "POST",
+): Promise<T> {
+  return apiRequest<T>(path, { method, body: formData });
 }
 
 export const authApi = {
@@ -176,6 +185,19 @@ export const authApi = {
     return apiRequest<AuthenticatedUser>("/auth/me");
   },
 
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+    confirmation: string;
+  }): Promise<{ user: AuthenticatedUser; sessionBehavior: string }> {
+    const result = await apiRequest<AuthResult & { sessionBehavior: string }>(
+      "/auth/change-password",
+      { method: "POST", body: JSON.stringify(data) },
+    );
+    accessToken = result.accessToken;
+    return { user: result.user, sessionBehavior: result.sessionBehavior };
+  },
+
   async logout(): Promise<void> {
     try {
       await apiRequest<{ message: string }>(
@@ -195,4 +217,28 @@ export const authApi = {
   accessToken(): string | null {
     return accessToken;
   },
+};
+
+export interface ApiProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  status: string;
+  office: { id: string; name: string; city?: string | null } | null;
+  organization: { id: string; name: string };
+  roles: Array<{ id: string; name: string; scope: string }>;
+  avatarUrl: string | null;
+}
+
+export const profileApi = {
+  get: () => apiRequest<ApiProfile>("/profile"),
+  uploadAvatar: (file: File) => {
+    const body = new FormData();
+    body.append("avatar", file);
+    return apiUpload<ApiProfile>("/profile/avatar", body);
+  },
+  removeAvatar: () =>
+    apiRequest<ApiProfile>("/profile/avatar", { method: "DELETE" }),
+  avatarBlob: () => apiDownload("/profile/avatar").then(({ blob }) => blob),
 };

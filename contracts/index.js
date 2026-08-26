@@ -289,6 +289,7 @@ const Permission = Object.freeze({
   TASKS_WRITE: 'tasks:write',
   TASKS_ASSIGN: 'tasks:assign',
   NOTIFICATIONS_READ: 'notifications:read',
+  NOTIFICATIONS_SEND: 'notifications:send',
   NOTIFICATIONS_MANAGE: 'notifications:manage',
   AUDIT_READ: 'audit:read',
   CRM_TIMELINE_READ: 'crmTimeline:read',

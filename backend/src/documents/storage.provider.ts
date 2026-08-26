@@ -108,10 +108,23 @@ export class StorageProvider {
    * Get readable stream for a storage key
    */
   getReadStream(storageKey: string): fs.ReadStream {
-    const filePath = path.join(this.storageRoot, storageKey);
+    const filePath = this.resolveStoragePath(storageKey);
     if (!fs.existsSync(filePath)) {
       throw new BadRequestException('File not found in storage');
     }
     return fs.createReadStream(filePath);
+  }
+
+  async delete(storageKey: string): Promise<void> {
+    const filePath = this.resolveStoragePath(storageKey);
+    await fs.promises.rm(filePath, { force: true });
+  }
+
+  private resolveStoragePath(storageKey: string): string {
+    const filePath = path.resolve(this.storageRoot, storageKey);
+    if (!filePath.startsWith(`${this.storageRoot}${path.sep}`)) {
+      throw new BadRequestException('Invalid storage key');
+    }
+    return filePath;
   }
 }

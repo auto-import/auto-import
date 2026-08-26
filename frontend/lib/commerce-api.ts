@@ -1,15 +1,11 @@
-import { apiRequest } from "@/lib/api";
+import { apiDownload, apiRequest, apiUpload } from "@/lib/api";
 import type {
   ApiDossierStatus,
   ApiDossierType,
   ApiVehicleStatus,
   PaginatedData,
 } from "@/lib/api-contract";
-import type {
-  ApiInvoice,
-  ApiPayment,
-  ApiPaymentPlan,
-} from "@/lib/finance-api";
+import type { ApiInvoice, ApiPayment, ApiPaymentPlan } from "@/lib/finance-api";
 import type { ApiCustomsFile, ApiShipment } from "@/lib/logistics-api";
 import type { ApiDossierDocument } from "@/lib/documents-api";
 
@@ -66,6 +62,17 @@ export interface ApiVehicle {
     warehouse?: { id: string; name: string };
   } | null;
   specs?: ApiVehicleSpec | null;
+  photos?: Array<{
+    id: string;
+    sortOrder: number;
+    isPrimary: boolean;
+    file: {
+      id: string;
+      mimeType: string;
+      originalName: string;
+      checksum: string;
+    };
+  }>;
 }
 
 export interface ApiOfferReservation {
@@ -202,6 +209,22 @@ export const commerceApi = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    createWithPhotos: (data: Record<string, unknown>, photos: File[]) => {
+      const body = new FormData();
+      for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined && value !== null && value !== "")
+          body.append(key, String(value));
+      }
+      photos.forEach((photo) => body.append("photos", photo));
+      return apiUpload<ApiVehicle>("/vehicles/with-photos", body);
+    },
+    replacePhotos: (id: string, photos: File[]) => {
+      const body = new FormData();
+      photos.forEach((photo) => body.append("photos", photo));
+      return apiUpload<ApiVehicle>(`/vehicles/${id}/photos`, body, "PUT");
+    },
+    photoBlob: (photoId: string) =>
+      apiDownload(`/vehicles/photos/${photoId}`).then(({ blob }) => blob),
     update: (id: string, data: Record<string, unknown>) =>
       apiRequest<ApiVehicle>(`/vehicles/${id}`, {
         method: "PATCH",
@@ -246,7 +269,15 @@ export const commerceApi = {
         method: "POST",
         body: JSON.stringify({ reason }),
       }),
-    materialize: (id: string, data: { vin: string; purchasePrice?: number; sellingPrice?: number; currentLocationId?: string }) =>
+    materialize: (
+      id: string,
+      data: {
+        vin: string;
+        purchasePrice?: number;
+        sellingPrice?: number;
+        currentLocationId?: string;
+      },
+    ) =>
       apiRequest(`/offers/reservations/${id}/materialize`, {
         method: "POST",
         body: JSON.stringify(data),

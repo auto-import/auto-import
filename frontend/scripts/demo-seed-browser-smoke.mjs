@@ -295,7 +295,7 @@ try {
   await browserLogin("admin@demo.auto-import.invalid");
   console.log("DEMO_BROWSER_PERSONA admin");
   const adminRoutes = [
-    ["/", "Tableau de bord"],
+    ["/", "Dashboard"],
     ["/crm/leads", "Prospect Démo"],
     ["/crm/clients", "Client Démo"],
     [`/crm/clients/${clients[0].id}`, "Timeline omnicanale"],

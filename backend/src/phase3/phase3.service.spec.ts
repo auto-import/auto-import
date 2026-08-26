@@ -164,4 +164,94 @@ describe('Phase3Service tenant safety', () => {
       service.updateSettings(user(), { baseCurrency: 'USD' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('resolves and persists one notification per unique active tenant recipient', async () => {
+    const recipients = [
+      { id: '10000000-0000-4000-8000-000000000011' },
+      { id: '10000000-0000-4000-8000-000000000012' },
+    ];
+    const userFindMany = jest.fn<
+      Promise<typeof recipients>,
+      [{ where: { organizationId: string; status: string } }]
+    >();
+    const notificationCreateMany = jest.fn<
+      Promise<{ count: number }>,
+      [{ data: unknown[] }]
+    >();
+    const auditCreate = jest.fn<
+      Promise<{ id: string }>,
+      [{ data: { newValues: unknown } }]
+    >();
+    userFindMany.mockResolvedValue(recipients);
+    notificationCreateMany.mockResolvedValue({ count: 2 });
+    auditCreate.mockResolvedValue({ id: 'audit-1' });
+    const transaction = {
+      notification: { createMany: notificationCreateMany },
+      auditLog: { create: auditCreate },
+    };
+    const prisma = {
+      user: { findMany: userFindMany },
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const realtime = { emitUser: jest.fn() };
+    const service = new Phase3Service(
+      prisma as unknown as PrismaService,
+      realtime as never,
+    );
+    const result = await service.sendNotification(
+      user([Permission.NOTIFICATIONS_SEND]),
+      {
+        userIds: [recipients[0].id, recipients[0].id],
+        roleIds: ['30000000-0000-4000-8000-000000000001'],
+        allActive: false,
+        title: 'Clôture mensuelle',
+        message: 'Merci de vérifier les dossiers.',
+        category: 'finance',
+        severity: 'info',
+        entityUrl: '/finance',
+      },
+    );
+    expect(result).toMatchObject({ delivered: 2, channel: 'in_app' });
+    const audienceQuery = userFindMany.mock.calls[0][0];
+    expect(audienceQuery.where.organizationId).toBe(user().organizationId);
+    expect(audienceQuery.where.status).toBe('active');
+    expect(notificationCreateMany.mock.calls[0][0].data).toHaveLength(2);
+    expect(auditCreate.mock.calls[0][0].data.newValues).not.toHaveProperty(
+      'message',
+    );
+    expect(realtime.emitUser).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects empty notification audiences and unsafe links', async () => {
+    const service = new Phase3Service({} as PrismaService);
+    await expect(
+      service.resolveNotificationAudience(user(), {
+        userIds: [],
+        roleIds: [],
+        allActive: false,
+        title: 'Titre',
+        message: 'Message',
+        category: 'general',
+        severity: 'info',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    const scoped = new Phase3Service({
+      user: { findMany: jest.fn().mockResolvedValue([{ id: user().id }]) },
+    } as unknown as PrismaService);
+    await expect(
+      scoped.sendNotification(user(), {
+        userIds: [user().id],
+        roleIds: [],
+        allActive: false,
+        title: 'Titre',
+        message: 'Message',
+        category: 'general',
+        severity: 'info',
+        entityUrl: 'javascript:alert(1)',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });

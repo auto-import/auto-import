@@ -1,1 +1,1 @@
-export { default } from "@/components/commerce/OffersWorkspace";
+export { default } from "@/components/commerce/OffersChinaPolished";

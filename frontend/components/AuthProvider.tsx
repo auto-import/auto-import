@@ -25,6 +25,7 @@ interface AuthContextValue {
   retryRestore: () => Promise<void>;
   hasPermission: (permission: ApiPermission) => boolean;
   getUserPermissions: () => ApiPermission[];
+  refreshCurrentUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -110,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       retryRestore: restore,
       hasPermission,
       getUserPermissions: permissions,
+      refreshCurrentUser: restore,
     }),
     [
       currentUser,
@@ -137,6 +139,7 @@ export const DASHBOARD_ROUTE_PERMISSIONS: Array<{
   permission: ApiPermission;
 }> = [
   { prefix: "/utilisateurs", permission: Permission.USERS_READ },
+  { prefix: "/profil", permission: Permission.DASHBOARD_READ },
   { prefix: "/parametres", permission: Permission.SETTINGS_READ },
   { prefix: "/rapports", permission: Permission.REPORTS_READ },
   { prefix: "/audit", permission: Permission.AUDIT_READ },

@@ -87,6 +87,15 @@ export interface ApiDashboard {
     overdueInvoices: number;
     lateShipments: number;
     unmetDossierGates: number;
+    items?: Array<{
+      id: string;
+      kind: string;
+      severity: string;
+      title: string;
+      detail: string;
+      href: string;
+      dueAt: string | null;
+    }>;
   };
   recent: {
     dossiers: Array<{
@@ -96,6 +105,9 @@ export interface ApiDashboard {
       type: string;
       updatedAt: string;
       client: { firstName: string; lastName: string };
+      dossierVehicles?: Array<{
+        vehicle: { brand: string; model: string; year?: number | null };
+      }>;
     }>;
     events: Array<{
       id: string;
@@ -182,6 +194,32 @@ export const phase3Api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    audience: () =>
+      apiRequest<{
+        users: Array<{
+          id: string;
+          firstName: string;
+          lastName: string;
+          email: string;
+        }>;
+        roles: Array<{ id: string; name: string }>;
+      }>("/notifications/audience"),
+    resolveAudience: (data: ApiNotificationSend) =>
+      apiRequest<{ recipientCount: number }>(
+        "/notifications/audience/resolve",
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
+    send: (data: ApiNotificationSend) =>
+      apiRequest<{ delivered: number; channel: "in_app"; sentAt: string }>(
+        "/notifications/send",
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
   },
   dashboard: (filters: Record<string, string | undefined> = {}) =>
     apiRequest<ApiDashboard>(`/dashboard${query(filters)}`),
@@ -191,7 +229,7 @@ export const phase3Api = {
         `/reports/summary${query(filters)}`,
       ),
     downloadFinance: (filters: Record<string, string | undefined> = {}) =>
-      apiDownload(`/reports/finance.csv${query(filters)}`),
+      apiDownload(`/reports/finance.pdf${query(filters)}`),
   },
   settings: {
     get: () => apiRequest<ApiSettings>("/settings"),
@@ -215,3 +253,14 @@ export const phase3Api = {
       }>
     >(`/audit${query(filters)}`),
 };
+
+export interface ApiNotificationSend {
+  userIds: string[];
+  roleIds: string[];
+  allActive: boolean;
+  title: string;
+  message: string;
+  category: string;
+  severity: string;
+  entityUrl?: string;
+}

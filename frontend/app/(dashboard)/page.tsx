@@ -1,1 +1,1 @@
-export { default } from "@/components/phase3/DashboardWorkspace";
+export { default } from "@/components/phase3/DashboardPolished";

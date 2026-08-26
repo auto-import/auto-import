@@ -73,6 +73,7 @@ model Organization {
   settings              OrganizationSettings?
   notificationTemplates NotificationTemplate[]
   notifications         Notification[]
+  userAvatars           UserAvatar[]
 
   @@index([status])
 }
@@ -147,6 +148,7 @@ model User {
   dossierNotes              DossierNote[]           @relation("DossierNoteAuthor")
   shipmentStatusChanges     ShipmentStatusHistory[] @relation("ShipmentStatusUser")
   customsStatusChanges      CustomsStatusHistory[]  @relation("CustomsStatusUser")
+  avatar                    UserAvatar?
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -943,6 +945,7 @@ model FileAsset {
   customsDocuments  CustomsDocument[]
   businessDocuments BusinessDocument[]
   dossierDocuments  DossierDocumentAsset[]
+  avatarUses        UserAvatar[]
 
   @@index([organizationId, category, status])
   @@index([uploadedBy, createdAt])
@@ -960,6 +963,18 @@ model VehiclePhoto {
 
   @@index([vehicleId, sortOrder])
   @@index([fileId])
+}
+
+model UserAvatar {
+  userId         String       @id
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fileId         String       @unique
+  file           FileAsset    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
 }
 
 // ──────────────────────────────────────────────

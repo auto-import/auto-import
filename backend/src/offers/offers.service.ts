@@ -35,6 +35,7 @@ export class OffersService {
     if (offer.archivedAt) return 'archived';
     if (offer.validFrom > now) return 'upcoming';
     if (offer.validUntil < now) return 'expired';
+    if (offer.availableQuantity <= 0) return 'sold';
     if (offer.reservedQuantity >= offer.availableQuantity) return 'reserved';
     return 'available';
   }
@@ -129,27 +130,77 @@ export class OffersService {
         ? { validFrom: { lte: validAt }, validUntil: { gte: validAt } }
         : {}),
     };
-    const [rows, total] = await Promise.all([
-      this.prisma.chinaOffer.findMany({
-        where,
-        include: { supplier: true, _count: { select: { reservations: true } } },
-        orderBy: { createdAt: 'desc' },
-        ...(filters.status ? {} : { skip: (page - 1) * limit, take: limit }),
-      }),
-      filters.status
-        ? Promise.resolve(0)
-        : this.prisma.chinaOffer.count({ where }),
+    if (!filters.status) {
+      const [rows, total] = await Promise.all([
+        this.prisma.chinaOffer.findMany({
+          where,
+          include: {
+            supplier: true,
+            _count: { select: { reservations: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.chinaOffer.count({ where }),
+      ]);
+      return paginate(
+        rows.map((row) => this.present(row)),
+        total,
+        page,
+        limit,
+      );
+    }
+    const now = new Date();
+    const predicates: Prisma.Sql[] = [
+      Prisma.sql`o."organizationId" = ${organizationId}`,
+    ];
+    if (filters.supplierId)
+      predicates.push(Prisma.sql`o."supplierId" = ${filters.supplierId}`);
+    if (filters.condition)
+      predicates.push(Prisma.sql`o."condition" = ${filters.condition}`);
+    if (filters.search) {
+      const search = `%${filters.search}%`;
+      predicates.push(
+        Prisma.sql`(o."reference" ILIKE ${search} OR o."brand" ILIKE ${search} OR o."model" ILIKE ${search} OR o."version" ILIKE ${search})`,
+      );
+    }
+    const active = Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" <= ${now} AND o."validUntil" >= ${now}`;
+    const statusPredicate: Record<string, Prisma.Sql> = {
+      archived: Prisma.sql`o."archivedAt" IS NOT NULL`,
+      expired: Prisma.sql`o."archivedAt" IS NULL AND o."validUntil" < ${now}`,
+      upcoming: Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" > ${now}`,
+      sold: Prisma.sql`${active} AND o."availableQuantity" <= 0`,
+      reserved: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" >= o."availableQuantity"`,
+      available: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" < o."availableQuantity"`,
+    };
+    const statusSql = statusPredicate[filters.status];
+    if (!statusSql)
+      throw new BadRequestException('Unsupported derived offer status');
+    predicates.push(statusSql);
+    const sqlWhere = Prisma.join(predicates, ' AND ');
+    const offset = (page - 1) * limit;
+    const [idRows, countRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT o."id" FROM "ChinaOffer" o WHERE ${sqlWhere} ORDER BY o."createdAt" DESC LIMIT ${limit} OFFSET ${offset}`,
+      ),
+      this.prisma.$queryRaw<Array<{ count: bigint }>>(
+        Prisma.sql`SELECT COUNT(*)::bigint AS count FROM "ChinaOffer" o WHERE ${sqlWhere}`,
+      ),
     ]);
-    const items = rows.map((row) => this.present(row));
-    const filtered = filters.status
-      ? items.filter((row) => row.status === filters.status)
-      : items;
-    const paged = filters.status
-      ? filtered.slice((page - 1) * limit, page * limit)
-      : filtered;
+    const rows = idRows.length
+      ? await this.prisma.chinaOffer.findMany({
+          where: { id: { in: idRows.map(({ id }) => id) } },
+          include: {
+            supplier: true,
+            _count: { select: { reservations: true } },
+          },
+        })
+      : [];
+    const byId = new Map(rows.map((row) => [row.id, row]));
     return paginate(
-      paged,
-      filters.status ? filtered.length : total,
+      idRows.map(({ id }) => this.present(byId.get(id)!)),
+      Number(countRows[0]?.count ?? 0),
       page,
       limit,
     );

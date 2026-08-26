@@ -17,14 +17,22 @@ import {
   TaskQueryDto,
   UpdateSettingsDto,
   UpdateTaskDto,
+  SendNotificationDto,
 } from './phase3.dto';
+import { Optional } from '@nestjs/common';
+import { NotificationsGateway } from './notifications.gateway';
+import PDFDocument from 'pdfkit';
+import * as fs from 'node:fs';
 
 const ACTIVE_DOSSIER_STATUSES = ['closed', 'serviceCompleted', 'cancelled'];
 const OPEN_TASK_STATUSES = ['todo', 'in_progress'];
 
 @Injectable()
 export class Phase3Service {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly realtime?: NotificationsGateway,
+  ) {}
 
   private page<T>(items: T[], total: number, page: number, limit: number) {
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -379,6 +387,125 @@ export class Phase3Service {
     return { updated: result.count };
   }
 
+  async notificationAudience(user: AuthenticatedUser) {
+    const [users, roles] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { organizationId: user.organizationId, status: 'active' },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+      this.prisma.role.findMany({
+        where: { organizationId: user.organizationId, scope: 'tenant' },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+    ]);
+    return { users, roles };
+  }
+
+  async resolveNotificationAudience(
+    user: AuthenticatedUser,
+    dto: SendNotificationDto,
+  ) {
+    const userIds = [...new Set(dto.userIds ?? [])];
+    const roleIds = [...new Set(dto.roleIds ?? [])];
+    if (!dto.allActive && userIds.length === 0 && roleIds.length === 0) {
+      throw new BadRequestException('Select at least one recipient audience');
+    }
+    const recipients = await this.prisma.user.findMany({
+      where: {
+        organizationId: user.organizationId,
+        status: 'active',
+        ...(dto.allActive
+          ? {}
+          : {
+              OR: [
+                ...(userIds.length ? [{ id: { in: userIds } }] : []),
+                ...(roleIds.length
+                  ? [
+                      {
+                        userRoles: {
+                          some: {
+                            roleId: { in: roleIds },
+                            role: { organizationId: user.organizationId },
+                          },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            }),
+      },
+      select: { id: true },
+    });
+    return {
+      recipientCount: recipients.length,
+      recipientIds: recipients.map(({ id }) => id),
+    };
+  }
+
+  async sendNotification(user: AuthenticatedUser, dto: SendNotificationDto) {
+    if (
+      dto.entityUrl &&
+      !/^\/(?!\/)[a-zA-Z0-9/_?=&.%-]*$/.test(dto.entityUrl)
+    ) {
+      throw new BadRequestException('Only safe internal links are allowed');
+    }
+    const resolved = await this.resolveNotificationAudience(user, dto);
+    if (resolved.recipientCount === 0) {
+      throw new BadRequestException(
+        'The selected audience has no active recipients',
+      );
+    }
+    const sentAt = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.notification.createMany({
+        data: resolved.recipientIds.map((userId) => ({
+          organizationId: user.organizationId,
+          userId,
+          type: 'ADMIN_MESSAGE',
+          category: dto.category,
+          severity: dto.severity,
+          title: dto.title.trim(),
+          content: dto.message.trim(),
+          entityUrl: dto.entityUrl,
+          dedupeKey: `admin-message:${user.id}:${sentAt.getTime()}:${userId}`,
+        })),
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: user.organizationId,
+          userId: user.id,
+          action: 'notification.send',
+          entityType: 'notification_batch',
+          entityId: `${user.id}:${sentAt.getTime()}`,
+          newValues: {
+            audience: dto.allActive ? 'all_active' : 'selected',
+            userSelectionCount: new Set(dto.userIds ?? []).size,
+            roleSelectionCount: new Set(dto.roleIds ?? []).size,
+            recipientCount: resolved.recipientCount,
+            category: dto.category,
+            severity: dto.severity,
+            hasEntityUrl: Boolean(dto.entityUrl),
+          },
+        },
+      });
+      return {
+        delivered: resolved.recipientCount,
+        channel: 'in_app' as const,
+        sentAt: sentAt.toISOString(),
+      };
+    });
+    for (const recipientId of resolved.recipientIds) {
+      this.realtime?.emitUser(recipientId, {
+        category: dto.category,
+        severity: dto.severity,
+        sentAt: result.sentAt,
+      });
+    }
+    return result;
+  }
+
   listTemplates(user: AuthenticatedUser) {
     return this.prisma.notificationTemplate.findMany({
       where: { organizationId: user.organizationId },
@@ -435,7 +562,7 @@ export class Phase3Service {
     const to = query.to ? new Date(query.to) : new Date();
     const from = query.from
       ? new Date(query.from)
-      : new Date(to.getTime() - 30 * 86400000);
+      : new Date(Date.UTC(to.getUTCFullYear() - 1, to.getUTCMonth() + 1, 1));
     if (from > to) throw new BadRequestException('from must be before to');
     return { from, to };
   }
@@ -566,7 +693,7 @@ export class Phase3Service {
       this.prisma.invoice.findMany({
         where: {
           organizationId,
-          status: { notIn: ['DRAFT', 'VOID'] },
+          status: { notIn: ['DRAFT', 'VOIDED'] },
           createdAt: { gte: from, lte: to },
         },
         select: {
@@ -610,6 +737,13 @@ export class Phase3Service {
           type: true,
           updatedAt: true,
           client: { select: { firstName: true, lastName: true } },
+          dossierVehicles: {
+            take: 3,
+            orderBy: { assignedAt: 'asc' },
+            select: {
+              vehicle: { select: { brand: true, model: true, year: true } },
+            },
+          },
         },
       }),
       this.prisma.auditLog.findMany({
@@ -666,8 +800,17 @@ export class Phase3Service {
         costs: Prisma.Decimal;
       }
     >();
+    const timezone = query.timezone ?? settings.timezone;
+    const monthKey = (date: Date) => {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+      }).formatToParts(date);
+      return `${parts.find(({ type }) => type === 'year')?.value}-${parts.find(({ type }) => type === 'month')?.value}`;
+    };
     const trendBucket = (date: Date) => {
-      const key = date.toISOString().slice(0, 7);
+      const key = monthKey(date);
       const current = trend.get(key) ?? {
         revenue: new Prisma.Decimal(0),
         collections: new Prisma.Decimal(0),
@@ -695,11 +838,21 @@ export class Phase3Service {
           (cost.currency === baseCurrency ? cost.amount : 0),
       );
     }
+    const cursor = new Date(
+      Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1),
+    );
+    const lastMonth = new Date(
+      Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1),
+    );
+    while (cursor <= lastMonth) {
+      trendBucket(cursor);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
     return {
       period: {
         from: from.toISOString(),
         to: to.toISOString(),
-        timezone: query.timezone ?? settings.timezone,
+        timezone,
         baseCurrency,
       },
       dossiers: {
@@ -950,6 +1103,125 @@ export class Phase3Service {
         lateArrivals: shipmentTimeliness.length - onTimeShipments,
       },
     };
+  }
+
+  async reportPdf(
+    user: AuthenticatedUser,
+    query: DateRangeDto,
+  ): Promise<Buffer> {
+    const [report, settings] = await Promise.all([
+      this.reportSummary(user, query),
+      this.getSettings(user),
+    ]);
+    const candidates = [
+      process.env.PDF_FONT_PATH,
+      'C:\\Windows\\Fonts\\arial.ttf',
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    ].filter((value): value is string => Boolean(value));
+    const fontPath = candidates.find((value) => fs.existsSync(value));
+    if (!fontPath)
+      throw new Error(
+        'A Unicode PDF font must be configured with PDF_FONT_PATH',
+      );
+    const document = new PDFDocument({
+      size: 'A4',
+      layout: 'landscape',
+      margin: 42,
+      bufferPages: true,
+      info: {
+        Title: 'Rapport financier',
+        Author: settings.displayName ?? settings.legalName ?? 'Auto-Import ERP',
+      },
+    });
+    document.registerFont('Unicode', fontPath).font('Unicode');
+    const chunks: Buffer[] = [];
+    document.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const complete = new Promise<Buffer>((resolve, reject) => {
+      document.on('end', () => resolve(Buffer.concat(chunks)));
+      document.on('error', reject);
+    });
+    const money = (value: string) =>
+      `${new Intl.NumberFormat('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} ${report.period.baseCurrency}`;
+    const heading = (value: string) => {
+      if (document.y > 500) document.addPage();
+      document
+        .moveDown(0.7)
+        .fontSize(13)
+        .fillColor('#111111')
+        .text(value)
+        .moveDown(0.35);
+    };
+    const row = (label: string, value: string, alternate = false) => {
+      const y = document.y;
+      if (alternate)
+        document
+          .rect(42, y - 3, 758, 22)
+          .fill('#f5f5f5')
+          .fillColor('#111111');
+      document
+        .fontSize(9)
+        .text(label.replace(/\p{Cc}/gu, ''), 50, y, { width: 500 });
+      document.text(value.replace(/\p{Cc}/gu, ''), 570, y, {
+        width: 220,
+        align: 'right',
+      });
+      document.y = y + 22;
+    };
+    document
+      .fontSize(20)
+      .text(settings.displayName ?? settings.legalName ?? 'Auto-Import ERP');
+    document.fontSize(15).text('Rapport financier et opérationnel');
+    document
+      .moveDown(0.4)
+      .fontSize(9)
+      .fillColor('#555555')
+      .text(
+        `Période : ${new Date(report.period.from).toLocaleDateString('fr-FR')} – ${new Date(report.period.to).toLocaleDateString('fr-FR')} · Fuseau : ${report.period.timezone}`,
+      );
+    document.text(
+      `Généré le ${new Date(report.generatedAt).toLocaleString('fr-FR', { timeZone: report.period.timezone })} par ${user.firstName} ${user.lastName}`,
+    );
+    document.fillColor('#111111');
+    heading('Synthèse financière');
+    [
+      ['Facturé', money(report.finance.issued)],
+      ['Encaissé', money(report.finance.collected)],
+      ['Reste à encaisser', money(report.finance.outstanding)],
+      ['Factures en retard', String(report.finance.overdueInvoices)],
+      ['Coûts', money(report.finance.costs)],
+      ['Marge brute', money(report.finance.grossMargin)],
+    ].forEach(([label, value], index) => row(label, value, index % 2 === 1));
+    const distribution = (title: string, values: Record<string, number>) => {
+      heading(title);
+      const entries = Object.entries(values).slice(0, 100);
+      if (!entries.length) row('Aucune donnée', '0');
+      entries.forEach(([label, value], index) =>
+        row(label, String(value), index % 2 === 1),
+      );
+    };
+    distribution('Dossiers par statut', report.dossiers.byStatus);
+    distribution('Dossiers par type', report.dossiers.byType);
+    distribution('Véhicules par statut', report.vehicles.byStatus);
+    distribution('Offres par statut', report.offers.byStatus);
+    const range = document.bufferedPageRange();
+    for (
+      let index = range.start;
+      index < range.start + range.count;
+      index += 1
+    ) {
+      document.switchToPage(index);
+      document
+        .fontSize(8)
+        .fillColor('#666666')
+        .text(
+          `Page ${index + 1}/${range.count}`,
+          42,
+          document.page.height - 28,
+          { width: document.page.width - 84, align: 'right' },
+        );
+    }
+    document.end();
+    return complete;
   }
 
   async getSettings(user: AuthenticatedUser) {

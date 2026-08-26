@@ -9,6 +9,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ApiOperation } from '@nestjs/swagger';
 import { Permission } from '@auto-import/contracts';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
@@ -20,6 +21,7 @@ import {
   DateRangeDto,
   NotificationQueryDto,
   ReassignTaskDto,
+  SendNotificationDto,
   TaskQueryDto,
   UpdateSettingsDto,
   UpdateTaskDto,
@@ -120,6 +122,30 @@ export class NotificationsController {
     return this.service.markAllNotifications(user);
   }
 
+  @Get('audience')
+  @RequirePermission(Permission.NOTIFICATIONS_SEND)
+  audience(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.notificationAudience(user);
+  }
+
+  @Post('audience/resolve')
+  @RequirePermission(Permission.NOTIFICATIONS_SEND)
+  resolveAudience(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SendNotificationDto,
+  ) {
+    return this.service.resolveNotificationAudience(user, dto);
+  }
+
+  @Post('send')
+  @RequirePermission(Permission.NOTIFICATIONS_SEND)
+  send(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SendNotificationDto,
+  ) {
+    return this.service.sendNotification(user, dto);
+  }
+
   @Get('templates/manage')
   @RequirePermission(Permission.NOTIFICATIONS_MANAGE)
   templates(@CurrentUser() user: AuthenticatedUser) {
@@ -173,6 +199,10 @@ export class ReportsController {
   }
 
   @Get('finance.csv')
+  @ApiOperation({
+    deprecated: true,
+    summary: 'Deprecated CSV compatibility export',
+  })
   @RequirePermission(Permission.REPORTS_EXPORT)
   async financeCsv(
     @CurrentUser() user: AuthenticatedUser,
@@ -227,6 +257,25 @@ export class ReportsController {
           .join(';') + '\r\n',
       );
     response.end();
+  }
+
+  @Get('finance.pdf')
+  @RequirePermission(Permission.REPORTS_EXPORT)
+  async financePdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DateRangeDto,
+    @Res() response: Response,
+  ) {
+    const pdf = await this.service.reportPdf(user, query);
+    const date = new Date().toISOString().slice(0, 10);
+    response.status(200);
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="rapport-finance-${date}.pdf"`,
+    );
+    response.setHeader('Content-Length', pdf.length);
+    response.end(pdf);
   }
 }
 

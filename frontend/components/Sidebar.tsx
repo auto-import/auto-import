@@ -19,7 +19,6 @@ import {
   CheckSquare,
   DollarSign,
   PhoneCall,
-  ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
@@ -44,7 +43,6 @@ const ICON_MAP: Record<string, ReactNode> = {
   CheckSquare: <CheckSquare className="w-5 h-5" />,
   DollarSign: <DollarSign className="w-5 h-5" />,
   PhoneCall: <PhoneCall className="w-5 h-5" />,
-  ShieldCheck: <ShieldCheck className="w-5 h-5" />,
 };
 
 const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
@@ -62,7 +60,6 @@ const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
   "/tasks": Permission.TASKS_READ,
   "/notifications": Permission.NOTIFICATIONS_READ,
   "/rapports": Permission.REPORTS_READ,
-  "/audit": Permission.AUDIT_READ,
   "/parametres": Permission.SETTINGS_READ,
   "/utilisateurs": Permission.USERS_READ,
 };

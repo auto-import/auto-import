@@ -1,1 +1,1 @@
-export { default } from "@/components/commerce/VehiclesWorkspace";
+export { default } from "@/components/commerce/VehicleStockPolished";

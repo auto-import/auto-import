@@ -9,6 +9,9 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsArray,
+  IsBoolean,
+  MaxLength,
   Max,
   Min,
 } from 'class-validator';
@@ -101,4 +104,18 @@ export class CreateNotificationTemplateDto {
   @IsOptional() @IsString() subject?: string;
   @IsString() content: string;
   @IsOptional() @IsIn(['in_app', 'email']) channel?: string;
+}
+
+export class SendNotificationDto {
+  @IsOptional() @IsArray() @IsUUID('4', { each: true }) userIds: string[] = [];
+  @IsOptional() @IsArray() @IsUUID('4', { each: true }) roleIds: string[] = [];
+  @IsOptional() @IsBoolean() allActive = false;
+  @IsString() @IsNotEmpty() @MaxLength(120) title: string;
+  @IsString() @IsNotEmpty() @MaxLength(2000) message: string;
+  @IsOptional()
+  @IsIn(['general', 'finance', 'logistics', 'commercial', 'system'])
+  category = 'general';
+  @IsOptional() @IsIn(['info', 'success', 'warning', 'critical']) severity =
+    'info';
+  @IsOptional() @IsString() @MaxLength(300) entityUrl?: string;
 }

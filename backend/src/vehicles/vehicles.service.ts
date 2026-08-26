@@ -3,6 +3,8 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,12 +13,209 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { CreateVehicleSpecDto } from './dto/create-vehicle-spec.dto';
 import { FilterVehicleDto } from './dto/filter-vehicle.dto';
 import { paginate } from '../common/helpers/pagination.helper';
+import {
+  StorageProvider,
+  type StoredFileResult,
+} from '../documents/storage.provider';
+import type { UploadedBufferFile } from '../documents/documents.service';
 
 @Injectable()
 export class VehiclesService {
   private readonly logger = new Logger(VehiclesService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional()
+    private readonly storage: StorageProvider = new StorageProvider(),
+  ) {}
+
+  private async storeVehiclePhotos(
+    organizationId: string,
+    files: UploadedBufferFile[],
+  ): Promise<StoredFileResult[]> {
+    if (files.length !== 3) {
+      throw new BadRequestException(
+        'Exactly three vehicle photos are required',
+      );
+    }
+    const stored: StoredFileResult[] = [];
+    try {
+      for (const file of files) {
+        if (!file.buffer || file.buffer.length > 8 * 1024 * 1024) {
+          throw new BadRequestException(
+            'Each vehicle photo must not exceed 8 MB',
+          );
+        }
+        const detected = this.storage.detectMimeType(
+          file.buffer,
+          'application/octet-stream',
+        );
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(detected)) {
+          throw new BadRequestException(
+            'Vehicle photos must be JPEG, PNG or WebP',
+          );
+        }
+        stored.push(
+          await this.storage.saveBuffer(
+            organizationId,
+            'vehicle-photos',
+            file.originalname,
+            detected,
+            file.buffer,
+          ),
+        );
+      }
+      if (new Set(stored.map(({ checksum }) => checksum)).size !== 3) {
+        throw new BadRequestException(
+          'The three vehicle photos must be distinct',
+        );
+      }
+      return stored;
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+  }
+
+  async createWithPhotos(
+    dto: CreateVehicleDto,
+    organizationId: string,
+    userId: string,
+    files: UploadedBufferFile[],
+  ) {
+    if (!dto.vin && dto.status !== 'prePurchase') {
+      throw new ConflictException(
+        'VIN is required outside the pre-purchase state',
+      );
+    }
+    const stored = await this.storeVehiclePhotos(organizationId, files);
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          if (
+            dto.vin &&
+            (await tx.vehicle.findUnique({ where: { vin: dto.vin } }))
+          ) {
+            throw new ConflictException('A vehicle with this VIN exists');
+          }
+          await this.validateTenantRelations(tx, dto, organizationId);
+          const vehicle = await tx.vehicle.create({
+            data: { ...dto, organizationId },
+          });
+          for (const [sortOrder, item] of stored.entries()) {
+            const asset = await tx.fileAsset.create({
+              data: {
+                organizationId,
+                uploadedBy: userId,
+                category: 'VEHICLE_PHOTO',
+                storageKey: item.storageKey,
+                originalName: item.originalName,
+                mimeType: item.mimeType,
+                size: item.size,
+                checksum: item.checksum,
+              },
+            });
+            await tx.vehiclePhoto.create({
+              data: {
+                vehicleId: vehicle.id,
+                fileId: asset.id,
+                sortOrder,
+                isPrimary: sortOrder === 0,
+              },
+            });
+          }
+          return tx.vehicle.findUniqueOrThrow({
+            where: { id: vehicle.id },
+            include: {
+              specs: true,
+              photos: {
+                include: { file: true },
+                orderBy: { sortOrder: 'asc' },
+              },
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+  }
+
+  async replacePhotos(
+    id: string,
+    organizationId: string,
+    userId: string,
+    files: UploadedBufferFile[],
+  ) {
+    const stored = await this.storeVehiclePhotos(organizationId, files);
+    const previous = await this.prisma.vehicle.findFirst({
+      where: { id, organizationId },
+      include: { photos: { include: { file: true } } },
+    });
+    if (!previous) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw new NotFoundException('Vehicle not found');
+    }
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.vehiclePhoto.deleteMany({ where: { vehicleId: id } });
+        for (const photo of previous.photos)
+          await tx.fileAsset.delete({ where: { id: photo.fileId } });
+        for (const [sortOrder, item] of stored.entries()) {
+          const asset = await tx.fileAsset.create({
+            data: {
+              organizationId,
+              uploadedBy: userId,
+              category: 'VEHICLE_PHOTO',
+              storageKey: item.storageKey,
+              originalName: item.originalName,
+              mimeType: item.mimeType,
+              size: item.size,
+              checksum: item.checksum,
+            },
+          });
+          await tx.vehiclePhoto.create({
+            data: {
+              vehicleId: id,
+              fileId: asset.id,
+              sortOrder,
+              isPrimary: sortOrder === 0,
+            },
+          });
+        }
+      });
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+    await Promise.all(
+      previous.photos.map(({ file }) => this.storage.delete(file.storageKey)),
+    );
+    return this.findOne(id, organizationId);
+  }
+
+  async photoStream(photoId: string, organizationId: string) {
+    const photo = await this.prisma.vehiclePhoto.findFirst({
+      where: { id: photoId, vehicle: { organizationId } },
+      include: { file: true },
+    });
+    if (!photo) throw new NotFoundException('Vehicle photo not found');
+    return {
+      stream: this.storage.getReadStream(photo.file.storageKey),
+      mimeType: photo.file.mimeType,
+      size: Number(photo.file.size),
+    };
+  }
 
   async create(createVehicleDto: CreateVehicleDto, organizationId: string) {
     if (!createVehicleDto.vin && createVehicleDto.status !== 'prePurchase') {

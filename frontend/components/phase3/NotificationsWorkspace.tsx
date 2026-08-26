@@ -10,6 +10,7 @@ import {
   phase3Api,
   type ApiNotification,
   type ApiNotificationTemplate,
+  type ApiNotificationSend,
 } from "@/lib/phase3-api";
 import {
   ErrorState,
@@ -20,6 +21,7 @@ import {
 export default function NotificationsWorkspace() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission(Permission.NOTIFICATIONS_MANAGE);
+  const canSend = hasPermission(Permission.NOTIFICATIONS_SEND);
   const [items, setItems] = useState<ApiNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -32,6 +34,26 @@ export default function NotificationsWorkspace() {
     subject: "",
     content: "",
   });
+  const [audience, setAudience] = useState<{
+    users: Array<{
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+    }>;
+    roles: Array<{ id: string; name: string }>;
+  }>({ users: [], roles: [] });
+  const [compose, setCompose] = useState<ApiNotificationSend>({
+    userIds: [],
+    roleIds: [],
+    allActive: false,
+    title: "",
+    message: "",
+    category: "general",
+    severity: "info",
+  });
+  const [recipientCount, setRecipientCount] = useState(0);
+  const [delivery, setDelivery] = useState("");
   const load = useCallback(async () => {
     setError("");
     try {
@@ -60,6 +82,51 @@ export default function NotificationsWorkspace() {
         .then(setTemplates)
         .catch(() => undefined);
   }, [canManage]);
+  useEffect(() => {
+    if (canSend)
+      void phase3Api.notifications
+        .audience()
+        .then(setAudience)
+        .catch(() => undefined);
+  }, [canSend]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (
+        !canSend ||
+        (!compose.allActive &&
+          !compose.userIds.length &&
+          !compose.roleIds.length)
+      ) {
+        setRecipientCount(0);
+        return;
+      }
+      void phase3Api.notifications
+        .resolveAudience(compose)
+        .then(({ recipientCount: count }) => setRecipientCount(count))
+        .catch(() => setRecipientCount(0));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [canSend, compose]);
+  async function sendNotification(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setDelivery("");
+    try {
+      const result = await phase3Api.notifications.send(compose);
+      setDelivery(`${result.delivered} notification(s) in-app envoyée(s).`);
+      setCompose({
+        userIds: [],
+        roleIds: [],
+        allActive: false,
+        title: "",
+        message: "",
+        category: "general",
+        severity: "info",
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Envoi impossible");
+    }
+  }
   async function read(item: ApiNotification) {
     if (!item.readAt) await phase3Api.notifications.read(item.id);
     await load();
@@ -110,6 +177,188 @@ export default function NotificationsWorkspace() {
           )}
         </div>
         {error && <ErrorState message={error} retry={() => void load()} />}
+        {delivery && (
+          <p
+            role="status"
+            className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+          >
+            {delivery}
+          </p>
+        )}
+        {canSend && (
+          <section className="card">
+            <h2 className="font-bold">Envoyer une notification ciblée</h2>
+            <p className="mt-1 text-sm text-muted">
+              Canal in-app uniquement · destinataires actifs de votre
+              organisation.
+            </p>
+            <form
+              onSubmit={sendNotification}
+              className="mt-5 grid gap-4 sm:grid-cols-2"
+            >
+              <label>
+                <span className="field-label">Utilisateurs</span>
+                <select
+                  multiple
+                  aria-label="Utilisateurs destinataires"
+                  className={`${inputClass} min-h-32`}
+                  value={compose.userIds}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      userIds: Array.from(
+                        event.target.selectedOptions,
+                        ({ value }) => value,
+                      ),
+                    }))
+                  }
+                >
+                  {audience.users.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.firstName} {item.lastName} · {item.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Rôles / départements</span>
+                <select
+                  multiple
+                  aria-label="Rôles destinataires"
+                  className={`${inputClass} min-h-32`}
+                  value={compose.roleIds}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      roleIds: Array.from(
+                        event.target.selectedOptions,
+                        ({ value }) => value,
+                      ),
+                    }))
+                  }
+                >
+                  {audience.roles.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={compose.allActive}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      allActive: event.target.checked,
+                    }))
+                  }
+                />
+                Tous les utilisateurs actifs de l’organisation
+              </label>
+              <label>
+                <span className="field-label">Titre *</span>
+                <input
+                  required
+                  maxLength={120}
+                  className={inputClass}
+                  value={compose.title}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span className="field-label">Lien interne</span>
+                <input
+                  placeholder="/dossiers/…"
+                  className={inputClass}
+                  value={compose.entityUrl ?? ""}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      entityUrl: event.target.value || undefined,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span className="field-label">Catégorie</span>
+                <select
+                  className={inputClass}
+                  value={compose.category}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      category: event.target.value,
+                    }))
+                  }
+                >
+                  {[
+                    "general",
+                    "finance",
+                    "logistics",
+                    "commercial",
+                    "system",
+                  ].map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Sévérité</span>
+                <select
+                  className={inputClass}
+                  value={compose.severity}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      severity: event.target.value,
+                    }))
+                  }
+                >
+                  {["info", "success", "warning", "critical"].map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="sm:col-span-2">
+                <span className="field-label">Message *</span>
+                <textarea
+                  required
+                  maxLength={2000}
+                  className={`${inputClass} min-h-28`}
+                  value={compose.message}
+                  onChange={(event) =>
+                    setCompose((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <div className="flex items-center justify-between gap-4 sm:col-span-2">
+                <strong className="text-sm">
+                  {recipientCount} destinataire(s) unique(s)
+                </strong>
+                <button
+                  disabled={!recipientCount}
+                  className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  Confirmer l’envoi
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
         {loading ? (
           <LoadingState />
         ) : items.length === 0 ? (

@@ -253,7 +253,7 @@ export const Permission: {
   readonly CUSTOMS_READ: 'customs:read'; readonly CUSTOMS_WRITE: 'customs:write';
   readonly DOCUMENTS_READ: 'documents:read'; readonly DOCUMENTS_WRITE: 'documents:write';
   readonly TASKS_READ: 'tasks:read'; readonly TASKS_WRITE: 'tasks:write'; readonly TASKS_ASSIGN: 'tasks:assign';
-  readonly NOTIFICATIONS_READ: 'notifications:read'; readonly NOTIFICATIONS_MANAGE: 'notifications:manage';
+  readonly NOTIFICATIONS_READ: 'notifications:read'; readonly NOTIFICATIONS_SEND: 'notifications:send'; readonly NOTIFICATIONS_MANAGE: 'notifications:manage';
   readonly AUDIT_READ: 'audit:read';
   readonly CRM_TIMELINE_READ: 'crmTimeline:read'; readonly CRM_TIMELINE_WRITE: 'crmTimeline:write';
   readonly CALL_CENTER_ACCESS: 'callCenter:access'; readonly CALL_CENTER_DISPATCH: 'callCenter:dispatch';

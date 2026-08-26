@@ -18,6 +18,7 @@ export default function ReportsWorkspace() {
   const [to, setTo] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const filters = useMemo(
     () => ({
       from: from ? new Date(`${from}T00:00:00`).toISOString() : undefined,
@@ -43,6 +44,8 @@ export default function ReportsWorkspace() {
     return () => clearTimeout(timer);
   }, [load]);
   async function download() {
+    if (downloading) return;
+    setDownloading(true);
     try {
       const file = await phase3Api.reports.downloadFinance(filters);
       const url = URL.createObjectURL(file.blob);
@@ -53,13 +56,15 @@ export default function ReportsWorkspace() {
       URL.revokeObjectURL(url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Export impossible");
+    } finally {
+      setDownloading(false);
     }
   }
   return (
     <>
       <Topbar
         title="Rapports"
-        subtitle="Synthèses tenant-scoped et exports UTF-8"
+        subtitle="Synthèses tenant-scoped et exports PDF"
       />
       <main className="space-y-6 p-4 sm:p-8">
         <section className="card flex flex-wrap items-end gap-4">
@@ -89,10 +94,11 @@ export default function ReportsWorkspace() {
           </button>
           <button
             onClick={() => void download()}
+            disabled={downloading}
             className="ml-auto inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold"
           >
             <Download className="h-4 w-4" />
-            Exporter le CSV finance
+            {downloading ? "Génération…" : "Exporter PDF"}
           </button>
         </section>
         {error && <ErrorState message={error} retry={() => void load()} />}

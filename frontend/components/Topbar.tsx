@@ -2,24 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, CheckCheck, ChevronDown, LogOut } from "lucide-react";
+import Image from "next/image";
+import { Bell, CheckCheck, ChevronDown, LogOut, UserRound } from "lucide-react";
+import { io } from "socket.io-client";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
 import { phase3Api, type ApiNotification } from "@/lib/phase3-api";
+import { authApi, profileApi } from "@/lib/api";
 
 export default function Topbar({
   title,
   subtitle,
+  avatarUrlOverride,
 }: {
   title: string;
   subtitle?: string;
+  avatarUrlOverride?: string | null;
 }) {
   const { currentUser, logout, hasPermission } = useAuth();
+  const currentUserId = currentUser?.id;
   const canReadNotifications = hasPermission(Permission.NOTIFICATIONS_READ);
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
   const load = useCallback(async () => {
@@ -43,6 +50,66 @@ export default function Topbar({
       window.removeEventListener("focus", focus);
     };
   }, [load]);
+  useEffect(() => {
+    if (!canReadNotifications) return;
+    const base = (
+      process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api"
+    ).replace(/\/api\/?$/, "");
+    const socket = io(`${base}/notifications`, {
+      transports: ["websocket"],
+      auth: { token: authApi.accessToken() },
+    });
+    socket.on("notification.created", () => void load());
+    return () => {
+      socket.disconnect();
+    };
+  }, [canReadNotifications, load]);
+  useEffect(() => {
+    if (!currentUserId) return;
+    let current: string | null = null;
+    const applyBlob = (blob: Blob | null) => {
+      if (!blob) {
+        setAvatarUrl((previous) => {
+          if (previous) URL.revokeObjectURL(previous);
+          return null;
+        });
+        return;
+      }
+      const next = URL.createObjectURL(blob);
+      current = next;
+      setAvatarUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return next;
+      });
+    };
+    const refreshAvatar = async (event?: Event) => {
+      try {
+        if (event instanceof CustomEvent) {
+          applyBlob(event.detail instanceof Blob ? event.detail : null);
+          return;
+        }
+        const profile = await profileApi.get();
+        if (!profile.avatarUrl) {
+          applyBlob(null);
+          return;
+        }
+        const blob = await profileApi.avatarBlob();
+        applyBlob(blob);
+      } catch {
+        setAvatarUrl(null);
+      }
+    };
+    const initial = window.setTimeout(() => void refreshAvatar(), 0);
+    const retry = window.setTimeout(() => void refreshAvatar(), 1000);
+    const avatarChanged = (event: Event) => void refreshAvatar(event);
+    window.addEventListener("profile-avatar-changed", avatarChanged);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearTimeout(retry);
+      window.removeEventListener("profile-avatar-changed", avatarChanged);
+      if (current) URL.revokeObjectURL(current);
+    };
+  }, [currentUserId]);
   useEffect(() => {
     const outside = (event: MouseEvent) => {
       if (!notificationRef.current?.contains(event.target as Node))
@@ -136,8 +203,19 @@ export default function Topbar({
             onClick={() => setUserOpen((value) => !value)}
             className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-surface"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900 text-xs font-bold text-white">
-              {initials}
+            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-neutral-900 text-xs font-bold text-white">
+              {avatarUrlOverride || avatarUrl ? (
+                <Image
+                  unoptimized
+                  width={36}
+                  height={36}
+                  src={avatarUrlOverride || avatarUrl!}
+                  alt="Avatar du profil"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                initials
+              )}
             </span>
             <span className="hidden text-left md:block">
               <span className="block text-sm font-medium">
@@ -157,6 +235,14 @@ export default function Topbar({
                 </p>
                 <p className="text-xs text-muted">{currentUser?.email}</p>
               </div>
+              <Link
+                href="/profil"
+                onClick={() => setUserOpen(false)}
+                className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-surface"
+              >
+                <UserRound className="h-4 w-4" />
+                Mon profil
+              </Link>
               <button
                 onClick={() => void logout()}
                 className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-surface"

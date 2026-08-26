@@ -17,6 +17,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from './auth.types';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 const REFRESH_COOKIE = 'auto_import_refresh';
 
@@ -111,6 +112,35 @@ export class AuthController {
   })
   meCompatibility(@CurrentUser() user: AuthenticatedUser) {
     return user;
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.assertTrustedOrigin(request);
+    const result = await this.authService.changeOwnPassword(
+      user.id,
+      dto.currentPassword,
+      dto.newPassword,
+      dto.confirmation,
+      this.readRefreshCookie(request),
+      this.sessionMetadata(request),
+    );
+    this.setRefreshCookie(
+      response,
+      result.refreshToken,
+      result.refreshExpiresAt,
+    );
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+      sessionBehavior: result.sessionBehavior,
+    };
   }
 
   private get cookieSecurityOptions() {
