@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PaymentPlansService } from './payment-plans.service';
 import { InvoicesService } from './invoices.service';
@@ -126,11 +131,7 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
     supplierPaymentsService = new SupplierPaymentsService(mockPrisma);
     exchangeRatesService = new ExchangeRatesService(mockPrisma);
     costsService = new CostsService(mockPrisma, exchangeRatesService);
-    financeService = new FinanceService(
-      mockPrisma,
-      reconciliationService,
-      exchangeRatesService,
-    );
+    financeService = new FinanceService(mockPrisma, exchangeRatesService);
   });
 
   describe('1. Decimal-Safe Monetary Calculations & 30/70 Rounding', () => {
@@ -143,6 +144,7 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
         currency: 'DZD',
         strategy: 'THIRTY_SEVENTY',
       });
+      if (!plan) throw new Error('Expected payment plan');
 
       expect(plan.installments.length).toBe(2);
       const inst1 = plan.installments[0];
@@ -165,6 +167,7 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
         currency: 'DZD',
         strategy: 'FULL_UPFRONT',
       });
+      if (!plan) throw new Error('Expected payment plan');
 
       expect(plan.installments.length).toBe(1);
       expect(plan.installments[0].percentage.toString()).toBe('100');
@@ -255,7 +258,7 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
         unallocatedAmount: new Prisma.Decimal(200000),
       });
 
-      const result = await paymentsService.confirm('pay-1', 'org-1');
+      const result = await paymentsService.confirm('pay-1', 'org-1', 'user-1');
 
       // CustomerDeposit created for 200,000 excess
       expect(mockPrisma.customerDeposit.create).toHaveBeenCalledWith(
@@ -274,7 +277,9 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
           status: 'CONFIRMED',
           amount: new Prisma.Decimal(300000),
           organizationId: 'org-1',
-          allocations: [{ id: 'alloc-1', invoiceId: 'inv-1', installmentId: null }],
+          allocations: [
+            { id: 'alloc-1', invoiceId: 'inv-1', installmentId: null },
+          ],
         })
         .mockResolvedValueOnce({
           id: 'pay-1',
@@ -330,13 +335,21 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
           effectiveAt: new Date('2026-01-01T00:00:00Z'),
         });
 
-      const rate = await exchangeRatesService.findEffectiveRate('org-1', 'USD', 'DZD');
+      const rate = await exchangeRatesService.findEffectiveRate(
+        'org-1',
+        'USD',
+        'DZD',
+      );
       // 1 / 135.0 = 0.0074074074...
       expect(Number(rate.toString())).toBeCloseTo(1 / 135.0, 6);
     });
 
     it('should return 1 for identical base and quote currencies', async () => {
-      const same = await exchangeRatesService.findEffectiveRate('org-1', 'DZD', 'DZD');
+      const same = await exchangeRatesService.findEffectiveRate(
+        'org-1',
+        'DZD',
+        'DZD',
+      );
       expect(same.toString()).toBe('1');
     });
   });

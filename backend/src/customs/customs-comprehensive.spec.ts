@@ -49,7 +49,7 @@ describe('Phase 2 Customs Comprehensive Tests', () => {
       feesAmount: 50000,
     });
 
-    expect(file.customsAmount.toString()).toBe('1750000');
+    expect(file.customsAmount?.toString()).toBe('1750000');
   });
 
   it('should transition to cleared and stamp clearedAt timestamp', async () => {

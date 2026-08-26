@@ -144,6 +144,7 @@ export const DASHBOARD_ROUTE_PERMISSIONS: Array<{
   { prefix: "/crm", permission: Permission.PROSPECTS_READ },
   { prefix: "/clients", permission: Permission.CLIENTS_READ },
   { prefix: "/offres", permission: Permission.OFFERS_READ },
+  { prefix: "/dossiers/creer", permission: Permission.DOSSIERS_WRITE },
   { prefix: "/dossiers", permission: Permission.DOSSIERS_READ },
   { prefix: "/vehicules", permission: Permission.VEHICLES_READ },
   { prefix: "/fournisseurs", permission: Permission.PARTNERS_READ },

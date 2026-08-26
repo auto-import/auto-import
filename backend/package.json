@@ -11,15 +11,17 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:migration:phase2-fileasset": "node scripts/test-phase2-fileasset-migration.mjs"
-    ,"test:phase3:isolation": "node scripts/test-phase3-isolation.mjs"
+    "test:migration:phase2-fileasset": "node scripts/test-phase2-fileasset-migration.mjs",
+    "test:phase3:isolation": "node scripts/test-phase3-isolation.mjs",
+    "seed:demo": "ts-node prisma/seed-demo.ts",
+    "seed:demo:verify": "ts-node scripts/verify-demo-seed.ts"
   },
   "dependencies": {
     "@auto-import/contracts": "file:../contracts",
