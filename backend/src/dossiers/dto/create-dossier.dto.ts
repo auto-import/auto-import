@@ -1,5 +1,4 @@
 import {
-  IsString,
   IsUUID,
   IsOptional,
   IsArray,
@@ -47,6 +46,14 @@ export class CreateDossierDto {
   orderId?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsUUID()
+  offerReservationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  salesUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  opsUserId?: string;
 }

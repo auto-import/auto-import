@@ -5,10 +5,45 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { Permission } from '@auto-import/contracts';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { paginate } from '../common/helpers/pagination.helper';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { FilterUsersDto } from './dto/filter-users.dto';
+
+const PUBLIC_USER_SELECT = {
+  id: true,
+  organizationId: true,
+  officeId: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  status: true,
+  lastLoginAt: true,
+  createdAt: true,
+  updatedAt: true,
+  office: { select: { id: true, name: true, city: true, status: true } },
+  userRoles: {
+    select: {
+      role: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          scope: true,
+          organizationId: true,
+          rolePermissions: {
+            select: { permission: true },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class UsersService {
@@ -16,94 +51,90 @@ export class UsersService {
 
   constructor(private prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto, organizationId: string) {
+  async create(
+    createUserDto: CreateUserDto,
+    organizationId: string,
+    caller: AuthenticatedUser,
+  ) {
     const { email, password, roleIds, ...userData } = createUserDto;
-
-    // Check if user exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    // Verify roleIds belong to the organization or are platform roles
-    if (roleIds && roleIds.length > 0) {
-      const validRoles = await this.prisma.role.findMany({
-        where: {
-          id: { in: roleIds },
-          OR: [{ organizationId }, { organizationId: null }],
+    const normalizedEmail = email.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(password, 12);
+    try {
+      const user = await this.prisma.$transaction(
+        async (transaction) => {
+          const existingUser = await transaction.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true },
+          });
+          if (existingUser) {
+            throw new ConflictException('User with this email already exists');
+          }
+          await this.validateTenantAssignments(
+            transaction,
+            organizationId,
+            userData.officeId,
+            roleIds,
+            caller,
+          );
+          return transaction.user.create({
+            data: {
+              ...userData,
+              email: normalizedEmail,
+              passwordHash,
+              organizationId,
+              userRoles: roleIds?.length
+                ? { create: roleIds.map((roleId) => ({ roleId })) }
+                : undefined,
+            },
+            select: PUBLIC_USER_SELECT,
+          });
         },
-      });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
 
-      if (validRoles.length !== roleIds.length) {
-        throw new ForbiddenException(
-          'One or more role IDs are invalid for this organization',
-        );
-      }
+      this.logger.log(`User created: ${user.email} (${user.id})`);
+      return user;
+    } catch (error: unknown) {
+      this.rethrowEmailConflict(error);
     }
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // Create user
-    const user = await this.prisma.user.create({
-      data: {
-        ...userData,
-        email,
-        passwordHash,
-        organizationId,
-        userRoles: roleIds
-          ? {
-              create: roleIds.map((roleId) => ({ roleId })),
-            }
-          : undefined,
-      },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-        office: true,
-      },
-    });
-
-    this.logger.log(`User created: ${user.email} (${user.id})`);
-    return user;
   }
 
-  async findAll(organizationId: string, page: number = 1, limit: number = 10) {
+  async findAll(organizationId: string, filters: FilterUsersDto = {}) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 20;
     const skip = (page - 1) * limit;
+    const where: Prisma.UserWhereInput = {
+      organizationId,
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.officeId ? { officeId: filters.officeId } : {}),
+      ...(filters.roleId
+        ? { userRoles: { some: { roleId: filters.roleId } } }
+        : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { firstName: { contains: filters.search, mode: 'insensitive' } },
+              { lastName: { contains: filters.search, mode: 'insensitive' } },
+              { email: { contains: filters.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
 
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
-        where: { organizationId },
+        where,
         skip,
         take: limit,
-        include: {
-          userRoles: {
-            include: {
-              role: true,
-            },
-          },
-          office: true,
-        },
+        select: PUBLIC_USER_SELECT,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.user.count({
-        where: { organizationId },
+        where,
       }),
     ]);
 
-    return {
-      items: users,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(users, total, page, limit);
   }
 
   async findOne(id: string, organizationId: string) {
@@ -112,22 +143,7 @@ export class UsersService {
         id,
         organizationId,
       },
-      include: {
-        userRoles: {
-          include: {
-            role: {
-              include: {
-                rolePermissions: {
-                  include: {
-                    permission: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        office: true,
-      },
+      select: PUBLIC_USER_SELECT,
     });
 
     if (!user) {
@@ -141,53 +157,49 @@ export class UsersService {
     id: string,
     organizationId: string,
     updateUserDto: UpdateUserDto,
-    currentUserId?: string,
+    caller: AuthenticatedUser,
   ) {
     const { roleIds, ...userData } = updateUserDto;
-
-    // Check if user exists
-    const targetUser = await this.findOne(id, organizationId);
-
-    // Verify roleIds belong to the organization
-    if (roleIds && roleIds.length > 0) {
-      const validRoles = await this.prisma.role.findMany({
-        where: {
-          id: { in: roleIds },
-          OR: [{ organizationId }, { organizationId: null }],
+    try {
+      const user = await this.prisma.$transaction(
+        async (transaction) => {
+          const target = await transaction.user.findFirst({
+            where: { id, organizationId },
+            select: { id: true },
+          });
+          if (!target) throw new NotFoundException('User not found');
+          await this.validateTenantAssignments(
+            transaction,
+            organizationId,
+            userData.officeId,
+            roleIds,
+            caller,
+          );
+          if (userData.email) {
+            userData.email = userData.email.trim().toLowerCase();
+          }
+          return transaction.user.update({
+            where: { id },
+            data: {
+              ...userData,
+              ...(roleIds && {
+                userRoles: {
+                  deleteMany: {},
+                  create: roleIds.map((roleId) => ({ roleId })),
+                },
+              }),
+            },
+            select: PUBLIC_USER_SELECT,
+          });
         },
-      });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
 
-      if (validRoles.length !== roleIds.length) {
-        throw new ForbiddenException(
-          'One or more role IDs are invalid for this organization',
-        );
-      }
+      this.logger.log(`User updated: ${user.email} (${user.id})`);
+      return user;
+    } catch (error: unknown) {
+      this.rethrowEmailConflict(error);
     }
-
-    // Update user
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: {
-        ...userData,
-        ...(roleIds && {
-          userRoles: {
-            deleteMany: {},
-            create: roleIds.map((roleId) => ({ roleId })),
-          },
-        }),
-      },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-        office: true,
-      },
-    });
-
-    this.logger.log(`User updated: ${user.email} (${user.id})`);
-    return user;
   }
 
   async remove(id: string, organizationId: string, currentUserId?: string) {
@@ -241,7 +253,7 @@ export class UsersService {
   ) {
     await this.findOne(id, organizationId);
 
-    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
 
     await this.prisma.user.update({
       where: { id },
@@ -250,5 +262,59 @@ export class UsersService {
 
     this.logger.log(`Password updated for user: ${id}`);
     return { message: 'Password updated successfully' };
+  }
+
+  private async validateTenantAssignments(
+    transaction: Prisma.TransactionClient,
+    organizationId: string,
+    officeId: string | null | undefined,
+    roleIds: string[] | undefined,
+    caller: AuthenticatedUser,
+  ): Promise<void> {
+    if (officeId) {
+      const office = await transaction.office.findFirst({
+        where: { id: officeId, organizationId },
+        select: { id: true },
+      });
+      if (!office) throw new NotFoundException('Office not found');
+    }
+    if (!roleIds) return;
+    if (!caller.permissions.includes(Permission.USERS_MANAGE)) {
+      throw new ForbiddenException('Role assignment requires user management');
+    }
+    const uniqueRoleIds = [...new Set(roleIds)];
+    const roles = await transaction.role.findMany({
+      where: {
+        id: { in: uniqueRoleIds },
+        organizationId,
+        scope: 'tenant',
+      },
+      include: {
+        rolePermissions: { include: { permission: true } },
+      },
+    });
+    if (roles.length !== uniqueRoleIds.length) {
+      throw new ForbiddenException('One or more roles cannot be assigned');
+    }
+    const callerPermissions = new Set<string>(caller.permissions);
+    const escalates = roles.some((role) =>
+      role.rolePermissions.some(
+        ({ permission }) =>
+          !callerPermissions.has(`${permission.resource}:${permission.action}`),
+      ),
+    );
+    if (escalates) {
+      throw new ForbiddenException('Cannot grant privileges you do not hold');
+    }
+  }
+
+  private rethrowEmailConflict(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException('User with this email already exists');
+    }
+    throw error;
   }
 }

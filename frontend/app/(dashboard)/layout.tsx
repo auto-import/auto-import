@@ -1,17 +1,19 @@
-'use client';
+"use client";
 
-import { Sidebar } from '@/components';
-import { AuthProvider } from '@/components/AuthProvider';
+import { Sidebar } from "@/components";
+import { AuthBoundary } from "@/components/AuthBoundary";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <AuthProvider>
+    <AuthBoundary>
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto bg-surface">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto bg-surface">{children}</main>
       </div>
-    </AuthProvider>
+    </AuthBoundary>
   );
 }

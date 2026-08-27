@@ -11,6 +11,7 @@ node_modules/
 
 # Next.js build output
 .next/
+.next-*/
 out/
 build/
 dist/
@@ -51,3 +52,19 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# Codex/local disposable validation artifacts
+.codex-browser-artifacts-*/
+.codex-demo-storage-*/
+.codex-post-uat-*/
+storage/private/
+backend/storage/private/
+*.dump
+*.sql.gz
+*.dump.gpg
+*.tar.gz.gpg
+backups/
+*.pem
+*.key
+*.crt
+.codex-production-*/

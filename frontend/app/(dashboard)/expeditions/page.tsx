@@ -1,129 +1,618 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Topbar, StatusBadge, DataTable } from '@/components';
-import { expeditions } from '@/lib/mockData';
 import {
-  EXPEDITION_STATUT_LABELS,
-  EXPEDITION_STATUT_VARIANTS,
-  formatDate,
-} from '@/lib/constants';
-import type { Expedition, Column, StatutExpedition } from '@/types';
-import { Search, Ship } from 'lucide-react';
-
-const EXPEDITION_COLUMNS: Column<Expedition>[] = [
-  {
-    key: 'numero_conteneur',
-    header: 'Conteneur',
-    render: (row) => (
-      <div className="flex items-center gap-2">
-        <Ship className="w-4 h-4 text-muted" />
-        <span className="font-mono font-medium">{row.numero_conteneur}</span>
-      </div>
-    ),
-  },
-  {
-    key: 'navire',
-    header: 'Navire',
-  },
-  {
-    key: 'port_depart',
-    header: 'Départ',
-    render: (row) => (
-      <div>
-        <span className="text-sm">{row.port_depart}</span>
-        <p className="text-xs text-muted">{formatDate(row.etd)}</p>
-      </div>
-    ),
-  },
-  {
-    key: 'port_arrivee',
-    header: 'Arrivée',
-    render: (row) => (
-      <div>
-        <span className="text-sm">{row.port_arrivee}</span>
-        <p className="text-xs text-muted">ETA {formatDate(row.eta)}</p>
-      </div>
-    ),
-  },
-  {
-    key: 'nombre_vehicules',
-    header: 'Véhicules',
-    render: (row) => (
-      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-surface text-sm font-medium">
-        {row.nombre_vehicules}
-      </span>
-    ),
-  },
-  {
-    key: 'statut',
-    header: 'Statut',
-    render: (row) => (
-      <StatusBadge
-        variant={EXPEDITION_STATUT_VARIANTS[row.statut]}
-        label={EXPEDITION_STATUT_LABELS[row.statut]}
-        size="sm"
-      />
-    ),
-  },
-];
-
-const ALL_STATUTS: StatutExpedition[] = ['planifiee', 'en_mer', 'arrivee', 'dedouanee'];
+  fetchShipments,
+  createShipment,
+  transitionShipment,
+  fetchCustomsFiles,
+  transitionCustomsFile,
+  type ApiShipment,
+  type ApiCustomsFile,
+} from '@/lib/logistics-api';
+import { formatDate, formatMontant } from '@/lib/constants';
+import type { Column } from '@/types';
+import { Search, Ship, Plus, RefreshCw } from 'lucide-react';
 
 export default function ExpeditionsPage() {
-  const [search, setSearch] = useState('');
-  const [statutFilter, setStatutFilter] = useState<StatutExpedition | 'tous'>('tous');
+  const [activeTab, setActiveTab] = useState<'shipments' | 'customs'>('shipments');
 
-  const filtered = useMemo(() => {
-    return expeditions.filter((e) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          e.numero_conteneur.toLowerCase().includes(q) ||
-          e.navire.toLowerCase().includes(q) ||
-          e.numero_bl.toLowerCase().includes(q);
-        if (!match) return false;
+  // Shipments state
+  const [shipments, setShipments] = useState<ApiShipment[]>([]);
+  const [shipmentLoading, setShipmentLoading] = useState(true);
+  const [shipmentSearch, setShipmentSearch] = useState('');
+  const [shipmentStatus, setShipmentStatus] = useState<string>('tous');
+  const [shipmentPage, setShipmentPage] = useState(1);
+  const [shipmentTotal, setShipmentTotal] = useState(0);
+
+  // Customs state
+  const [customsFiles, setCustomsFiles] = useState<ApiCustomsFile[]>([]);
+  const [customsLoading, setCustomsLoading] = useState(true);
+  const [customsSearch, setCustomsSearch] = useState('');
+  const [customsStatus, setCustomsStatus] = useState<string>('tous');
+  const [customsPage, setCustomsPage] = useState(1);
+  const [customsTotal, setCustomsTotal] = useState(0);
+
+  // Create Shipment Modal state
+  const [showShipmentModal, setShowShipmentModal] = useState(false);
+  const [newContainer, setNewContainer] = useState('');
+  const [newVessel, setNewVessel] = useState('');
+  const [newBl, setNewBl] = useState('');
+  const [newDepPort, setNewDepPort] = useState('Shanghai (CNSHA)');
+  const [newArrPort, setNewArrPort] = useState('Djen Djen (DZDJE)');
+  const [newEtd, setNewEtd] = useState('');
+  const [newEta, setNewEta] = useState('');
+
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const loadShipments = useCallback(async () => {
+    setShipmentLoading(true);
+    try {
+      const res = await fetchShipments({
+        page: shipmentPage,
+        limit: 15,
+        search: shipmentSearch || undefined,
+        status: shipmentStatus !== 'tous' ? shipmentStatus : undefined,
+      });
+      setShipments(res.items || []);
+      setShipmentTotal(res.pagination?.totalItems || 0);
+    } catch {
+      // ignore
+    } finally {
+      setShipmentLoading(false);
+    }
+  }, [shipmentPage, shipmentSearch, shipmentStatus]);
+
+  const loadCustoms = useCallback(async () => {
+    setCustomsLoading(true);
+    try {
+      const res = await fetchCustomsFiles({
+        page: customsPage,
+        limit: 15,
+        search: customsSearch || undefined,
+        status: customsStatus !== 'tous' ? customsStatus : undefined,
+      });
+      setCustomsFiles(res.items || []);
+      setCustomsTotal(res.pagination?.totalItems || 0);
+    } catch {
+      // ignore
+    } finally {
+      setCustomsLoading(false);
+    }
+  }, [customsPage, customsSearch, customsStatus]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (activeTab === 'shipments') {
+        void loadShipments();
+      } else {
+        void loadCustoms();
       }
-      if (statutFilter !== 'tous' && e.statut !== statutFilter) return false;
-      return true;
-    });
-  }, [search, statutFilter]);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, loadShipments, loadCustoms]);
+
+  const handleTransitionShipment = async (id: string, nextStatus: string) => {
+    setActionLoading(id);
+    try {
+      await transitionShipment(id, nextStatus);
+      await loadShipments();
+    } catch (err) {
+      alert((err instanceof Error ? err.message : '') || 'Erreur de transition d’expédition');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleTransitionCustoms = async (id: string, nextStatus: string) => {
+    setActionLoading(id);
+    try {
+      await transitionCustomsFile(id, nextStatus);
+      await loadCustoms();
+    } catch (err) {
+      alert((err instanceof Error ? err.message : '') || 'Erreur de transition douane');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateShipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await createShipment({
+        containerNumber: newContainer || undefined,
+        vesselName: newVessel || undefined,
+        blNumber: newBl || undefined,
+        departurePort: newDepPort || undefined,
+        arrivalPort: newArrPort || undefined,
+        etd: newEtd || undefined,
+        eta: newEta || undefined,
+      });
+      setShowShipmentModal(false);
+      setNewContainer('');
+      setNewVessel('');
+      setNewBl('');
+      await loadShipments();
+    } catch (err) {
+      alert((err instanceof Error ? err.message : '') || 'Erreur de création d’expédition');
+    }
+  };
+
+  const getShipmentBadge = (status: string) => {
+    switch (status) {
+      case 'inTransit':
+        return <StatusBadge variant="blue" label="En mer / Transit" size="sm" />;
+      case 'arrived':
+        return <StatusBadge variant="yellow" label="Arrivé au port" size="sm" />;
+      case 'delivered':
+        return <StatusBadge variant="green" label="Livré" size="sm" />;
+      case 'cancelled':
+        return <StatusBadge variant="red" label="Annulé" size="sm" />;
+      case 'loading':
+        return <StatusBadge variant="purple" label="Chargement" size="sm" />;
+      case 'booked':
+        return <StatusBadge variant="blue" label="Réservé" size="sm" />;
+      case 'pending':
+      default:
+        return <StatusBadge variant="gray" label="En attente" size="sm" />;
+    }
+  };
+
+  const getCustomsBadge = (status: string) => {
+    switch (status) {
+      case 'cleared':
+        return <StatusBadge variant="green" label="Dédouané" size="sm" />;
+      case 'released':
+        return <StatusBadge variant="green" label="Mainlevée délivrée" size="sm" />;
+      case 'inInspection':
+        return <StatusBadge variant="yellow" label="Inspection / Scanner" size="sm" />;
+      case 'documentsRequired':
+        return <StatusBadge variant="red" label="Documents requis" size="sm" />;
+      case 'rejected':
+        return <StatusBadge variant="red" label="Rejeté" size="sm" />;
+      case 'closed':
+        return <StatusBadge variant="gray" label="Clôturé" size="sm" />;
+      case 'open':
+      default:
+        return <StatusBadge variant="blue" label="Dossier ouvert" size="sm" />;
+    }
+  };
+
+  const SHIPMENT_COLUMNS: Column<ApiShipment>[] = [
+    {
+      key: 'containerNumber',
+      header: 'Conteneur & Expédition',
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary">
+            <Ship className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="font-mono font-bold text-foreground">
+              {row.containerNumber || 'Conteneur N/A'}
+            </span>
+            <p className="text-xs text-muted font-mono">{row.shipmentNumber}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'vesselName',
+      header: 'Navire & B/L',
+      render: (row) => (
+        <div>
+          <span className="font-medium text-foreground">{row.vesselName || 'Navire N/A'}</span>
+          {row.blNumber && <p className="text-xs text-muted font-mono">BL: {row.blNumber}</p>}
+        </div>
+      ),
+    },
+    {
+      key: 'route',
+      header: 'Trajet maritime',
+      render: (row) => (
+        <div className="text-xs space-y-0.5">
+          <p className="text-muted">De : <span className="text-foreground font-medium">{row.departurePort || 'Chine'}</span></p>
+          <p className="text-muted">Vers : <span className="text-foreground font-medium">{row.arrivalPort || 'Algérie'}</span></p>
+        </div>
+      ),
+    },
+    {
+      key: 'dates',
+      header: 'ETD / ETA',
+      render: (row) => (
+        <div className="text-xs space-y-0.5">
+          <p className="text-muted">ETD : {row.etd ? formatDate(row.etd) : '—'}</p>
+          <p className="text-muted font-medium text-foreground">ETA : {row.eta ? formatDate(row.eta) : '—'}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'vehicles',
+      header: 'Véhicules',
+      render: (row) => (
+        <span className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface border text-xs font-semibold">
+          {row.vehicles?.length || 0} véhicule{row.vehicles && row.vehicles.length > 1 ? 's' : ''}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Statut',
+      render: (row) => getShipmentBadge(row.status),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          {row.status === 'pending' && (
+            <button
+              onClick={() => handleTransitionShipment(row.id, 'booked')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-primary text-primary-foreground"
+            >
+              Réserver
+            </button>
+          )}
+          {row.status === 'booked' && (
+            <button
+              onClick={() => handleTransitionShipment(row.id, 'inTransit')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-blue-600 text-white"
+            >
+              Départ en mer
+            </button>
+          )}
+          {row.status === 'inTransit' && (
+            <button
+              onClick={() => handleTransitionShipment(row.id, 'arrived')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-status-yellow-bg text-status-yellow-text font-medium"
+            >
+              Arrivé au port
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const CUSTOMS_COLUMNS: Column<ApiCustomsFile>[] = [
+    {
+      key: 'reference',
+      header: 'Réf. Douane',
+      render: (row) => (
+        <div>
+          <span className="font-mono font-bold text-foreground">{row.reference}</span>
+          {row.declarationNumber && (
+            <p className="text-xs text-muted font-mono">DUM: {row.declarationNumber}</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'dossier',
+      header: 'Dossier lié',
+      render: (row) => (
+        <span className="text-status-blue-text font-mono text-xs">
+          {row.dossier?.reference || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'broker',
+      header: 'Transitaire / Courtier',
+      render: (row) => (
+        <span className="text-sm font-medium">{row.brokerPartner?.name || 'Transitaire assigné'}</span>
+      ),
+    },
+    {
+      key: 'amounts',
+      header: 'Droits & Taxes',
+      render: (row) => (
+        <div className="text-xs">
+          <span className="font-bold text-foreground">
+            {formatMontant(Number(row.customsAmount || 0))} {row.currency || 'DZD'}
+          </span>
+          {Number(row.dutyAmount) > 0 && <p className="text-muted">Droits: {formatMontant(Number(row.dutyAmount))}</p>}
+        </div>
+      ),
+    },
+    {
+      key: 'openedAt',
+      header: 'Ouverture / Dédouanement',
+      render: (row) => (
+        <div className="text-xs">
+          <p className="text-muted">Ouvert: {formatDate(row.openedAt)}</p>
+          {row.clearedAt && <p className="text-status-green-text font-medium">Dédouané: {formatDate(row.clearedAt)}</p>}
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Statut',
+      render: (row) => getCustomsBadge(row.status),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          {row.status === 'open' && (
+            <button
+              onClick={() => handleTransitionCustoms(row.id, 'inInspection')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-status-yellow-bg text-status-yellow-text"
+            >
+              Inspection
+            </button>
+          )}
+          {(row.status === 'open' || row.status === 'inInspection') && (
+            <button
+              onClick={() => handleTransitionCustoms(row.id, 'cleared')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-status-green-bg text-status-green-text"
+            >
+              Dédouaner
+            </button>
+          )}
+          {row.status === 'cleared' && (
+            <button
+              onClick={() => handleTransitionCustoms(row.id, 'released')}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-primary text-primary-foreground"
+            >
+              Mainlevée
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <>
-      <Topbar title="Expéditions maritimes" subtitle="Suivi des conteneurs en transit" />
+      <Topbar
+        title="Expéditions Maritimes & Douane"
+        subtitle="Suivi des conteneurs en mer, opérations portuaires et dédouanement"
+      />
+
       <div className="p-8 space-y-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 min-w-[240px] max-w-md">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher par conteneur, navire, B/L..."
-              className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
-            />
-          </div>
-          <select
-            value={statutFilter}
-            onChange={(e) => setStatutFilter(e.target.value as StatutExpedition | 'tous')}
-            className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-border gap-6">
+          <button
+            onClick={() => setActiveTab('shipments')}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+              activeTab === 'shipments'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted hover:text-foreground'
+            }`}
           >
-            <option value="tous">Tous les statuts</option>
-            {ALL_STATUTS.map((s) => (
-              <option key={s} value={s}>{EXPEDITION_STATUT_LABELS[s]}</option>
-            ))}
-          </select>
+            Expéditions maritimes ({shipmentTotal})
+          </button>
+          <button
+            onClick={() => setActiveTab('customs')}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+              activeTab === 'customs'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted hover:text-foreground'
+            }`}
+          >
+            Dossiers Douane & Transit ({customsTotal})
+          </button>
         </div>
 
-        <p className="text-sm text-muted">
-          {filtered.length} expédition{filtered.length !== 1 ? 's' : ''}
-        </p>
+        {activeTab === 'shipments' ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4 flex-1">
+                <div className="relative flex-1 min-w-[240px] max-w-md">
+                  <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <input
+                    type="text"
+                    value={shipmentSearch}
+                    onChange={(e) => {
+                      setShipmentSearch(e.target.value);
+                      setShipmentPage(1);
+                    }}
+                    placeholder="Rechercher par conteneur, navire, B/L..."
+                    className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                  />
+                </div>
 
-        <div className="card p-0 overflow-hidden">
-          <DataTable columns={EXPEDITION_COLUMNS} data={filtered} />
-        </div>
+                <select
+                  value={shipmentStatus}
+                  onChange={(e) => {
+                    setShipmentStatus(e.target.value);
+                    setShipmentPage(1);
+                  }}
+                  className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                >
+                  <option value="tous">Tous les statuts</option>
+                  <option value="pending">En attente</option>
+                  <option value="booked">Réservé</option>
+                  <option value="loading">Chargement</option>
+                  <option value="inTransit">En mer / Transit</option>
+                  <option value="arrived">Arrivé au port</option>
+                  <option value="delivered">Livré</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowShipmentModal(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nouvelle expédition
+                </button>
+                <button
+                  onClick={() => loadShipments()}
+                  className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                  title="Actualiser"
+                >
+                  <RefreshCw className={`w-4 h-4 ${shipmentLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="card p-0 overflow-hidden">
+              <DataTable columns={SHIPMENT_COLUMNS} data={shipments} />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4 flex-1">
+                <div className="relative flex-1 min-w-[240px] max-w-md">
+                  <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <input
+                    type="text"
+                    value={customsSearch}
+                    onChange={(e) => {
+                      setCustomsSearch(e.target.value);
+                      setCustomsPage(1);
+                    }}
+                    placeholder="Rechercher par référence, DUM..."
+                    className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                  />
+                </div>
+
+                <select
+                  value={customsStatus}
+                  onChange={(e) => {
+                    setCustomsStatus(e.target.value);
+                    setCustomsPage(1);
+                  }}
+                  className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                >
+                  <option value="tous">Tous les statuts</option>
+                  <option value="open">Ouvert</option>
+                  <option value="inInspection">Inspection / Scanner</option>
+                  <option value="cleared">Dédouané</option>
+                  <option value="released">Mainlevée</option>
+                </select>
+              </div>
+
+              <button
+                onClick={() => loadCustoms()}
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                title="Actualiser"
+              >
+                <RefreshCw className={`w-4 h-4 ${customsLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
+            <div className="card p-0 overflow-hidden">
+              <DataTable columns={CUSTOMS_COLUMNS} data={customsFiles} />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Shipment Modal */}
+      {showShipmentModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-lg text-foreground">Créer une expédition maritime</h3>
+            <form onSubmit={handleCreateShipment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted uppercase mb-1">Numéro de Conteneur</label>
+                <input
+                  type="text"
+                  required
+                  value={newContainer}
+                  onChange={(e) => setNewContainer(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background font-mono"
+                  placeholder="Ex: COSU6182941"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Nom du Navire</label>
+                  <input
+                    type="text"
+                    value={newVessel}
+                    onChange={(e) => setNewVessel(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                    placeholder="Ex: COSCO TAURUS"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Numéro B/L</label>
+                  <input
+                    type="text"
+                    value={newBl}
+                    onChange={(e) => setNewBl(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background font-mono"
+                    placeholder="Ex: BL-89201"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Port de Départ</label>
+                  <input
+                    type="text"
+                    value={newDepPort}
+                    onChange={(e) => setNewDepPort(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Port d’Arrivée</label>
+                  <input
+                    type="text"
+                    value={newArrPort}
+                    onChange={(e) => setNewArrPort(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">ETD (Départ estimé)</label>
+                  <input
+                    type="date"
+                    value={newEtd}
+                    onChange={(e) => setNewEtd(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">ETA (Arrivée estimée)</label>
+                  <input
+                    type="date"
+                    value={newEta}
+                    onChange={(e) => setNewEta(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowShipmentModal(false)}
+                  className="px-4 py-2 text-sm font-medium border border-border rounded-button text-muted hover:text-foreground"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  Créer l’expédition
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

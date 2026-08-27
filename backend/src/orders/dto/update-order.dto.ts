@@ -1,5 +1,4 @@
 import {
-  IsString,
   IsOptional,
   IsUUID,
   IsArray,
@@ -27,10 +26,6 @@ export class UpdateOrderItemDto {
 }
 
 export class UpdateOrderDto {
-  @IsOptional()
-  @IsString()
-  status?: string;
-
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

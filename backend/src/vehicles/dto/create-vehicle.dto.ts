@@ -4,22 +4,19 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  IsIn,
   Min,
   Max,
+  IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { VehicleStatus } from '@auto-import/contracts';
 
 export enum AcquisitionType {
   STOCK = 'stock',
-  CLIENT_REQUEST = 'client_request',
-}
-
-export enum VehicleStatus {
-  AVAILABLE = 'available',
-  RESERVED = 'reserved',
-  SOLD = 'sold',
-  IN_TRANSIT = 'in_transit',
-  IN_CUSTOMS = 'in_customs',
+  CLIENT_REQUEST = 'clientRequest',
+  CHINA_OFFER = 'chinaOffer',
+  EXTERNAL = 'external',
 }
 
 export class CreateVehicleDto {
@@ -50,6 +47,15 @@ export class CreateVehicleDto {
   @IsString()
   condition?: string;
 
+  @IsOptional() @IsString() trim?: string;
+  @IsOptional() @IsString() bodyType?: string;
+  @IsOptional() @IsString() drivetrain?: string;
+  @IsOptional() @IsString() displacement?: string;
+  @IsOptional() @IsString() steeringSide?: string;
+  @IsOptional() @IsString() interiorColor?: string;
+  @IsOptional() @IsString() warranty?: string;
+  @IsOptional() @IsObject() equipment?: Record<string, unknown>;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -61,7 +67,7 @@ export class CreateVehicleDto {
   sellingPrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['DZD', 'USD', 'CNY', 'EUR'])
   currency?: string;
 
   @IsOptional()

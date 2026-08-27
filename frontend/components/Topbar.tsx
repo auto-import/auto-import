@@ -1,203 +1,260 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { Bell, CheckCheck, ChevronDown, LogOut } from 'lucide-react';
-import {
-  getNotificationsNonLues,
-  getNotificationsUtilisateur,
-  marquerNotificationLue,
-  marquerToutesNotificationsLues,
-  utilisateurs,
-} from '@/lib/mockData';
-import { useAuth } from '@/components/AuthProvider';
-import { ROLE_LABELS, formatDate } from '@/lib/constants';
-import type { Notification } from '@/types';
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { Bell, CheckCheck, ChevronDown, LogOut, UserRound } from "lucide-react";
+import { io } from "socket.io-client";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
+import { phase3Api, type ApiNotification } from "@/lib/phase3-api";
+import { authApi, profileApi } from "@/lib/api";
 
-interface TopbarProps {
+export default function Topbar({
+  title,
+  subtitle,
+  avatarUrlOverride,
+}: {
   title: string;
   subtitle?: string;
-}
-
-export default function Topbar({ title, subtitle }: TopbarProps) {
-  const { currentUser, switchUser } = useAuth();
+  avatarUrlOverride?: string | null;
+}) {
+  const { currentUser, logout, hasPermission } = useAuth();
+  const currentUserId = currentUser?.id;
+  const canReadNotifications = hasPermission(Permission.NOTIFICATIONS_READ);
+  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [, setRefresh] = useState(0);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-
-  const nonLues = getNotificationsNonLues(currentUser.id);
-  const recentes = getNotificationsUtilisateur(currentUser.id).slice(0, 6);
-
+  const [userOpen, setUserOpen] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
+  const load = useCallback(async () => {
+    if (!canReadNotifications) return;
+    try {
+      const page = await phase3Api.notifications.list({ limit: 6 });
+      setNotifications(page.items);
+      setUnread(page.unreadCount);
+    } catch {
+      /* Auth boundary owns session/API failures. */
+    }
+  }, [canReadNotifications]);
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false);
+    const initial = window.setTimeout(() => void load(), 0);
+    const interval = window.setInterval(() => void load(), 30000);
+    const focus = () => void load();
+    window.addEventListener("focus", focus);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", focus);
+    };
+  }, [load]);
+  useEffect(() => {
+    if (!canReadNotifications) return;
+    const base = (
+      process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api"
+    ).replace(/\/api\/?$/, "");
+    const socket = io(`${base}/notifications`, {
+      transports: ["websocket"],
+      auth: { token: authApi.accessToken() },
+    });
+    socket.on("notification.created", (payload) => {
+      window.dispatchEvent(
+        new CustomEvent("auto-import:notification", { detail: payload }),
+      );
+      void load();
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [canReadNotifications, load]);
+  useEffect(() => {
+    if (!currentUserId) return;
+    let current: string | null = null;
+    const applyBlob = (blob: Blob | null) => {
+      if (!blob) {
+        setAvatarUrl((previous) => {
+          if (previous) URL.revokeObjectURL(previous);
+          return null;
+        });
+        return;
       }
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false);
+      const next = URL.createObjectURL(blob);
+      current = next;
+      setAvatarUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return next;
+      });
+    };
+    const refreshAvatar = async (event?: Event) => {
+      try {
+        if (event instanceof CustomEvent) {
+          applyBlob(event.detail instanceof Blob ? event.detail : null);
+          return;
+        }
+        const profile = await profileApi.get();
+        if (!profile.avatarUrl) {
+          applyBlob(null);
+          return;
+        }
+        const blob = await profileApi.avatarBlob();
+        applyBlob(blob);
+      } catch {
+        setAvatarUrl(null);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const initial = window.setTimeout(() => void refreshAvatar(), 0);
+    const retry = window.setTimeout(() => void refreshAvatar(), 1000);
+    const avatarChanged = (event: Event) => void refreshAvatar(event);
+    window.addEventListener("profile-avatar-changed", avatarChanged);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearTimeout(retry);
+      window.removeEventListener("profile-avatar-changed", avatarChanged);
+      if (current) URL.revokeObjectURL(current);
+    };
+  }, [currentUserId]);
+  useEffect(() => {
+    const outside = (event: MouseEvent) => {
+      if (!notificationRef.current?.contains(event.target as Node))
+        setOpen(false);
+      if (!userRef.current?.contains(event.target as Node)) setUserOpen(false);
+    };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
   }, []);
-
-  const handleClickNotification = (n: Notification) => {
-    if (!n.lu) {
-      marquerNotificationLue(n.id);
-      setRefresh((v) => v + 1);
-    }
-  };
-
+  const initials = currentUser
+    ? `${currentUser.firstName[0] ?? ""}${currentUser.lastName[0] ?? ""}`.toUpperCase()
+    : "";
+  async function read(item: ApiNotification) {
+    if (!item.readAt) await phase3Api.notifications.read(item.id);
+    await load();
+  }
   return (
-    <header className="flex items-center justify-between px-8 py-4 border-b border-border bg-background sticky top-0 z-10">
-      <div>
-        <h1 className="text-xl font-bold text-foreground">{title}</h1>
-        {subtitle && <p className="text-sm text-muted mt-0.5">{subtitle}</p>}
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-4 sm:px-8">
+      <div className="min-w-0">
+        <h1 className="truncate text-xl font-bold">{title}</h1>
+        {subtitle && (
+          <p className="mt-0.5 truncate text-sm text-muted">{subtitle}</p>
+        )}
       </div>
-      <div className="flex items-center gap-4">
-        {/* Notifications dropdown */}
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="relative p-2 rounded-button hover:bg-surface transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell className="w-5 h-5 text-foreground" />
-            {nonLues.length > 0 && (
-              <span className="absolute -top-1 -end-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-status-red-text text-white text-[10px] font-bold flex items-center justify-center">
-                {nonLues.length}
-              </span>
-            )}
-          </button>
-
-          {open && (
-            <div className="absolute end-0 top-full mt-2 w-96 card p-0 overflow-hidden shadow-lg">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <p className="text-sm font-semibold">
-                  Notifications
-                  {nonLues.length > 0 && (
-                    <span className="text-xs text-muted font-normal ms-2">
-                      {nonLues.length} non lue{nonLues.length > 1 ? 's' : ''}
-                    </span>
-                  )}
-                </p>
-                {nonLues.length > 0 && (
-                  <button
-                    onClick={() => {
-                      marquerToutesNotificationsLues(currentUser.id);
-                      setRefresh((v) => v + 1);
-                    }}
-                    className="flex items-center gap-1 text-xs font-medium text-status-blue-text hover:underline"
-                  >
-                    <CheckCheck className="w-3.5 h-3.5" />
-                    Tout marquer lu
-                  </button>
-                )}
-              </div>
-
-              <div className="max-h-80 overflow-y-auto">
-                {recentes.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-muted">
-                    Aucune notification
-                  </p>
-                ) : (
-                  recentes.map((n) => (
+      <div className="flex items-center gap-3">
+        {canReadNotifications && (
+          <div ref={notificationRef} className="relative">
+            <button
+              aria-label="Notifications"
+              onClick={() => setOpen((value) => !value)}
+              className="relative rounded-lg p-2 hover:bg-surface"
+            >
+              <Bell className="h-5 w-5" />
+              {unread > 0 && (
+                <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                  {unread}
+                </span>
+              )}
+            </button>
+            {open && (
+              <div className="absolute right-0 top-full mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-white shadow-xl">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <strong className="text-sm">Notifications</strong>
+                  {unread > 0 && (
                     <button
-                      key={n.id}
-                      onClick={() => handleClickNotification(n)}
-                      className={`w-full text-start px-4 py-3 border-b border-border last:border-b-0 hover:bg-surface transition-colors ${
-                        !n.lu ? 'bg-surface/60' : ''
-                      }`}
+                      onClick={async () => {
+                        await phase3Api.notifications.readAll();
+                        await load();
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-semibold">{n.titre}</span>
-                        <span className="text-xs text-muted shrink-0">{formatDate(n.date)}</span>
-                      </div>
-                      <p className="text-sm text-muted mt-0.5 line-clamp-2">{n.message}</p>
-                      {!n.lu && <div className="w-2 h-2 rounded-full bg-status-blue-text mt-1.5" />}
+                      <CheckCheck className="h-3.5 w-3.5" />
+                      Tout lire
                     </button>
-                  ))
-                )}
-              </div>
-
-              <div className="px-4 py-3 border-t border-border">
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length ? (
+                    notifications.map((item) => (
+                      <Link
+                        key={item.id}
+                        href={item.entityUrl || "/notifications"}
+                        onClick={() => void read(item)}
+                        className={`block border-b border-border px-4 py-3 last:border-0 hover:bg-surface ${!item.readAt ? "bg-blue-50/40" : ""}`}
+                      >
+                        <p className="text-sm font-semibold">{item.title}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted">
+                          {item.content}
+                        </p>
+                      </Link>
+                    ))
+                  ) : (
+                    <p className="p-6 text-center text-sm text-muted">
+                      Aucune notification
+                    </p>
+                  )}
+                </div>
                 <Link
                   href="/notifications"
                   onClick={() => setOpen(false)}
-                  className="text-sm font-medium text-status-blue-text hover:underline"
+                  className="block border-t border-border px-4 py-3 text-center text-sm font-semibold"
                 >
-                  Voir toutes les notifications
+                  Voir l’inbox
                 </Link>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* User menu */}
-        <div className="relative" ref={userMenuRef}>
+            )}
+          </div>
+        )}
+        <div ref={userRef} className="relative">
           <button
-            onClick={() => setUserMenuOpen((o) => !o)}
-            className="flex items-center gap-2 p-1.5 rounded-button hover:bg-surface transition-colors"
+            onClick={() => setUserOpen((value) => !value)}
+            className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-surface"
           >
-            <div className="w-9 h-9 bg-foreground rounded-full flex items-center justify-center">
-              <span className="text-xs font-bold text-white">{currentUser.avatar_initials}</span>
-            </div>
-            <div className="hidden md:block text-left">
-              <p className="text-sm font-medium leading-tight">{currentUser.prenom} {currentUser.nom}</p>
-              <p className="text-[11px] text-muted">{ROLE_LABELS[currentUser.role]}</p>
-            </div>
-            <ChevronDown className="w-4 h-4 text-muted hidden md:block" />
+            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-neutral-900 text-xs font-bold text-white">
+              {avatarUrlOverride || avatarUrl ? (
+                <Image
+                  unoptimized
+                  width={36}
+                  height={36}
+                  src={avatarUrlOverride || avatarUrl!}
+                  alt="Avatar du profil"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                initials
+              )}
+            </span>
+            <span className="hidden text-left md:block">
+              <span className="block text-sm font-medium">
+                {currentUser?.firstName} {currentUser?.lastName}
+              </span>
+              <span className="block text-[11px] text-muted">
+                {currentUser?.roles[0]?.name ?? "Utilisateur"}
+              </span>
+            </span>
+            <ChevronDown className="hidden h-4 w-4 text-muted md:block" />
           </button>
-
-          {userMenuOpen && (
-            <div className="absolute end-0 top-full mt-2 w-72 card p-0 overflow-hidden shadow-lg">
-              <div className="px-4 py-3 border-b border-border">
-                <p className="text-sm font-semibold">{currentUser.prenom} {currentUser.nom}</p>
-                <p className="text-xs text-muted">{currentUser.email}</p>
-                <p className="text-xs text-muted mt-0.5">{ROLE_LABELS[currentUser.role]}</p>
-              </div>
-              <div className="p-2 border-b border-border">
-                <p className="px-2 py-1 text-[11px] text-muted uppercase tracking-wide font-medium">
-                  Changer d&apos;utilisateur
+          {userOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-border bg-white p-2 shadow-xl">
+              <div className="border-b border-border px-3 py-2">
+                <p className="text-sm font-semibold">
+                  {currentUser?.firstName} {currentUser?.lastName}
                 </p>
-                {utilisateurs.filter((u) => u.actif).map((user) => (
-                  <button
-                    key={user.id}
-                    onClick={() => {
-                      switchUser(user.id);
-                      setUserMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
-                      user.id === currentUser.id
-                        ? 'bg-surface font-medium'
-                        : 'hover:bg-surface'
-                    }`}
-                  >
-                    <div className="w-7 h-7 rounded-full bg-status-blue-bg flex items-center justify-center text-[10px] font-bold text-status-blue-text">
-                      {user.avatar_initials}
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium">{user.prenom} {user.nom}</p>
-                      <p className="text-[11px] text-muted">{ROLE_LABELS[user.role]}</p>
-                    </div>
-                    {user.id === currentUser.id && (
-                      <span className="ms-auto text-status-green-text text-xs">●</span>
-                    )}
-                  </button>
-                ))}
+                <p className="text-xs text-muted">{currentUser?.email}</p>
               </div>
-              <div className="p-2">
-                <Link
-                  href="/utilisateurs"
-                  onClick={() => setUserMenuOpen(false)}
-                  className="flex items-center gap-2 px-2 py-2 text-sm text-muted hover:text-foreground hover:bg-surface rounded-lg transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Gestion utilisateurs
-                </Link>
-              </div>
+              <Link
+                href="/profil"
+                onClick={() => setUserOpen(false)}
+                className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-surface"
+              >
+                <UserRound className="h-4 w-4" />
+                Mon profil
+              </Link>
+              <button
+                onClick={() => void logout()}
+                className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-surface"
+              >
+                <LogOut className="h-4 w-4" />
+                Se déconnecter
+              </button>
             </div>
           )}
         </div>

@@ -1,4 +1,12 @@
-import { IsEmail, IsString, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
+import { RecordStatus } from '@auto-import/contracts';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -15,12 +23,14 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsUUID()
-  officeId?: string;
+  officeId?: string | null;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(RecordStatus)
+  status?: RecordStatus;
 
   @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   roleIds?: string[];
 }

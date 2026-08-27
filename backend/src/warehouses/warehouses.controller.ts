@@ -7,27 +7,29 @@ import {
   Param,
   Delete,
   Query,
-  Req,
 } from '@nestjs/common';
+import { Permission } from '@auto-import/contracts';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { CreateWarehouseLocationDto } from './dto/create-warehouse-location.dto';
 import { CreateStockMovementDto } from './dto/create-stock-movement.dto';
 import { FilterStockMovementDto } from './dto/filter-stock-movement.dto';
+import { UpdateWarehouseLocationDto } from './dto/update-warehouse-location.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import type { AuthenticatedUser } from '../auth/auth.types';
 
 @Controller('warehouses')
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 
   @Post()
-  @RequirePermission('warehouses:write')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
   create(
     @Body() createWarehouseDto: CreateWarehouseDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.create(
       createWarehouseDto,
@@ -36,8 +38,11 @@ export class WarehousesController {
   }
 
   @Get()
-  @RequirePermission('warehouses:read')
-  findAll(@Query() pagination: PaginationDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.WAREHOUSES_READ)
+  findAll(
+    @Query() pagination: PaginationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.warehousesService.findAll(
       user.organizationId,
       pagination.page,
@@ -46,18 +51,51 @@ export class WarehousesController {
     );
   }
 
+  @Get('stock-summary')
+  @RequirePermission(Permission.WAREHOUSES_READ)
+  getStockSummary(@CurrentUser() user: AuthenticatedUser) {
+    return this.warehousesService.getStockSummary(user.organizationId);
+  }
+
+  @Post('stock-movements')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
+  createStockMovementCanonical(
+    @Body() dto: CreateStockMovementDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.warehousesService.createStockMovement(
+      dto,
+      user.id,
+      user.organizationId,
+    );
+  }
+
+  @Get('stock-movements')
+  @RequirePermission(Permission.WAREHOUSES_READ)
+  getStockMovementsCanonical(
+    @Query() filterDto: FilterStockMovementDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.warehousesService.getStockMovements(
+      user.organizationId,
+      filterDto.vehicleId,
+      filterDto.page,
+      filterDto.limit,
+    );
+  }
+
   @Get(':id')
-  @RequirePermission('warehouses:read')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.WAREHOUSES_READ)
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.warehousesService.findOne(id, user.organizationId);
   }
 
   @Patch(':id')
-  @RequirePermission('warehouses:write')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
   update(
     @Param('id') id: string,
     @Body() updateWarehouseDto: UpdateWarehouseDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.update(
       id,
@@ -67,8 +105,8 @@ export class WarehousesController {
   }
 
   @Delete(':id')
-  @RequirePermission('warehouses:write')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.warehousesService.remove(id, user.organizationId);
   }
 
@@ -77,11 +115,11 @@ export class WarehousesController {
   // ──────────────────────────────────────────────
 
   @Post(':id/locations')
-  @RequirePermission('warehouses:write')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
   addLocation(
     @Param('id') id: string,
     @Body() locationDto: CreateWarehouseLocationDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.addLocation(
       id,
@@ -91,17 +129,36 @@ export class WarehousesController {
   }
 
   @Get(':id/locations')
-  @RequirePermission('warehouses:read')
-  getLocations(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.WAREHOUSES_READ)
+  getLocations(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.warehousesService.getLocations(id, user.organizationId);
   }
 
+  @Patch(':id/locations/:locationId')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
+  updateLocation(
+    @Param('id') id: string,
+    @Param('locationId') locationId: string,
+    @Body() dto: UpdateWarehouseLocationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.warehousesService.updateLocation(
+      id,
+      locationId,
+      dto,
+      user.organizationId,
+    );
+  }
+
   @Delete(':id/locations/:locationId')
-  @RequirePermission('warehouses:write')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
   removeLocation(
     @Param('id') id: string,
     @Param('locationId') locationId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.removeLocation(
       id,
@@ -114,11 +171,11 @@ export class WarehousesController {
   // Stock Movements
   // ──────────────────────────────────────────────
 
-  @Post('stock-movements')
-  @RequirePermission('warehouses:write')
+  @Post('stock-movements/legacy')
+  @RequirePermission(Permission.WAREHOUSES_WRITE)
   createStockMovement(
     @Body() dto: CreateStockMovementDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.createStockMovement(
       dto,
@@ -127,17 +184,17 @@ export class WarehousesController {
     );
   }
 
-  @Get('stock-movements')
-  @RequirePermission('warehouses:read')
+  @Get('stock-movements/legacy')
+  @RequirePermission(Permission.WAREHOUSES_READ)
   getStockMovements(
     @Query() filterDto: FilterStockMovementDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.getStockMovements(
+      user.organizationId,
       filterDto.vehicleId,
       filterDto.page,
       filterDto.limit,
-      user.organizationId,
     );
   }
 }

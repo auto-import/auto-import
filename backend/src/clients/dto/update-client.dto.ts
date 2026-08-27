@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsEmail, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEmail,
+  IsDateString,
+  IsUUID,
+} from 'class-validator';
 
 export class UpdateClientDto {
   @IsOptional()
@@ -22,6 +28,14 @@ export class UpdateClientDto {
   passportNumber?: string;
 
   @IsOptional()
+  @IsString()
+  nin?: string;
+
+  @IsOptional()
+  @IsDateString()
+  identityIssueDate?: string;
+
+  @IsOptional()
   @IsDateString()
   passportExpiry?: string;
 
@@ -32,4 +46,12 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assignedTo?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
 }

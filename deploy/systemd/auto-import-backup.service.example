@@ -1,0 +1,14 @@
+[Unit]
+Description=Encrypted Auto Import ERP backup
+After=docker.service
+
+[Service]
+Type=oneshot
+User=auto-import-backup
+Group=auto-import-backup
+EnvironmentFile=/etc/auto-import/backup.env
+ExecStart=/srv/auto-import/current/deploy/scripts/backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/srv/auto-import/backups /srv/auto-import/private-storage

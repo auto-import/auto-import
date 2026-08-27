@@ -1,13 +1,10 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { FilterPartnerDto } from './dto/filter-partner.dto';
+import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
 export class PartnersService {
@@ -32,10 +29,10 @@ export class PartnersService {
 
   async findAll(organizationId: string, filters?: FilterPartnerDto) {
     const page = filters?.page || 1;
-    const limit = filters?.limit || 10;
+    const limit = filters?.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.PartnerWhereInput = { organizationId };
 
     if (filters?.type) where.type = filters.type;
     if (filters?.status) where.status = filters.status;
@@ -60,18 +57,44 @@ export class PartnersService {
       this.prisma.partner.count({ where }),
     ]);
 
-    return {
-      items: partners,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(partners, total, page, limit);
   }
 
   async findOne(id: string, organizationId: string) {
     const partner = await this.prisma.partner.findFirst({
       where: { id, organizationId },
+      include: {
+        _count: {
+          select: {
+            suppliedVehicles: true,
+            chinaOffers: true,
+            purchases: true,
+          },
+        },
+        suppliedVehicles: {
+          select: {
+            id: true,
+            brand: true,
+            model: true,
+            status: true,
+            vin: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+        chinaOffers: {
+          select: {
+            id: true,
+            reference: true,
+            brand: true,
+            model: true,
+            status: true,
+            validUntil: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+      },
     });
 
     if (!partner) {
@@ -98,22 +121,12 @@ export class PartnersService {
   async remove(id: string, organizationId: string) {
     await this.findOne(id, organizationId);
 
-    // Verify no vehicles are associated with this partner
-    const linkedVehiclesCount = await this.prisma.vehicle.count({
-      where: { supplierId: id, organizationId },
-    });
-
-    if (linkedVehiclesCount > 0) {
-      throw new ConflictException(
-        `Cannot delete partner: ${linkedVehiclesCount} vehicle(s) are linked to this partner`,
-      );
-    }
-
-    await this.prisma.partner.delete({
+    const archived = await this.prisma.partner.update({
       where: { id },
+      data: { status: 'archived' },
     });
 
-    this.logger.log(`Partner deleted: ${id}`);
-    return { message: 'Partner deleted successfully' };
+    this.logger.log(`Partner archived: ${id}`);
+    return archived;
   }
 }

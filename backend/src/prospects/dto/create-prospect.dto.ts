@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsEmail, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsUUID, IsEnum } from 'class-validator';
+import { LeadQualification } from '@prisma/client';
 
 export class CreateProspectDto {
   @IsString()
@@ -30,4 +31,8 @@ export class CreateProspectDto {
   @IsOptional()
   @IsUUID()
   assignedTo?: string;
+
+  @IsOptional()
+  @IsEnum(LeadQualification)
+  qualification?: LeadQualification;
 }

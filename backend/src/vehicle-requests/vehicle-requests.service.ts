@@ -4,16 +4,22 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehicleRequestDto } from './dto/create-request.dto';
 import { UpdateVehicleRequestDto } from './dto/update-request.dto';
 import { FilterVehicleRequestDto } from './dto/filter-request.dto';
 import { CreateCandidateDto } from './dto/create-candidate.dto';
 import { UpdateCandidateDto } from './dto/update-candidate.dto';
+import { paginate } from '../common/helpers/pagination.helper';
+import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
+import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DossierStatus, DossierType } from '@auto-import/contracts';
 
 @Injectable()
 export class VehicleRequestsService {
   private readonly logger = new Logger(VehicleRequestsService.name);
+  private readonly dossierWorkflow = new DossierWorkflowService();
 
   constructor(private prisma: PrismaService) {}
 
@@ -28,41 +34,16 @@ export class VehicleRequestsService {
       );
     }
 
-    // Verify prospect exists and belongs to same org if provided
-    if (dto.prospectId) {
-      const prospect = await this.prisma.prospect.findFirst({
-        where: { id: dto.prospectId, organizationId },
-      });
-      if (!prospect) {
-        throw new NotFoundException(
-          `Prospect with ID ${dto.prospectId} not found in your organization`,
-        );
-      }
-    }
-
-    // Verify client exists and belongs to same org if provided
-    if (dto.clientId) {
-      const client = await this.prisma.client.findFirst({
-        where: { id: dto.clientId, organizationId },
-      });
-      if (!client) {
-        throw new NotFoundException(
-          `Client with ID ${dto.clientId} not found in your organization`,
-        );
-      }
-    }
-
-    const request = await this.prisma.vehicleRequest.create({
-      data: {
-        ...dto,
-        organizationId,
-        status: 'open',
+    const request = await this.prisma.$transaction(
+      async (transaction) => {
+        await this.validateRequestRelations(transaction, dto, organizationId);
+        return transaction.vehicleRequest.create({
+          data: { ...dto, organizationId, status: 'open' },
+          include: { candidates: true, dossier: true },
+        });
       },
-      include: {
-        candidates: true,
-        dossier: true,
-      },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     this.logger.log(
       `Vehicle request created: ${request.id} (brand: ${request.brand || 'any'}, model: ${request.model || 'any'})`,
@@ -73,12 +54,12 @@ export class VehicleRequestsService {
   async findAll(
     organizationId: string,
     page: number = 1,
-    limit: number = 10,
+    limit: number = 20,
     filters?: FilterVehicleRequestDto,
   ) {
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: Prisma.VehicleRequestWhereInput = { organizationId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.assignedTo) where.assignedTo = filters.assignedTo;
@@ -126,18 +107,12 @@ export class VehicleRequestsService {
       this.prisma.vehicleRequest.count({ where }),
     ]);
 
-    return {
-      items: requests,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return paginate(requests, total, page, limit);
   }
 
-  async findOne(id: string, organizationId?: string) {
+  async findOne(id: string, organizationId: string) {
     const request = await this.prisma.vehicleRequest.findFirst({
-      where: { id, ...(organizationId && { organizationId }) },
+      where: { id, organizationId },
       include: {
         candidates: {
           include: {
@@ -168,51 +143,54 @@ export class VehicleRequestsService {
     }
 
     // Fetch prospect separately (scoped by organizationId if provided)
-    let prospect: any = null;
-    if (request.prospectId) {
-      prospect = await this.prisma.prospect.findFirst({
-        where: {
-          id: request.prospectId,
-          ...(organizationId && { organizationId }),
-        },
-        include: {
-          activities: {
-            orderBy: { activityDate: 'desc' },
-            take: 5,
+    const prospect = request.prospectId
+      ? await this.prisma.prospect.findFirst({
+          where: {
+            id: request.prospectId,
+            organizationId,
           },
-        },
-      });
-    }
+          include: {
+            activities: {
+              orderBy: { activityDate: 'desc' },
+              take: 5,
+            },
+          },
+        })
+      : null;
 
     // Fetch client separately (scoped by organizationId if provided)
-    let client: any = null;
-    if (request.clientId) {
-      client = await this.prisma.client.findFirst({
-        where: {
-          id: request.clientId,
-          ...(organizationId && { organizationId }),
-        },
-        include: {
-          dossiers: {
-            where: organizationId ? { organizationId } : undefined,
-            select: {
-              id: true,
-              reference: true,
-              status: true,
-              createdAt: true,
+    const client = request.clientId
+      ? await this.prisma.client.findFirst({
+          where: {
+            id: request.clientId,
+            organizationId,
+          },
+          include: {
+            dossiers: {
+              where: { organizationId },
+              select: {
+                id: true,
+                reference: true,
+                status: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 5,
             },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
+            orders: {
+              where: { organizationId },
+              select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                total: true,
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 5,
+            },
           },
-          orders: {
-            where: organizationId ? { organizationId } : undefined,
-            select: { id: true, orderNumber: true, status: true, total: true },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-          },
-        },
-      });
-    }
+        })
+      : null;
 
     // Compute best candidate (lowest proposedPrice among non-rejected)
     const activeCandidates = request.candidates.filter(
@@ -238,16 +216,26 @@ export class VehicleRequestsService {
     organizationId: string,
     dto: UpdateVehicleRequestDto,
   ) {
-    await this.findOne(id, organizationId);
-
-    const request = await this.prisma.vehicleRequest.update({
-      where: { id },
-      data: dto,
-      include: {
-        candidates: true,
-        dossier: true,
+    const request = await this.prisma.$transaction(
+      async (transaction) => {
+        const existing = await transaction.vehicleRequest.findFirst({
+          where: { id, organizationId },
+        });
+        if (!existing) throw new NotFoundException('Vehicle request not found');
+        if (['purchased', 'cancelled'].includes(existing.status)) {
+          throw new ConflictException(
+            `Cannot edit a request in '${existing.status}'`,
+          );
+        }
+        await this.validateRequestRelations(transaction, dto, organizationId);
+        return transaction.vehicleRequest.update({
+          where: { id },
+          data: dto,
+          include: { candidates: true, dossier: true },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     this.logger.log(`Vehicle request updated: ${id}`);
     return request;
@@ -261,28 +249,28 @@ export class VehicleRequestsService {
       throw new ConflictException('Cannot delete request linked to a dossier');
     }
 
-    // Block if any candidate is validated
-    const validatedCandidates = request.candidates.filter(
-      (c) => c.status === 'validated',
-    );
-    if (validatedCandidates.length > 0) {
-      throw new ConflictException(
-        'Cannot delete request with validated candidates',
-      );
-    }
-
-    // Delete candidates first (referential integrity), then the request
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vehicleCandidate.deleteMany({
-        where: { vehicleRequestId: id },
-      });
-      await tx.vehicleRequest.delete({
+    if (request.status === 'cancelled') return request;
+    const reservedVehicleIds = request.candidates
+      .filter((candidate) => candidate.status === 'validated')
+      .map((candidate) => candidate.vehicleId);
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      if (reservedVehicleIds.length) {
+        await tx.vehicle.updateMany({
+          where: {
+            id: { in: reservedVehicleIds },
+            organizationId,
+            status: 'reserved',
+          },
+          data: { status: 'available' },
+        });
+      }
+      return tx.vehicleRequest.update({
         where: { id },
+        data: { status: 'cancelled' },
       });
     });
-
-    this.logger.log(`Vehicle request deleted: ${id}`);
-    return { message: 'Vehicle request deleted successfully' };
+    this.logger.log(`Vehicle request cancelled: ${id}`);
+    return cancelled;
   }
 
   // ──────────────────────────────────────────────
@@ -297,6 +285,11 @@ export class VehicleRequestsService {
     if (!request) {
       throw new NotFoundException(
         `Vehicle request with ID ${dto.vehicleRequestId} not found in your organization`,
+      );
+    }
+    if (!['open', 'sourcing'].includes(request.status)) {
+      throw new ConflictException(
+        `Cannot add a candidate to a request in '${request.status}'`,
       );
     }
 
@@ -321,7 +314,7 @@ export class VehicleRequestsService {
       where: {
         vehicleId: dto.vehicleId,
         dossier: {
-          status: { notIn: ['cloture', 'service_termine', 'annule'] },
+          status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
         },
       },
     });
@@ -350,13 +343,23 @@ export class VehicleRequestsService {
         },
       });
 
+      if (request.status === 'open') {
+        await this.prisma.vehicleRequest.update({
+          where: { id: request.id },
+          data: { status: 'sourcing' },
+        });
+      }
+
       this.logger.log(
         `Candidate added: vehicle ${dto.vehicleId} → request ${dto.vehicleRequestId}`,
       );
       return candidate;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Handle unique constraint violation (vehicleRequestId + vehicleId)
-      if (error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException(
           `Vehicle ${dto.vehicleId} is already a candidate for request ${dto.vehicleRequestId}`,
         );
@@ -398,7 +401,11 @@ export class VehicleRequestsService {
     return updated;
   }
 
-  async validateCandidate(candidateId: string, organizationId: string, userId?: string) {
+  async validateCandidate(
+    candidateId: string,
+    organizationId: string,
+    userId?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       // 1. Fetch candidate with relations and verify org
       const candidate = await tx.vehicleCandidate.findFirst({
@@ -430,7 +437,7 @@ export class VehicleRequestsService {
           vehicleId: candidate.vehicleId,
           dossier: {
             id: { not: candidate.vehicleRequest.dossier?.id },
-            status: { notIn: ['cloture', 'service_termine', 'annule'] },
+            status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
           },
         },
       });
@@ -474,7 +481,7 @@ export class VehicleRequestsService {
       // 5. Update request status → validated
       await tx.vehicleRequest.update({
         where: { id: candidate.vehicleRequestId },
-        data: { status: 'validated' },
+        data: { status: 'candidateSelected' },
       });
 
       // 6. If request has a linked dossier, bind vehicle and advance status
@@ -494,21 +501,13 @@ export class VehicleRequestsService {
           update: {},
         });
 
-        await tx.dossier.update({
-          where: { id: candidate.vehicleRequest.dossier.id },
-          data: {
-            status: 'achat_confirme',
-          },
-        });
-
-        // Record status transition in dossier history
         await tx.dossierStatusHistory.create({
           data: {
             dossierId: candidate.vehicleRequest.dossier.id,
             fromStatus: candidate.vehicleRequest.dossier.status,
-            toStatus: 'achat_confirme',
+            toStatus: candidate.vehicleRequest.dossier.status,
             changedBy: userId || 'system',
-            comment: `Vehicle candidate ${candidateId} validated — vehicle ${candidate.vehicleId} assigned to dossier`,
+            comment: `Vehicle candidate ${candidateId} validated and assigned to dossier`,
           },
         });
       }
@@ -558,11 +557,22 @@ export class VehicleRequestsService {
 
   async confirmPurchase(
     requestId: string,
-    dto: any,
+    dto: ConfirmPurchaseDto,
     organizationId: string,
-    userId?: string,
+    userId: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      const existingPurchase = await tx.purchase.findUnique({
+        where: { vehicleRequestId: requestId },
+      });
+      if (existingPurchase) {
+        return {
+          message: 'Purchase was already confirmed',
+          requestId,
+          vehicleId: existingPurchase.vehicleId,
+          purchase: existingPurchase,
+        };
+      }
       const request = await tx.vehicleRequest.findFirst({
         where: { id: requestId, organizationId },
         include: {
@@ -578,21 +588,36 @@ export class VehicleRequestsService {
           `Vehicle request with ID ${requestId} not found in your organization`,
         );
       }
+      if (request.status === 'cancelled') {
+        throw new ConflictException('A cancelled request cannot be purchased');
+      }
+      if (request.dossier?.type === DossierType.SHIPPING_ONLY) {
+        throw new ConflictException(
+          'Shipping-only dossiers cannot enter purchase states',
+        );
+      }
 
       // Determine target vehicle
       let targetVehicleId = dto.vehicleId;
       let targetCandidateId = dto.candidateId;
 
-      if (!targetVehicleId && targetCandidateId) {
-        const candidate = request.candidates.find((c) => c.id === targetCandidateId);
+      if (targetCandidateId) {
+        const candidate = request.candidates.find(
+          (c) => c.id === targetCandidateId,
+        );
         if (!candidate) {
-          throw new NotFoundException(
-            `Candidate with ID ${targetCandidateId} not found in this request`,
+          throw new NotFoundException('Candidate not found');
+        }
+        if (targetVehicleId && targetVehicleId !== candidate.vehicleId) {
+          throw new ConflictException(
+            'Candidate and vehicle do not identify the same request option',
           );
         }
         targetVehicleId = candidate.vehicleId;
       } else if (!targetVehicleId && !targetCandidateId) {
-        const validatedCandidate = request.candidates.find((c) => c.status === 'validated');
+        const validatedCandidate = request.candidates.find(
+          (c) => c.status === 'validated',
+        );
         if (validatedCandidate) {
           targetVehicleId = validatedCandidate.vehicleId;
           targetCandidateId = validatedCandidate.id;
@@ -606,6 +631,19 @@ export class VehicleRequestsService {
         }
       }
 
+      if (!targetVehicleId) {
+        throw new ConflictException('A vehicle is required for purchase');
+      }
+      const selectedCandidate = request.candidates.find(
+        (candidate) => candidate.vehicleId === targetVehicleId,
+      );
+      if (!selectedCandidate) {
+        throw new ConflictException(
+          'The selected vehicle is not a candidate for this request',
+        );
+      }
+      targetCandidateId = selectedCandidate.id;
+
       // Validate vehicle belongs to organization
       const vehicle = await tx.vehicle.findFirst({
         where: { id: targetVehicleId, organizationId },
@@ -617,17 +655,22 @@ export class VehicleRequestsService {
         );
       }
 
-      // Validate supplier partner if provided
-      let supplier: any = null;
-      if (dto.supplierId) {
-        supplier = await tx.partner.findFirst({
-          where: { id: dto.supplierId, organizationId },
-        });
-        if (!supplier) {
-          throw new NotFoundException(
-            `Supplier with ID ${dto.supplierId} not found in your organization`,
-          );
-        }
+      const supplierId = dto.supplierId || vehicle.supplierId;
+      if (!supplierId) {
+        throw new ConflictException('A tenant supplier is required');
+      }
+      const supplier = await tx.partner.findFirst({
+        where: { id: supplierId, organizationId, type: 'supplier' },
+      });
+      if (!supplier) {
+        throw new NotFoundException('Supplier not found');
+      }
+      const purchasePrice =
+        dto.purchasePrice != null
+          ? dto.purchasePrice
+          : vehicle.purchasePrice?.toNumber();
+      if (purchasePrice == null || purchasePrice <= 0) {
+        throw new ConflictException('A positive purchase price is required');
       }
 
       // Concurrency-safe reservation & state check
@@ -640,8 +683,11 @@ export class VehicleRequestsService {
           },
           data: {
             status: 'reserved',
-            supplierId: dto.supplierId || vehicle.supplierId,
-            purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : vehicle.purchasePrice,
+            supplierId,
+            purchasePrice:
+              dto.purchasePrice != null
+                ? dto.purchasePrice
+                : vehicle.purchasePrice,
             currency: dto.currency || vehicle.currency,
           },
         });
@@ -654,8 +700,11 @@ export class VehicleRequestsService {
         await tx.vehicle.update({
           where: { id: targetVehicleId },
           data: {
-            supplierId: dto.supplierId || vehicle.supplierId,
-            purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : vehicle.purchasePrice,
+            supplierId,
+            purchasePrice:
+              dto.purchasePrice != null
+                ? dto.purchasePrice
+                : vehicle.purchasePrice,
             currency: dto.currency || vehicle.currency,
           },
         });
@@ -671,7 +720,7 @@ export class VehicleRequestsService {
           vehicleId: targetVehicleId,
           dossier: {
             id: { not: request.dossier?.id },
-            status: { notIn: ['cloture', 'service_termine', 'annule'] },
+            status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
           },
         },
       });
@@ -692,14 +741,19 @@ export class VehicleRequestsService {
         });
       }
 
-      // Update request status to validated
+      // Mark the request purchased only after all consistency checks passed.
       await tx.vehicleRequest.update({
         where: { id: requestId },
-        data: { status: 'validated' },
+        data: { status: 'purchased' },
       });
 
       // If request has linked dossier, bind vehicle and advance workflow
       if (request.dossier) {
+        this.dossierWorkflow.validateTransition(
+          request.dossier.type,
+          request.dossier.status,
+          DossierStatus.PURCHASE_CONFIRMED,
+        );
         await tx.dossierVehicle.upsert({
           where: {
             dossierId_vehicleId: {
@@ -717,34 +771,62 @@ export class VehicleRequestsService {
 
         await tx.dossier.update({
           where: { id: request.dossier.id },
-          data: { status: 'achat_confirme' },
+          data: { status: DossierStatus.PURCHASE_CONFIRMED },
         });
 
         await tx.dossierStatusHistory.create({
           data: {
             dossierId: request.dossier.id,
             fromStatus: request.dossier.status,
-            toStatus: 'achat_confirme',
-            changedBy: userId || 'system',
+            toStatus: DossierStatus.PURCHASE_CONFIRMED,
+            changedBy: userId,
             comment: `Purchase confirmed for vehicle ${vehicle.brand} ${vehicle.model} (${vehicle.vin || targetVehicleId})${supplier ? ` from supplier ${supplier.name}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}`,
           },
         });
       }
 
-      // Generate purchase record
-      const purchaseYear = new Date().getFullYear();
-      const countPurchases = await tx.purchase.count();
-      const purchaseNumber = `PUR-${purchaseYear}-${String(countPurchases + 1).padStart(5, '0')}`;
+      const purchaseYear = new Date().getUTCFullYear();
+      const sequence = await tx.commerceSequence.upsert({
+        where: {
+          organizationId_key: {
+            organizationId,
+            key: `purchase:${purchaseYear}`,
+          },
+        },
+        create: { organizationId, key: `purchase:${purchaseYear}`, value: 1 },
+        update: { value: { increment: 1 } },
+      });
+      const purchaseNumber = `PUR-${purchaseYear}-${String(sequence.value).padStart(5, '0')}`;
 
       const purchase = await tx.purchase.create({
         data: {
+          organizationId,
           purchaseNumber,
-          supplierId: dto.supplierId || vehicle.supplierId || 'direct',
+          supplierId,
           vehicleId: targetVehicleId,
-          purchasePrice: dto.purchasePrice != null ? dto.purchasePrice : (vehicle.purchasePrice || 0),
+          purchasePrice,
           currency: dto.currency || vehicle.currency || 'USD',
           status: 'confirmed',
           purchaseDate: new Date(),
+          vehicleRequestId: requestId,
+          candidateId: targetCandidateId,
+          dossierId: request.dossier?.id,
+          orderId: request.dossier?.orderId,
+          confirmedBy: userId,
+          supplierSnapshot: {
+            id: supplier.id,
+            name: supplier.name,
+            country: supplier.country,
+            paymentTerms: supplier.paymentTerms,
+          },
+          vehicleSnapshot: {
+            id: vehicle.id,
+            vin: vehicle.vin,
+            brand: vehicle.brand,
+            model: vehicle.model,
+            year: vehicle.year,
+            condition: vehicle.condition,
+          },
         },
       });
 
@@ -810,5 +892,36 @@ export class VehicleRequestsService {
       conversionRate:
         total > 0 ? Math.round((validated / total) * 10000) / 100 : 0,
     };
+  }
+
+  private async validateRequestRelations(
+    transaction: Prisma.TransactionClient,
+    dto: Pick<
+      CreateVehicleRequestDto,
+      'prospectId' | 'clientId' | 'assignedTo'
+    >,
+    organizationId: string,
+  ): Promise<void> {
+    if (dto.prospectId) {
+      const prospect = await transaction.prospect.findFirst({
+        where: { id: dto.prospectId, organizationId },
+        select: { id: true },
+      });
+      if (!prospect) throw new NotFoundException('Prospect not found');
+    }
+    if (dto.clientId) {
+      const client = await transaction.client.findFirst({
+        where: { id: dto.clientId, organizationId },
+        select: { id: true },
+      });
+      if (!client) throw new NotFoundException('Client not found');
+    }
+    if (dto.assignedTo) {
+      const assignee = await transaction.user.findFirst({
+        where: { id: dto.assignedTo, organizationId, status: 'active' },
+        select: { id: true },
+      });
+      if (!assignee) throw new NotFoundException('Assignee not found');
+    }
   }
 }

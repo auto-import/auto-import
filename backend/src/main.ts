@@ -5,19 +5,42 @@ import { ConfigService } from '@nestjs/config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { PrismaService } from './prisma/prisma.service';
 import helmet from 'helmet';
+import { configureOpenApi } from './common/openapi';
+import { validateProductionEnvironment } from './config/production-environment';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
+  validateProductionEnvironment(process.env);
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  if (nodeEnv === 'production') {
+    const hops = Number(configService.get<string>('TRUST_PROXY_HOPS'));
+    app.set('trust proxy', hops);
+  }
+  const allowedOrigins = configService
+    .get<string>('CORS_ORIGIN', 'http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (allowedOrigins.length === 0 || allowedOrigins.includes('*')) {
+    throw new Error(
+      'CORS_ORIGIN must contain explicit origins when credentials are enabled',
+    );
+  }
 
   app.use(helmet());
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', '*'),
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -40,10 +63,9 @@ async function bootstrap() {
           Object.values(error.constraints || {}).join(', '),
         );
         return new BadRequestException({
-          statusCode: 400,
+          code: 'VALIDATION_ERROR',
           message: 'Validation failed',
-          errors: messages,
-          timestamp: new Date().toISOString(),
+          details: messages,
         });
       },
     }),
@@ -52,12 +74,15 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
+    new AuditInterceptor(app.get(PrismaService)),
     new ResponseInterceptor(),
   );
 
+  configureOpenApi(app);
+
   await app.listen(port);
-  logger.log(`🚀 Application running on: http://localhost:${port}`);
-  logger.log(`📝 Environment: ${nodeEnv}`);
-  logger.log(`🔍 Health check: http://localhost:${port}/health`);
+  logger.log(`Application listening on port ${port}`);
+  logger.log(`Environment: ${nodeEnv}`);
+  logger.log(`Health check path: /health`);
 }
-bootstrap();
+void bootstrap();

@@ -1,8 +1,9 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { OrderStatus } from '@auto-import/contracts';
 
 export class UpdateOrderStatusDto {
-  @IsString()
-  status: string;
+  @IsEnum(OrderStatus)
+  status: OrderStatus;
 
   @IsOptional()
   @IsString()

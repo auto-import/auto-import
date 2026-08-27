@@ -4,14 +4,17 @@ import {
   MinLength,
   IsOptional,
   IsUUID,
+  IsArray,
+  IsEnum,
 } from 'class-validator';
+import { RecordStatus } from '@auto-import/contracts';
 
 export class CreateUserDto {
   @IsEmail()
   email: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(12)
   password: string;
 
   @IsString()
@@ -22,16 +25,14 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsUUID()
-  organizationId?: string;
-
-  @IsOptional()
-  @IsUUID()
   officeId?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(RecordStatus)
+  status?: RecordStatus;
 
   @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   roleIds?: string[];
 }

@@ -1,4 +1,16 @@
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
+
+export enum StockMovementType {
+  IN = 'in',
+  OUT = 'out',
+  TRANSFER = 'transfer',
+}
 
 export class CreateStockMovementDto {
   @IsUUID()
@@ -12,10 +24,14 @@ export class CreateStockMovementDto {
   @IsUUID()
   toLocationId?: string;
 
-  @IsString()
-  type: string; // "in" | "out" | "transfer"
+  @IsEnum(StockMovementType)
+  type: StockMovementType;
 
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
 }

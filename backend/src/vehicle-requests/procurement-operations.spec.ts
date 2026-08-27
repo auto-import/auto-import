@@ -9,6 +9,8 @@ import { DossiersService } from '../dossiers/dossiers.service';
 import { PartnersService } from '../partners/partners.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DossierType } from '@auto-import/contracts';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audit', () => {
   let vehicleRequestsService: VehicleRequestsService;
@@ -74,7 +76,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       },
       purchase: {
         create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(null),
         count: jest.fn(),
+      },
+      commerceSequence: {
+        upsert: jest.fn().mockResolvedValue({ value: 5 }),
       },
       client: {
         findFirst: jest.fn(),
@@ -97,13 +103,29 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         PartnersService,
         DossierWorkflowService,
         {
+          provide: DocumentsService,
+          useValue: {
+            verifySignedContract: jest
+              .fn()
+              .mockResolvedValue({ id: 'contract-1' }),
+            verifyCheckpoint: jest.fn().mockResolvedValue({
+              complete: true,
+              missingVehicleIds: [],
+              evidenceIds: [],
+            }),
+            markEvidenceRelied: jest.fn(),
+          },
+        },
+        {
           provide: PrismaService,
           useValue: prisma,
         },
       ],
     }).compile();
 
-    vehicleRequestsService = module.get<VehicleRequestsService>(VehicleRequestsService);
+    vehicleRequestsService = module.get<VehicleRequestsService>(
+      VehicleRequestsService,
+    );
     dossiersService = module.get<DossiersService>(DossiersService);
     partnersService = module.get<PartnersService>(PartnersService);
   });
@@ -113,7 +135,10 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
   // ──────────────────────────────────────────────
   describe('1. VehicleRequest Lifecycle & Candidate Management', () => {
     it('should create vehicle request with valid client belonging to caller org', async () => {
-      prisma.client.findFirst.mockResolvedValue({ id: 'client-1', organizationId: ORG_A });
+      prisma.client.findFirst.mockResolvedValue({
+        id: 'client-1',
+        organizationId: ORG_A,
+      });
       prisma.vehicleRequest.create.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
@@ -149,7 +174,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
     });
 
     it('should add available vehicle as candidate to request', async () => {
-      prisma.vehicleRequest.findFirst.mockResolvedValue({ id: 'vr-1', organizationId: ORG_A });
+      prisma.vehicleRequest.findFirst.mockResolvedValue({
+        id: 'vr-1',
+        organizationId: ORG_A,
+        status: 'open',
+      });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
         organizationId: ORG_A,
@@ -172,12 +201,16 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       expect(prisma.vehicleCandidate.create).toHaveBeenCalled();
     });
 
-    it('should REJECT candidate addition if vehicle status is NOT available (e.g. reserved or in_transit)', async () => {
-      prisma.vehicleRequest.findFirst.mockResolvedValue({ id: 'vr-1', organizationId: ORG_A });
+    it('should REJECT candidate addition if vehicle status is NOT available (e.g. reserved or inTransit)', async () => {
+      prisma.vehicleRequest.findFirst.mockResolvedValue({
+        id: 'vr-1',
+        organizationId: ORG_A,
+        status: 'open',
+      });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
         organizationId: ORG_A,
-        status: 'in_transit',
+        status: 'inTransit',
       });
 
       await expect(
@@ -189,7 +222,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
     });
 
     it('should REJECT candidate addition if vehicle is already in an active dossier', async () => {
-      prisma.vehicleRequest.findFirst.mockResolvedValue({ id: 'vr-1', organizationId: ORG_A });
+      prisma.vehicleRequest.findFirst.mockResolvedValue({
+        id: 'vr-1',
+        organizationId: ORG_A,
+        status: 'open',
+      });
       prisma.vehicle.findFirst.mockResolvedValue({
         id: 'veh-1',
         organizationId: ORG_A,
@@ -214,7 +251,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
   // 2. Candidate Validation & Concurrency Protection
   // ──────────────────────────────────────────────
   describe('2. Candidate Validation & Concurrency Protection', () => {
-    it('should validate candidate atomically, reserve vehicle, and advance linked dossier to achat_confirme', async () => {
+    it('should validate candidate atomically, reserve vehicle, and advance linked dossier to purchaseConfirmed', async () => {
       prisma.vehicleCandidate.findFirst.mockResolvedValue({
         id: 'cand-1',
         vehicleRequestId: 'vr-1',
@@ -225,7 +262,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
           organizationId: ORG_A,
           dossier: {
             id: 'dossier-1',
-            status: 'offre_selectionnee',
+            status: 'offerSelected',
           },
         },
         vehicle: {
@@ -240,12 +277,22 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         id: 'cand-1',
         status: 'validated',
       });
-      prisma.vehicleRequest.update.mockResolvedValue({ id: 'vr-1', status: 'validated' });
+      prisma.vehicleRequest.update.mockResolvedValue({
+        id: 'vr-1',
+        status: 'validated',
+      });
       prisma.dossierVehicle.upsert.mockResolvedValue({ id: 'dv-1' });
-      prisma.dossier.update.mockResolvedValue({ id: 'dossier-1', status: 'achat_confirme' });
+      prisma.dossier.update.mockResolvedValue({
+        id: 'dossier-1',
+        status: 'purchaseConfirmed',
+      });
       prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'h-1' });
 
-      const result = await vehicleRequestsService.validateCandidate('cand-1', ORG_A, 'user-sales-1');
+      const result = await vehicleRequestsService.validateCandidate(
+        'cand-1',
+        ORG_A,
+        'user-sales-1',
+      );
 
       expect(result.status).toBe('validated');
       expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
@@ -256,12 +303,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         },
         data: { status: 'reserved' },
       });
-      expect(prisma.dossier.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'dossier-1' },
-          data: { status: 'achat_confirme' },
-        }),
-      );
+      expect(prisma.dossier.update).not.toHaveBeenCalled();
+      expect(prisma.vehicleRequest.update).toHaveBeenCalledWith({
+        where: { id: 'vr-1' },
+        data: { status: 'candidateSelected' },
+      });
     });
 
     it('Concurrency Safety: should REJECT validation if vehicle was concurrently reserved by another transaction (updateMany count = 0)', async () => {
@@ -286,7 +332,11 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicle.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
-        vehicleRequestsService.validateCandidate('cand-1', ORG_A, 'user-sales-1'),
+        vehicleRequestsService.validateCandidate(
+          'cand-1',
+          ORG_A,
+          'user-sales-1',
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -299,17 +349,24 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'candidateSelected',
         candidates: [
           {
             id: 'cand-1',
             vehicleId: 'veh-1',
             status: 'validated',
-            vehicle: { id: 'veh-1', brand: 'Changan', model: 'Uni-K', status: 'reserved' },
+            vehicle: {
+              id: 'veh-1',
+              brand: 'Changan',
+              model: 'Uni-K',
+              status: 'reserved',
+            },
           },
         ],
         dossier: {
           id: 'dossier-1',
-          status: 'contrat_signe',
+          type: DossierType.VEHICLE_SALE_CIF,
+          status: 'depositReceived',
         },
       });
 
@@ -330,10 +387,19 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
 
       prisma.dossierVehicle.findFirst.mockResolvedValue(null);
       prisma.vehicle.update.mockResolvedValue({ id: 'veh-1' });
-      prisma.vehicleCandidate.update.mockResolvedValue({ id: 'cand-1', status: 'validated' });
-      prisma.vehicleRequest.update.mockResolvedValue({ id: 'vr-1', status: 'validated' });
+      prisma.vehicleCandidate.update.mockResolvedValue({
+        id: 'cand-1',
+        status: 'validated',
+      });
+      prisma.vehicleRequest.update.mockResolvedValue({
+        id: 'vr-1',
+        status: 'validated',
+      });
       prisma.dossierVehicle.upsert.mockResolvedValue({ id: 'dv-1' });
-      prisma.dossier.update.mockResolvedValue({ id: 'dossier-1', status: 'achat_confirme' });
+      prisma.dossier.update.mockResolvedValue({
+        id: 'dossier-1',
+        status: 'purchaseConfirmed',
+      });
       prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'h-1' });
       prisma.purchase.count.mockResolvedValue(4);
       prisma.purchase.create.mockResolvedValue({
@@ -377,6 +443,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.vehicleRequest.findFirst.mockResolvedValue({
         id: 'vr-1',
         organizationId: ORG_A,
+        status: 'candidateSelected',
         candidates: [{ id: 'cand-1', vehicleId: 'veh-1', status: 'validated' }],
       });
 
@@ -394,6 +461,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
           'vr-1',
           { candidateId: 'cand-1', supplierId: 'partner-of-org-b' },
           ORG_A,
+          'user-procurement-1',
         ),
       ).rejects.toThrow(NotFoundException);
     });
@@ -411,15 +479,20 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
           id: 'dossier-1',
           organizationId: ORG_A,
           reference: 'CA-2026-0010',
-          status: 'offre_selectionnee',
+          status: 'offerSelected',
           dossierVehicles: [],
         })
         .mockResolvedValueOnce({
           id: 'dossier-1',
           organizationId: ORG_A,
           reference: 'CA-2026-0010',
-          status: 'offre_selectionnee',
-          dossierVehicles: [{ vehicleId: 'veh-1', vehicle: { id: 'veh-1', brand: 'BYD', model: 'Song Plus' } }],
+          status: 'offerSelected',
+          dossierVehicles: [
+            {
+              vehicleId: 'veh-1',
+              vehicle: { id: 'veh-1', brand: 'BYD', model: 'Song Plus' },
+            },
+          ],
         });
 
       prisma.vehicle.findFirst.mockResolvedValue({
@@ -451,7 +524,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       prisma.dossier.findFirst.mockResolvedValue({
         id: 'dossier-1',
         organizationId: ORG_A,
-        status: 'offre_selectionnee',
+        status: 'offerSelected',
         dossierVehicles: [],
       });
 
@@ -472,7 +545,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       ).rejects.toThrow(ConflictException);
     });
 
-    it('DossiersService.removeVehicle: REJECTS detachment if vehicle is in_transit, in_customs, or sold', async () => {
+    it('DossiersService.removeVehicle: REJECTS detachment if vehicle is inTransit, inCustoms, or sold', async () => {
       prisma.dossier.findFirst.mockResolvedValue({
         id: 'dossier-1',
         organizationId: ORG_A,
@@ -482,7 +555,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
 
       prisma.vehicle.findUnique.mockResolvedValue({
         id: 'veh-1',
-        status: 'in_transit', // Vehicle is already at sea / in transit
+        status: 'inTransit', // Vehicle is already at sea / in transit
       });
 
       await expect(
@@ -498,14 +571,14 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
           id: 'dossier-1',
           organizationId: ORG_A,
           reference: 'CA-2026-0010',
-          status: 'achat_confirme',
+          status: 'purchaseConfirmed',
           dossierVehicles: [{ vehicleId: 'veh-1' }],
         })
         .mockResolvedValueOnce({
           id: 'dossier-1',
           organizationId: ORG_A,
           reference: 'CA-2026-0010',
-          status: 'achat_confirme',
+          status: 'purchaseConfirmed',
           dossierVehicles: [],
         });
 
@@ -517,10 +590,18 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       });
 
       prisma.dossierVehicle.delete.mockResolvedValue({});
-      prisma.vehicle.update.mockResolvedValue({ id: 'veh-1', status: 'available' });
+      prisma.vehicle.update.mockResolvedValue({
+        id: 'veh-1',
+        status: 'available',
+      });
       prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'h-1' });
 
-      await dossiersService.removeVehicle('dossier-1', 'veh-1', ORG_A, 'user-1');
+      await dossiersService.removeVehicle(
+        'dossier-1',
+        'veh-1',
+        ORG_A,
+        'user-1',
+      );
 
       expect(prisma.vehicle.update).toHaveBeenCalledWith({
         where: { id: 'veh-1' },
@@ -565,16 +646,21 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('PartnersService.remove: blocks deleting partner if vehicles are linked', async () => {
+    it('PartnersService.remove: archives a referenced partner without deleting it', async () => {
       prisma.partner.findFirst.mockResolvedValue({
         id: 'partner-1',
         organizationId: ORG_A,
       });
       prisma.vehicle.count.mockResolvedValue(3); // 3 vehicles linked to this supplier
 
-      await expect(
-        partnersService.remove('partner-1', ORG_A),
-      ).rejects.toThrow(ConflictException);
+      prisma.partner.update.mockResolvedValue({
+        id: 'partner-1',
+        status: 'archived',
+      });
+      await expect(partnersService.remove('partner-1', ORG_A)).resolves.toEqual(
+        expect.objectContaining({ status: 'archived' }),
+      );
+      expect(prisma.partner.delete).not.toHaveBeenCalled();
     });
   });
 });

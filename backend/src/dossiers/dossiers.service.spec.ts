@@ -8,11 +8,17 @@ import { DossiersService } from './dossiers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { DossierType } from './dto/dossier-type.enum';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   let service: DossiersService;
   let workflowService: DossierWorkflowService;
   let prisma: any;
+  let documentsGate: {
+    verifySignedContract: jest.Mock;
+    verifyCheckpoint: jest.Mock;
+    markEvidenceRelied: jest.Mock;
+  };
 
   const mockOrgId = 'org-1';
 
@@ -53,6 +59,20 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
       },
+      user: {
+        count: jest.fn().mockResolvedValue(1),
+      },
+      commerceSequence: {
+        upsert: jest.fn().mockResolvedValue({ value: 1 }),
+      },
+      offerReservation: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      chinaOffer: {
+        update: jest.fn(),
+      },
       vehicle: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
@@ -77,10 +97,23 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       }),
     };
 
+    documentsGate = {
+      verifySignedContract: jest.fn().mockResolvedValue({ id: 'contract-1' }),
+      verifyCheckpoint: jest.fn().mockResolvedValue({
+        complete: true,
+        missingVehicleIds: [],
+        evidenceIds: [],
+      }),
+      markEvidenceRelied: jest.fn(),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DossiersService,
         DossierWorkflowService,
+        {
+          provide: DocumentsService,
+          useValue: documentsGate,
+        },
         {
           provide: PrismaService,
           useValue: prisma,
@@ -94,15 +127,89 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
     );
   });
 
+  describe('post-UAT evidence gates', () => {
+    it('rejects the signed-contract transition with a stable code when bytes are absent', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'dos-contract',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'clientConfirmed',
+      } as Awaited<ReturnType<DossiersService['findOne']>>);
+      documentsGate.verifySignedContract.mockResolvedValue(null);
+
+      await expect(
+        service.updateStatus(
+          'dos-contract',
+          { status: 'contractSigned' },
+          'user-1',
+          mockOrgId,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'DOSSIER_SIGNED_CONTRACT_REQUIRED' },
+      });
+    });
+
+    it.each([
+      ['inTransit', 'arrivedAtPort', 'ARRIVAL_AT_PORT'],
+      ['arrivedAtPort', 'customsClearance', 'CUSTOMS'],
+      ['customsReleased', 'portExit', 'PORT_EXIT'],
+      ['portExit', 'localTransport', 'LOCAL_TRANSPORT'],
+    ] as const)(
+      'rejects %s → %s when one vehicle lacks %s evidence',
+      async (from, to, checkpoint) => {
+        jest.spyOn(service, 'findOne').mockResolvedValue({
+          id: 'dos-ddp',
+          organizationId: mockOrgId,
+          type: DossierType.VEHICLE_SALE_DDP,
+          status: from,
+        } as Awaited<ReturnType<DossiersService['findOne']>>);
+        documentsGate.verifyCheckpoint.mockResolvedValue({
+          complete: false,
+          missingVehicleIds: ['vehicle-b'],
+          evidenceIds: ['evidence-a'],
+        });
+
+        await expect(
+          service.updateStatus('dos-ddp', { status: to }, 'user-1', mockOrgId),
+        ).rejects.toMatchObject({
+          response: {
+            code: 'DOSSIER_CHECKPOINT_EVIDENCE_REQUIRED',
+            checkpoint,
+            missingVehicleIds: ['vehicle-b'],
+          },
+        });
+      },
+    );
+
+    it('does not apply DDP checkpoint categories to shipping-only arrival', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'dos-shipping',
+        organizationId: mockOrgId,
+        type: DossierType.SHIPPING_ONLY,
+        status: 'inTransit',
+      } as Awaited<ReturnType<DossiersService['findOne']>>);
+
+      await service
+        .updateStatus(
+          'dos-shipping',
+          { status: 'arrived' },
+          'user-1',
+          mockOrgId,
+        )
+        .catch(() => undefined);
+      expect(documentsGate.verifyCheckpoint).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Workflow 1: VEHICLE_SALE_CIF', () => {
-    it('1. should create CIF dossier with default initial status (offre_selectionnee)', async () => {
+    it('1. should create CIF dossier with default initial status (offerSelected)', async () => {
       prisma.client.findFirst.mockResolvedValue(mockClient);
       prisma.dossier.create.mockResolvedValue({
         id: 'dos-cif',
         reference: 'CA-2026-0001',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'offre_selectionnee',
+        status: 'offerSelected',
         dossierVehicles: [],
       });
 
@@ -112,32 +219,32 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         mockOrgId,
       );
 
-      expect(res.status).toBe('offre_selectionnee');
+      expect(res.status).toBe('offerSelected');
       expect(prisma.dossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             type: DossierType.VEHICLE_SALE_CIF,
-            status: 'offre_selectionnee',
+            status: 'offerSelected',
             organizationId: mockOrgId,
           }),
         }),
       );
     });
 
-    it('2. should advance CIF from offre_selectionnee -> client_confirme', async () => {
+    it('2. should advance CIF from offerSelected -> clientConfirmed', async () => {
       const mockDossier = {
         id: 'dos-cif',
         reference: 'CA-2026-0001',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'offre_selectionnee',
+        status: 'offerSelected',
         dossierVehicles: [],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
       prisma.dossier.update.mockResolvedValue({
         ...mockDossier,
-        status: 'client_confirme',
+        status: 'clientConfirmed',
       });
 
       const res = await service.advanceStatus(
@@ -150,7 +257,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       expect(prisma.dossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: 'client_confirme',
+            status: 'clientConfirmed',
           }),
         }),
       );
@@ -162,21 +269,52 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0001',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'en_transit',
+        status: 'inTransit',
         dossierVehicles: [],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
 
-      // 'douane' is only valid in DDP, not CIF
+      // 'customsClearance' is only valid in DDP, not CIF
       await expect(
         service.updateStatus(
           'dos-cif',
-          { status: 'douane' },
+          { status: 'customsClearance' },
           'user-1',
           mockOrgId,
         ),
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('Type-specific initial statuses', () => {
+    it.each([
+      [DossierType.VEHICLE_SALE_CIF, 'offerSelected'],
+      [DossierType.VEHICLE_SALE_DDP, 'offerSelected'],
+      [DossierType.SHIPPING_ONLY, 'clientRegistered'],
+    ])('creates %s dossiers at %s', async (type, expectedStatus) => {
+      prisma.client.findFirst.mockResolvedValue(mockClient);
+      prisma.dossier.create.mockImplementation(({ data }) =>
+        Promise.resolve({
+          id: `dos-${type}`,
+          reference: 'CA-2026-0001',
+          ...data,
+          dossierVehicles: [],
+        }),
+      );
+
+      const result = await service.create(
+        { clientId: mockClient.id, type },
+        'user-1',
+        mockOrgId,
+      );
+
+      expect(result.status).toBe(expectedStatus);
+      expect(prisma.dossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: expectedStatus, type }),
+        }),
+      );
     });
   });
 
@@ -187,14 +325,14 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0002',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_DDP,
-        status: 'arrivee_port',
+        status: 'arrivedAtPort',
         dossierVehicles: [{ vehicleId: 'veh-1' }],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
       prisma.dossier.update.mockResolvedValue({
         ...mockDossier,
-        status: 'douane',
+        status: 'customsClearance',
       });
 
       const res = await service.advanceStatus(
@@ -207,7 +345,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       expect(prisma.dossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: 'douane',
+            status: 'customsClearance',
           }),
         }),
       );
@@ -219,7 +357,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0002',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_DDP,
-        status: 'en_transit',
+        status: 'inTransit',
         dossierVehicles: [],
       };
 
@@ -229,7 +367,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       await expect(
         service.updateStatus(
           'dos-ddp',
-          { status: 'livraison_client' },
+          { status: 'deliveredToClient' },
           'user-1',
           mockOrgId,
         ),
@@ -245,7 +383,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0003',
         organizationId: mockOrgId,
         type: DossierType.SHIPPING_ONLY,
-        status: 'client',
+        status: 'clientRegistered',
         dossierVehicles: [],
       });
 
@@ -255,7 +393,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         mockOrgId,
       );
 
-      expect(res.status).toBe('client');
+      expect(res.status).toBe('clientRegistered');
     });
 
     it('7. should reject vehicle purchase states in SHIPPING_ONLY', async () => {
@@ -264,17 +402,17 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0003',
         organizationId: mockOrgId,
         type: DossierType.SHIPPING_ONLY,
-        status: 'client',
+        status: 'clientRegistered',
         dossierVehicles: [],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
 
-      // 'achat_confirme' and 'paiement_fournisseur' are forbidden in SHIPPING_ONLY
+      // 'purchaseConfirmed' and 'supplierPaid' are forbidden in SHIPPING_ONLY
       await expect(
         service.updateStatus(
           'dos-ship',
-          { status: 'achat_confirme' },
+          { status: 'purchaseConfirmed' },
           'user-1',
           mockOrgId,
         ),
@@ -283,13 +421,13 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   });
 
   describe('Terminal States & Protection', () => {
-    it('8. should reject any status transition when dossier is in terminal state cloture', async () => {
+    it('8. should reject any transition when dossier is in terminal state closed', async () => {
       const mockClosedDossier = {
         id: 'dos-closed',
         reference: 'CA-2026-0004',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'cloture',
+        status: 'closed',
         dossierVehicles: [],
       };
 
@@ -298,7 +436,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       await expect(
         service.updateStatus(
           'dos-closed',
-          { status: 'contrat_signe' },
+          { status: 'contractSigned' },
           'user-1',
           mockOrgId,
         ),
@@ -311,7 +449,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0001',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'contrat_signe',
+        status: 'contractSigned',
         dossierVehicles: [],
       };
 
@@ -319,9 +457,9 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
       const result = await service.getAllowedTransitions('dos-1', mockOrgId);
 
-      expect(result.currentStatus).toBe('contrat_signe');
-      expect(result.allowedTransitions).toContain('acompte_recu');
-      expect(result.allowedTransitions).toContain('annule');
+      expect(result.currentStatus).toBe('contractSigned');
+      expect(result.allowedTransitions).toContain('depositReceived');
+      expect(result.allowedTransitions).toContain('cancelled');
     });
 
     it('10. should reject transition to the exact same status', async () => {
@@ -352,19 +490,19 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         reference: 'CA-2026-0005',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_CIF,
-        status: 'documents_remis',
+        status: 'documentsDelivered',
         dossierVehicles: [{ vehicleId: 'veh-1', vehicle: mockVehicle1 }],
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
       prisma.dossier.update.mockResolvedValue({
         ...mockDossier,
-        status: 'cloture',
+        status: 'closed',
       });
 
       await service.updateStatus(
         'dos-final',
-        { status: 'cloture' },
+        { status: 'closed' },
         'user-1',
         mockOrgId,
       );

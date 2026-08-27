@@ -53,20 +53,20 @@ try {
     $cif = if ($cifRes.data) { $cifRes.data } else { $cifRes }
     $cifId = $cif.id
 
-    if ($cif.status -eq "offre_selectionnee") {
-        Write-Host " CIF initialized with 'offre_selectionnee'." -ForegroundColor Green
+    if ($cif.status -eq "offerSelected") {
+        Write-Host " CIF initialized with 'offerSelected'." -ForegroundColor Green
     } else {
-        Write-Host " Expected 'offre_selectionnee', got $($cif.status)" -ForegroundColor Red
+        Write-Host " Expected 'offerSelected', got $($cif.status)" -ForegroundColor Red
         exit 1
     }
 
-    # Advance status: offre_selectionnee -> client_confirme
+    # Advance status: offerSelected -> clientConfirmed
     $advRes = Invoke-RestMethod -Uri "$baseUrl/dossiers/$cifId/advance-status" -Method Post -Headers $headers -Body (@{ comment = "Confirmed" } | ConvertTo-Json) -ContentType "application/json"
     $advDos = if ($advRes.data) { $advRes.data } else { $advRes }
-    if ($advDos.status -eq "client_confirme") {
-        Write-Host " CIF advanced to 'client_confirme'." -ForegroundColor Green
+    if ($advDos.status -eq "clientConfirmed") {
+        Write-Host " CIF advanced to 'clientConfirmed'." -ForegroundColor Green
     } else {
-        Write-Host " Expected 'client_confirme', got $($advDos.status)" -ForegroundColor Red
+        Write-Host " Expected 'clientConfirmed', got $($advDos.status)" -ForegroundColor Red
         exit 1
     }
 } catch {
@@ -90,7 +90,7 @@ Write-Host "`n[5/8] Test 3: Querying GET /api/dossiers/:id/allowed-transitions..
 try {
     $allowedRes = Invoke-RestMethod -Uri "$baseUrl/dossiers/$cifId/allowed-transitions" -Method Get -Headers $headers
     $allowed = if ($allowedRes.data) { $allowedRes.data } else { $allowedRes }
-    if ($allowed.allowedTransitions -contains "contrat_signe" -and $allowed.allowedTransitions -contains "annule") {
+    if ($allowed.allowedTransitions -contains "contractSigned" -and $allowed.allowedTransitions -contains "cancelled") {
         Write-Host " Allowed transitions correct: $($allowed.allowedTransitions -join ', ')" -ForegroundColor Green
     } else {
         Write-Host " Unexpected allowed transitions: $($allowed.allowedTransitions -join ', ')" -ForegroundColor Red
@@ -136,9 +136,9 @@ try {
 # 7. Test 5: Reject Purchase Sale states on SHIPPING_ONLY
 Write-Host "`n[7/8] Test 5: Testing rejection of vehicle purchase states on SHIPPING_ONLY..." -ForegroundColor Yellow
 try {
-    $purBody = @{ status = "achat_confirme" } | ConvertTo-Json
+    $purBody = @{ status = "purchaseConfirmed" } | ConvertTo-Json
     $purRes = Invoke-RestMethod -Uri "$baseUrl/dossiers/$shipId/status" -Method Patch -Headers $headers -Body $purBody -ContentType "application/json"
-    Write-Host " Error: SHIPPING_ONLY transition to 'achat_confirme' should have failed!" -ForegroundColor Red
+    Write-Host " Error: SHIPPING_ONLY transition to 'purchaseConfirmed' should have failed!" -ForegroundColor Red
     exit 1
 } catch {
     Write-Host " Commercial sale state rejected on SHIPPING_ONLY as expected." -ForegroundColor Green
@@ -159,7 +159,7 @@ try {
 
     # Attempt transition from terminal state
     try {
-        $reopenBody = @{ status = "offre_selectionnee" } | ConvertTo-Json
+        $reopenBody = @{ status = "offerSelected" } | ConvertTo-Json
         $reopenRes = Invoke-RestMethod -Uri "$baseUrl/dossiers/$cifId/status" -Method Patch -Headers $headers -Body $reopenBody -ContentType "application/json"
         Write-Host " Error: Transition from terminal state should have failed!" -ForegroundColor Red
         exit 1

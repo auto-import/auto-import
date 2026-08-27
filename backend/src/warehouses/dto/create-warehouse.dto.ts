@@ -1,9 +1,6 @@
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class CreateWarehouseDto {
-  @IsUUID()
-  organizationId: string;
-
   @IsString()
   name: string;
 

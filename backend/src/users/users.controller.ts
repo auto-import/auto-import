@@ -8,67 +8,87 @@ import {
   Delete,
   Query,
 } from '@nestjs/common';
+import { Permission } from '@auto-import/contracts';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { FilterUsersDto } from './dto/filter-users.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
+import { SetUserStatusDto } from './dto/set-user-status.dto';
 
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @RequirePermission('users:manage')
-  create(@Body() createUserDto: CreateUserDto, @CurrentUser() user: any) {
-    return this.usersService.create(createUserDto, user.organizationId);
+  @RequirePermission(Permission.USERS_WRITE)
+  create(
+    @Body() createUserDto: CreateUserDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.create(createUserDto, user.organizationId, user);
   }
 
   @Get()
-  @RequirePermission('users:manage')
-  findAll(@Query() pagination: PaginationDto, @CurrentUser() user: any) {
-    return this.usersService.findAll(
-      user.organizationId,
-      pagination.page,
-      pagination.limit,
-    );
+  @RequirePermission(Permission.USERS_READ)
+  findAll(
+    @Query() filters: FilterUsersDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.findAll(user.organizationId, filters);
   }
 
   @Get(':id')
-  @RequirePermission('users:manage')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.USERS_READ)
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findOne(id, user.organizationId);
   }
 
   @Patch(':id')
-  @RequirePermission('users:manage')
+  @RequirePermission(Permission.USERS_WRITE)
   update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.usersService.update(
       id,
       user.organizationId,
       updateUserDto,
-      user.id,
+      user,
     );
   }
 
   @Patch(':id/password')
-  @RequirePermission('users:manage')
+  @RequirePermission(Permission.USERS_MANAGE)
   updatePassword(
     @Param('id') id: string,
-    @Body('password') password: string,
-    @CurrentUser() user: any,
+    @Body() dto: SetPasswordDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.usersService.updatePassword(id, user.organizationId, password);
+    return this.usersService.updatePassword(
+      id,
+      user.organizationId,
+      dto.password,
+    );
+  }
+
+  @Patch(':id/status')
+  @RequirePermission(Permission.USERS_WRITE)
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: SetUserStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.update(id, user.organizationId, dto, user);
   }
 
   @Delete(':id')
-  @RequirePermission('users:manage')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.USERS_MANAGE)
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.usersService.remove(id, user.organizationId, user.id);
   }
 }

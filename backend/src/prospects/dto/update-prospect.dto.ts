@@ -1,4 +1,6 @@
-import { IsString, IsOptional, IsEmail, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsUUID, IsEnum } from 'class-validator';
+import { ProspectStatus } from '@auto-import/contracts';
+import { LeadQualification } from '@prisma/client';
 
 export class UpdateProspectDto {
   @IsOptional()
@@ -26,8 +28,8 @@ export class UpdateProspectDto {
   source?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(ProspectStatus)
+  status?: ProspectStatus;
 
   @IsOptional()
   @IsString()
@@ -36,4 +38,12 @@ export class UpdateProspectDto {
   @IsOptional()
   @IsUUID()
   assignedTo?: string;
+
+  @IsOptional()
+  @IsEnum(LeadQualification)
+  qualification?: LeadQualification;
+
+  @IsOptional()
+  @IsString()
+  nextActionAt?: string;
 }

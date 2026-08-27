@@ -1,5 +1,1 @@
-export enum DossierType {
-  VEHICLE_SALE_CIF = 'VEHICLE_SALE_CIF',
-  VEHICLE_SALE_DDP = 'VEHICLE_SALE_DDP',
-  SHIPPING_ONLY = 'SHIPPING_ONLY',
-}
+export { DossierType } from '@auto-import/contracts';

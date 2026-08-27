@@ -11,6 +11,9 @@ import { JwtStrategy } from '../auth/strategies/jwt.strategy';
 import { RolesService } from './roles.service';
 import { UsersService } from '../users/users.service';
 import { ConfigService } from '@nestjs/config';
+import { ALL_PERMISSIONS } from '@auto-import/contracts';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { AuthService } from '../auth/auth.service';
 
 describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () => {
   let permissionsGuard: PermissionsGuard;
@@ -23,6 +26,17 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
 
   const ORG_A = 'org-tenant-a';
   const ORG_B = 'org-tenant-b';
+  const TENANT_ADMIN: AuthenticatedUser = {
+    id: 'admin-org-a',
+    email: 'admin@orga.test',
+    firstName: 'Tenant',
+    lastName: 'Admin',
+    organizationId: ORG_A,
+    locale: 'fr',
+    office: null,
+    roles: [{ id: 'role-admin-a', name: 'Admin', scope: 'tenant' }],
+    permissions: [...ALL_PERMISSIONS],
+  };
 
   beforeEach(() => {
     reflector = new Reflector();
@@ -66,14 +80,20 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
         count: jest.fn(),
       },
     };
+    mockPrisma.$transaction = jest.fn(async (callback) => callback(mockPrisma));
 
     mockConfigService = {
       getOrThrow: jest.fn().mockReturnValue('test-secret-key-1234567890'),
     };
 
+    const authService = new AuthService(
+      mockPrisma,
+      { sign: jest.fn() } as never,
+      mockConfigService as ConfigService,
+    );
     jwtStrategy = new JwtStrategy(
       mockConfigService as ConfigService,
-      mockPrisma,
+      authService,
     );
     rolesService = new RolesService(mockPrisma);
     usersService = new UsersService(mockPrisma);
@@ -152,10 +172,19 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
           { permission: { resource: 'dossiers', action: 'write' } },
         ],
       });
+      mockPrisma.permission.findMany.mockResolvedValue([
+        { id: 'perm-dossiers-read', resource: 'dossiers', action: 'read' },
+        { id: 'perm-dossiers-write', resource: 'dossiers', action: 'write' },
+      ]);
 
-      await rolesService.update('role-comm', ORG_A, {
-        permissionIds: ['perm-dossiers-read', 'perm-dossiers-write'],
-      });
+      await rolesService.update(
+        'role-comm',
+        ORG_A,
+        {
+          permissionIds: ['perm-dossiers-read', 'perm-dossiers-write'],
+        },
+        TENANT_ADMIN,
+      );
 
       expect(mockPrisma.role.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -212,10 +241,18 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
         name: 'Commercial',
         organizationId: ORG_A,
       });
+      mockPrisma.permission.findMany.mockResolvedValue([
+        { id: 'perm-dossiers-read', resource: 'dossiers', action: 'read' },
+      ]);
 
-      await rolesService.update('role-comm', ORG_A, {
-        permissionIds: ['perm-dossiers-read'],
-      });
+      await rolesService.update(
+        'role-comm',
+        ORG_A,
+        {
+          permissionIds: ['perm-dossiers-read'],
+        },
+        TENANT_ADMIN,
+      );
 
       // 2. Fresh request by Commercial user
       mockPrisma.user.findUnique.mockResolvedValue({
@@ -407,7 +444,12 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        rolesService.update('role-in-org-b', ORG_A, { name: 'Hacked' }),
+        rolesService.update(
+          'role-in-org-b',
+          ORG_A,
+          { name: 'Hacked' },
+          TENANT_ADMIN,
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -419,7 +461,12 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        usersService.update('user-in-org-b', ORG_A, { firstName: 'Hacked' }),
+        usersService.update(
+          'user-in-org-b',
+          ORG_A,
+          { firstName: 'Hacked' },
+          TENANT_ADMIN,
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -525,6 +572,7 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
             roleIds: ['role-from-org-b'],
           },
           ORG_A,
+          TENANT_ADMIN,
         ),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -539,9 +587,14 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
       mockPrisma.role.findMany.mockResolvedValue([]);
 
       await expect(
-        usersService.update('user-a', ORG_A, {
-          roleIds: ['role-from-org-b'],
-        }),
+        usersService.update(
+          'user-a',
+          ORG_A,
+          {
+            roleIds: ['role-from-org-b'],
+          },
+          TENANT_ADMIN,
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -551,29 +604,24 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
   // ──────────────────────────────────────────────
   describe('11. Platform Role Protection', () => {
     it('Tenant Admin cannot modify platform-level roles (organizationId: null)', async () => {
-      mockPrisma.role.findFirst.mockResolvedValue({
-        id: 'global-superadmin',
-        name: 'Platform SuperAdmin',
-        organizationId: null, // Platform scope
-        scope: 'platform',
-      });
+      mockPrisma.role.findFirst.mockResolvedValue(null);
 
       await expect(
-        rolesService.update('global-superadmin', ORG_A, { name: 'Tampered' }),
-      ).rejects.toThrow(ForbiddenException);
+        rolesService.update(
+          'global-superadmin',
+          ORG_A,
+          { name: 'Tampered' },
+          TENANT_ADMIN,
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('Tenant Admin cannot delete platform-level roles (organizationId: null)', async () => {
-      mockPrisma.role.findFirst.mockResolvedValue({
-        id: 'global-superadmin',
-        name: 'Platform SuperAdmin',
-        organizationId: null,
-        scope: 'platform',
-      });
+      mockPrisma.role.findFirst.mockResolvedValue(null);
 
       await expect(
         rolesService.remove('global-superadmin', ORG_A),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -620,7 +668,9 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
 
       const customUser = await jwtStrategy.validate({ sub: 'user-custom' });
 
-      expect(customUser.roles).toContain('Regional Dispatcher');
+      expect(customUser.roles).toContainEqual(
+        expect.objectContaining({ name: 'Regional Dispatcher' }),
+      );
       expect(
         permissionsGuard.canActivate(
           createMockContext(customUser, 'warehouses:write'),

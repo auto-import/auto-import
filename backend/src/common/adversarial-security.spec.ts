@@ -15,6 +15,7 @@ import { ProspectsService } from '../prospects/prospects.service';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
   let dossiersService: DossiersService;
@@ -38,6 +39,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         create: jest.fn(),
         update: jest.fn(),
         count: jest.fn(),
+        groupBy: jest.fn(),
       },
       client: {
         findFirst: jest.fn(),
@@ -134,6 +136,8 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
       },
       reservation: {
         create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
         updateMany: jest.fn(),
       },
       orderItem: {
@@ -164,6 +168,20 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         UsersService,
         DossierWorkflowService,
         {
+          provide: DocumentsService,
+          useValue: {
+            verifySignedContract: jest
+              .fn()
+              .mockResolvedValue({ id: 'contract-1' }),
+            verifyCheckpoint: jest.fn().mockResolvedValue({
+              complete: true,
+              missingVehicleIds: [],
+              evidenceIds: [],
+            }),
+            markEvidenceRelied: jest.fn(),
+          },
+        },
+        {
           provide: PrismaService,
           useValue: prisma,
         },
@@ -193,6 +211,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
 
       await vehiclesService.create(
         {
+          vin: 'L6TDBE2E0RA000001',
           brand: 'Geely',
           model: 'Coolray',
           acquisitionType: 'stock' as any,
@@ -211,6 +230,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
     });
 
     it('ProspectsService: must bind prospect to caller organization', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'user-1' });
       prisma.prospect.create.mockResolvedValue({
         id: 'pros-1',
         organizationId: ORG_A,
@@ -343,6 +363,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
   describe('4. Aggregation and Statistics Tenant Isolation', () => {
     it('DossiersService.getStatistics: counts only Organization A records', async () => {
       prisma.dossier.count.mockResolvedValue(0);
+      prisma.dossier.groupBy.mockResolvedValue([]);
 
       await dossiersService.getStatistics(ORG_A);
 

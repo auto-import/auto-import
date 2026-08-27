@@ -16,14 +16,20 @@ import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { AddDossierVehicleDto } from './dto/add-dossier-vehicle.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { Permission } from '@auto-import/contracts';
+import { UpdateDossierDto } from './dto/update-dossier.dto';
 
 @Controller('dossiers')
 export class DossiersController {
   constructor(private readonly dossiersService: DossiersService) {}
 
   @Post()
-  @RequirePermission('dossiers:write')
-  create(@Body() createDossierDto: CreateDossierDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_WRITE)
+  create(
+    @Body() createDossierDto: CreateDossierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.dossiersService.create(
       createDossierDto,
       user.id,
@@ -32,8 +38,11 @@ export class DossiersController {
   }
 
   @Get()
-  @RequirePermission('dossiers:read')
-  findAll(@Query() filters: FilterDossierDto, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  findAll(
+    @Query() filters: FilterDossierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.dossiersService.findAll(
       user.organizationId,
       filters.page,
@@ -43,41 +52,44 @@ export class DossiersController {
   }
 
   @Get('statistics')
-  @RequirePermission('dossiers:read')
-  getStatistics(@CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  getStatistics(@CurrentUser() user: AuthenticatedUser) {
     return this.dossiersService.getStatistics(user.organizationId);
   }
 
   @Get(':id')
-  @RequirePermission('dossiers:read')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.dossiersService.findOne(id, user.organizationId);
   }
 
   @Get(':id/history')
-  @RequirePermission('dossiers:read')
-  getHistory(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  getHistory(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.dossiersService.getHistory(id, user.organizationId);
   }
 
   @Get(':id/vehicles')
-  @RequirePermission('dossiers:read')
-  getVehicles(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  getVehicles(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.dossiersService.getVehicles(id, user.organizationId);
   }
 
   @Get(':id/allowed-transitions')
-  @RequirePermission('dossiers:read')
-  getAllowedTransitions(@Param('id') id: string, @CurrentUser() user: any) {
+  @RequirePermission(Permission.DOSSIERS_READ)
+  getAllowedTransitions(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.dossiersService.getAllowedTransitions(id, user.organizationId);
   }
 
   @Post(':id/advance-status')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
   advanceStatus(
     @Param('id') id: string,
     @Body() advanceStatusDto: AdvanceStatusDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dossiersService.advanceStatus(
       id,
@@ -88,11 +100,11 @@ export class DossiersController {
   }
 
   @Post(':id/vehicles')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
   addVehicle(
     @Param('id') id: string,
     @Body() addVehicleDto: AddDossierVehicleDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dossiersService.addVehicle(
       id,
@@ -103,11 +115,11 @@ export class DossiersController {
   }
 
   @Delete(':id/vehicles/:vehicleId')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
   removeVehicle(
     @Param('id') id: string,
     @Param('vehicleId') vehicleId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dossiersService.removeVehicle(
       id,
@@ -118,11 +130,11 @@ export class DossiersController {
   }
 
   @Patch(':id/status')
-  @RequirePermission('dossiers:write')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
   updateStatus(
     @Param('id') id: string,
     @Body() updateStatusDto: UpdateStatusDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dossiersService.updateStatus(
       id,
@@ -130,5 +142,15 @@ export class DossiersController {
       user.id,
       user.organizationId,
     );
+  }
+
+  @Patch(':id')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateDossierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dossiersService.update(id, dto, user.id, user.organizationId);
   }
 }

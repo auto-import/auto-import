@@ -9,11 +9,13 @@ export function paginate<T>(
   const totalPages = Math.ceil(total / limit);
   return {
     items,
-    total,
-    page,
-    limit,
-    totalPages,
-    hasNext: page < totalPages,
-    hasPrevious: page > 1,
+    pagination: {
+      page,
+      pageSize: limit,
+      totalItems: total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    },
   };
 }
