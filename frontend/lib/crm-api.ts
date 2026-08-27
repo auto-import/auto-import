@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api";
+import { apiRequest, apiUpload } from "@/lib/api";
 import type {
   ApiAgentPresenceStatus,
   ApiCallState,
@@ -54,6 +54,11 @@ export interface ApiClient {
   phone?: string | null;
   email?: string | null;
   nationality?: string | null;
+  ninMasked?: string | null;
+  passportNumberMasked?: string | null;
+  identityIssueDate?: string | null;
+  passportExpiry?: string | null;
+  identityConfigured?: { nin: boolean; passport: boolean };
   address?: string | null;
   status: string;
   assignedTo?: string | null;
@@ -228,6 +233,16 @@ export const crmApi = {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+  createClientWithPassport(
+    input: Record<string, string | undefined>,
+    passportScan: File,
+  ) {
+    const body = new FormData();
+    for (const [key, value] of Object.entries(input))
+      if (value) body.append(key, value);
+    body.append("passportScan", passportScan);
+    return apiUpload<{ client: ApiClient }>("/clients/with-passport", body);
   },
   timeline(ownerType: "prospect" | "client", id: string, cursor?: string) {
     return apiRequest<{ items: TimelineItem[]; nextCursor: string | null }>(

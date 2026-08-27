@@ -1,5 +1,6 @@
 'use client';
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { StatusBadge } from '@/components';
@@ -43,7 +44,7 @@ export default function VehiculeDetailModal({ vehicule, onClose }: VehiculeDetai
     { label: 'Année', value: String(vehicule.annee) },
     {
       label: 'Kilométrage',
-      value: vehicule.kilometrage != null ? `${vehicule.kilometrage.toLocaleString('fr-FR')} km` : '—',
+      value: vehicule.kilometrage != null ? `${vehicule.kilometrage.toLocaleString(getRuntimeLocale())} km` : '—',
     },
     {
       label: 'État',
@@ -68,7 +69,7 @@ export default function VehiculeDetailModal({ vehicule, onClose }: VehiculeDetai
     },
     {
       label: 'Cylindrée',
-      value: vehicule.cylindree_cc ? `${vehicule.cylindree_cc.toLocaleString('fr-FR')} cm³` : '—',
+      value: vehicule.cylindree_cc ? `${vehicule.cylindree_cc.toLocaleString(getRuntimeLocale())} cm³` : '—',
     },
     { label: 'Portes', value: vehicule.portes ? String(vehicule.portes) : '—' },
     { label: 'Places', value: vehicule.places ? String(vehicule.places) : '—' },

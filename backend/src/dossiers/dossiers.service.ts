@@ -15,6 +15,7 @@ import { paginate } from '../common/helpers/pagination.helper';
 import { DossierStatus } from '@auto-import/contracts';
 import { Prisma } from '@prisma/client';
 import { UpdateDossierDto } from './dto/update-dossier.dto';
+import { DocumentsService } from '../documents/documents.service';
 
 @Injectable()
 export class DossiersService {
@@ -23,6 +24,7 @@ export class DossiersService {
   constructor(
     private prisma: PrismaService,
     private workflowService: DossierWorkflowService,
+    private documentsService: DocumentsService,
   ) {}
 
   private async generateReference(
@@ -711,6 +713,45 @@ export class DossiersService {
       status,
     );
 
+    if (status === DossierStatus.CONTRACT_SIGNED) {
+      const contract = await this.documentsService.verifySignedContract(
+        id,
+        dossier.organizationId,
+      );
+      if (!contract) {
+        throw new ConflictException({
+          code: 'DOSSIER_SIGNED_CONTRACT_REQUIRED',
+          message: 'A readable signed contract is required for this transition',
+        });
+      }
+    }
+
+    const checkpointByStatus: Partial<Record<string, string>> = {
+      [DossierStatus.ARRIVED_AT_PORT]: 'ARRIVAL_AT_PORT',
+      [DossierStatus.CUSTOMS_CLEARANCE]: 'CUSTOMS',
+      [DossierStatus.PORT_EXIT]: 'PORT_EXIT',
+      [DossierStatus.LOCAL_TRANSPORT]: 'LOCAL_TRANSPORT',
+    };
+    const checkpoint = checkpointByStatus[status];
+    let reliedEvidenceIds: string[] = [];
+    if (checkpoint) {
+      const evidence = await this.documentsService.verifyCheckpoint(
+        id,
+        dossier.organizationId,
+        checkpoint,
+      );
+      if (!evidence.complete) {
+        throw new ConflictException({
+          code: 'DOSSIER_CHECKPOINT_EVIDENCE_REQUIRED',
+          checkpoint,
+          missingVehicleIds: evidence.missingVehicleIds,
+          message:
+            'A readable checkpoint photo is required for every dossier vehicle',
+        });
+      }
+      reliedEvidenceIds = evidence.evidenceIds;
+    }
+
     // Enforce Phase 2 Payment Gates
     if (
       status === DossierStatus.PURCHASE_CONFIRMED ||
@@ -728,13 +769,7 @@ export class DossiersService {
       });
       if (plan && plan.installments.length > 0) {
         const firstInst = plan.installments[0];
-        const confirmedPayments = await this.prisma.payment.findMany({
-          where: { dossierId: id, status: 'CONFIRMED' },
-        });
-        const totalPaid = confirmedPayments.reduce(
-          (sum, p) => sum.add(p.amount),
-          new Prisma.Decimal(0),
-        );
+        const totalPaid = firstInst.paidAmount;
         if (totalPaid.lessThan(firstInst.amount)) {
           throw new BadRequestException(
             `Payment Gate Failed: Upfront deposit of ${firstInst.amount.toString()} ${plan.currency} must be confirmed before advancing to ${status}. Currently confirmed: ${totalPaid.toString()}`,
@@ -756,11 +791,12 @@ export class DossiersService {
         },
       });
       if (plan) {
-        const confirmedPayments = await this.prisma.payment.findMany({
-          where: { dossierId: id, status: 'CONFIRMED' },
+        const installments = await this.prisma.paymentInstallment.findMany({
+          where: { paymentPlanId: plan.id, status: { not: 'CANCELLED' } },
+          select: { paidAmount: true },
         });
-        const totalPaid = confirmedPayments.reduce(
-          (sum, p) => sum.add(p.amount),
+        const totalPaid = installments.reduce(
+          (sum, installment) => sum.add(installment.paidAmount),
           new Prisma.Decimal(0),
         );
         if (totalPaid.lessThan(plan.totalAmount)) {
@@ -917,6 +953,8 @@ export class DossiersService {
 
       return updated;
     });
+
+    await this.documentsService.markEvidenceRelied(reliedEvidenceIds);
 
     this.logger.log(
       `Dossier ${dossier.reference} status updated: ${currentStatus} -> ${status} (by ${userId})`,

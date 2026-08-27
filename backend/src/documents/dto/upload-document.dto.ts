@@ -1,13 +1,14 @@
-import {
-  IsEnum,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class UploadDossierDocumentDto {
+  @IsOptional()
   @IsString()
-  dossierId: string;
+  dossierId?: string;
+
+  @IsOptional()
+  @IsString()
+  clientId?: string;
 
   @IsString()
   kind: string; // 'DOSSIER_DOCUMENT' | 'PROOF' | 'CONTRACT' | 'CUSTOMS_DOCUMENT' | 'PAYMENT_RECEIPT' | 'VEHICLE_PHOTO' | 'BUSINESS_DOCUMENT'
@@ -29,6 +30,10 @@ export class FilterDossierDocumentsDto extends PaginationDto {
   @IsOptional()
   @IsString()
   dossierId?: string;
+
+  @IsOptional()
+  @IsString()
+  clientId?: string;
 
   @IsOptional()
   @IsString()

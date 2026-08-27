@@ -1969,11 +1969,25 @@ async function seedDocumentsAndOperations(): Promise<void> {
       });
       await tx.dossierDocumentAsset.upsert({
         where: { id: key('dossier-document', index) },
-        update: { kind: spec.kind, status: 'valid' },
+        update: {
+          kind: spec.kind,
+          documentType: [
+            'photo_vehicule',
+            'registre_commerce',
+            'fiche_dossier',
+            'preuve_paiement',
+            'SIGNED_CONTRACT',
+            'documents_douane',
+            'recu_paiement',
+          ][index],
+          clientId: clientId(index),
+          status: 'valid',
+        },
         create: {
           id: key('dossier-document', index),
           organizationId: PRIMARY_ORG_ID,
           dossierId: dossierId(index),
+          clientId: clientId(index),
           fileId: key('file', `${PRIMARY_ORG_ID}:${index}`),
           kind: spec.kind,
           documentType: [
@@ -1981,7 +1995,7 @@ async function seedDocumentsAndOperations(): Promise<void> {
             'registre_commerce',
             'fiche_dossier',
             'preuve_paiement',
-            'contrat',
+            'SIGNED_CONTRACT',
             'documents_douane',
             'recu_paiement',
           ][index],
@@ -2097,6 +2111,67 @@ async function seedDocumentsAndOperations(): Promise<void> {
           create: {
             id: key('vehicle-photo', `${vehicleIndex}:${sortOrder}`),
             vehicleId: vehicleId(vehicleIndex),
+            fileId,
+            sortOrder,
+            isPrimary: sortOrder === 0,
+            createdAt: at(config.anchor, -6),
+          },
+        });
+      });
+    }
+  }
+
+  for (let offerIndex = 0; offerIndex < 14; offerIndex += 1) {
+    for (let sortOrder = 0; sortOrder < 3; sortOrder += 1) {
+      const fixtureKey = `offer-gallery:${offerIndex}:${sortOrder}`;
+      const [red, green, blue] =
+        galleryColors[(offerIndex + sortOrder) % galleryColors.length];
+      const spec: FixtureSpec = {
+        category: 'offer_photo',
+        kind: 'OFFER_PHOTO',
+        mimeType: 'image/png',
+        name: `offer-${offerIndex + 1}-${sortOrder + 1}.png`,
+        bytes: colorPng(red, green, blue),
+      };
+      const stored = await ensureFixture(PRIMARY_ORG_ID, fixtureKey, spec);
+      const fileId = key('file', `${PRIMARY_ORG_ID}:${fixtureKey}`);
+      await prisma.$transaction(async (tx) => {
+        await tx.fileAsset.upsert({
+          where: { id: fileId },
+          update: {
+            storageKey: stored.storageKey,
+            size: stored.size,
+            checksum: stored.checksum,
+            mimeType: spec.mimeType,
+            status: 'active',
+          },
+          create: {
+            id: fileId,
+            organizationId: PRIMARY_ORG_ID,
+            storageKey: stored.storageKey,
+            originalName: spec.name,
+            mimeType: spec.mimeType,
+            size: stored.size,
+            checksum: stored.checksum,
+            category: spec.kind,
+            status: 'active',
+            uploadedBy: userId('commercial'),
+            createdAt: at(config.anchor, -6),
+          },
+        });
+        await tx.offerPhoto.upsert({
+          where: { id: key('offer-photo', `${offerIndex}:${sortOrder}`) },
+          update: {
+            organizationId: PRIMARY_ORG_ID,
+            offerId: key('offer', offerIndex),
+            fileId,
+            sortOrder,
+            isPrimary: sortOrder === 0,
+          },
+          create: {
+            id: key('offer-photo', `${offerIndex}:${sortOrder}`),
+            organizationId: PRIMARY_ORG_ID,
+            offerId: key('offer', offerIndex),
             fileId,
             sortOrder,
             isPrimary: sortOrder === 0,

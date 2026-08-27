@@ -32,6 +32,7 @@ describe('UsersService', () => {
     firstName: 'Admin',
     lastName: 'A',
     organizationId: 'org-a',
+    locale: 'fr',
     office: null,
     roles: [{ id: 'admin-role', name: 'Admin', scope: 'tenant' }],
     permissions: [...ALL_PERMISSIONS],

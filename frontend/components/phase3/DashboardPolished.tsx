@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Banknote, CarFront, FolderOpen } from "lucide-react";
@@ -58,7 +60,7 @@ export default function DashboardPolished() {
         ...item,
         value: Number(item.collections),
         label: new Date(`${item.month}-01T00:00:00Z`).toLocaleDateString(
-          "fr-FR",
+          getRuntimeLocale(),
           { month: "short", year: "2-digit", timeZone: "UTC" },
         ),
       })),
@@ -91,7 +93,7 @@ export default function DashboardPolished() {
               <Kpi
                 icon={<Banknote />}
                 label="CA encaissé"
-                value={`${Number(data.finance.collected).toLocaleString("fr-DZ")} ${data.period.baseCurrency}`}
+                value={`${Number(data.finance.collected).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`}
               />
               <Kpi
                 icon={<AlertTriangle />}
@@ -157,7 +159,7 @@ export default function DashboardPolished() {
                       <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                       <YAxis
                         tickFormatter={(value) =>
-                          new Intl.NumberFormat("fr-FR", {
+                          new Intl.NumberFormat(getRuntimeLocale(), {
                             notation: "compact",
                           }).format(value)
                         }
@@ -165,7 +167,7 @@ export default function DashboardPolished() {
                       />
                       <Tooltip
                         formatter={(value) => [
-                          `${Number(value).toLocaleString("fr-DZ")} ${data.period.baseCurrency}`,
+                          `${Number(value).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`,
                           "Encaissé",
                         ]}
                       />
@@ -238,7 +240,7 @@ export default function DashboardPolished() {
                             </td>
                             <td className="px-6 py-4 text-muted">
                               {new Date(dossier.updatedAt).toLocaleDateString(
-                                "fr-FR",
+                                getRuntimeLocale(),
                               )}
                             </td>
                           </tr>

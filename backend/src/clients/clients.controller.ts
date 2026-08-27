@@ -7,7 +7,10 @@ import {
   Param,
   Delete,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientsService } from './clients.service';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
@@ -16,6 +19,7 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { CreateClientDto } from './dto/create-client.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { Permission } from '@auto-import/contracts';
+import type { UploadedBufferFile } from '../documents/documents.service';
 
 @Controller('clients')
 export class ClientsController {
@@ -25,6 +29,24 @@ export class ClientsController {
   @RequirePermission(Permission.CLIENTS_WRITE)
   create(@Body() dto: CreateClientDto, @CurrentUser() user: AuthenticatedUser) {
     return this.clientsService.create(dto, user.organizationId, user.id);
+  }
+
+  @Post('with-passport')
+  @RequirePermission(Permission.CLIENTS_WRITE)
+  @UseInterceptors(
+    FileInterceptor('passportScan', { limits: { fileSize: 25 * 1024 * 1024 } }),
+  )
+  createWithPassport(
+    @Body() dto: CreateClientDto,
+    @UploadedFile() passportScan: UploadedBufferFile,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.createWithPassport(
+      dto,
+      user.organizationId,
+      user.id,
+      passportScan,
+    );
   }
 
   @Get()
@@ -45,6 +67,15 @@ export class ClientsController {
   @RequirePermission('clients:read')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.clientsService.findOne(id, user.organizationId);
+  }
+
+  @Get(':id/identity')
+  @RequirePermission(Permission.CLIENTS_IDENTITY_REVEAL)
+  revealIdentity(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.revealIdentity(id, user.organizationId, user.id);
   }
 
   @Get(':id/dossiers')

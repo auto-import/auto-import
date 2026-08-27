@@ -30,7 +30,7 @@ export interface ApiInvoice {
   orderId?: string | null;
   dossierId?: string | null;
   clientId: string;
-  status: 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOIDED';
+  status: "DRAFT" | "ISSUED" | "PARTIALLY_PAID" | "PAID" | "OVERDUE" | "VOIDED";
   subtotal: string | number;
   tax: string | number;
   discount: string | number;
@@ -44,8 +44,18 @@ export interface ApiInvoice {
   notes?: string | null;
   createdAt: string;
   updatedAt?: string;
-  client?: { id: string; firstName: string; lastName: string; email?: string | null };
-  dossier?: { id: string; reference: string; type?: string; status?: string } | null;
+  client?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email?: string | null;
+  };
+  dossier?: {
+    id: string;
+    reference: string;
+    type?: string;
+    status?: string;
+  } | null;
   order?: { id: string; orderNumber: string; status?: string } | null;
   items?: ApiInvoiceItem[];
   allocations?: ApiPaymentAllocation[];
@@ -61,7 +71,8 @@ export interface ApiPaymentInstallment {
   paidAmount: string | number;
   dueTrigger: string;
   dueDate?: string | null;
-  status: 'PENDING' | 'DUE' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+  status:
+    "PENDING" | "DUE" | "PARTIALLY_PAID" | "PAID" | "OVERDUE" | "CANCELLED";
   allocations?: ApiPaymentAllocation[];
 }
 
@@ -70,10 +81,10 @@ export interface ApiPaymentPlan {
   clientId: string;
   dossierId?: string | null;
   orderId?: string | null;
-  strategy: 'THIRTY_SEVENTY' | 'FULL_UPFRONT' | string;
+  strategy: "THIRTY_SEVENTY" | "FULL_UPFRONT" | string;
   totalAmount: string | number;
   currency: string;
-  status: 'active' | 'completed' | 'cancelled';
+  status: "active" | "completed" | "cancelled";
   createdAt: string;
   installments?: ApiPaymentInstallment[];
   client?: { id: string; firstName: string; lastName: string };
@@ -94,7 +105,7 @@ export interface ApiPayment {
   paymentMethod?: string | null;
   reference?: string | null;
   idempotencyKey?: string | null;
-  status: 'PENDING' | 'CONFIRMED' | 'REVERSED' | 'FAILED';
+  status: "PENDING" | "CONFIRMED" | "REVERSED" | "FAILED";
   paymentDate?: string | null;
   receivedAt?: string | null;
   confirmedAt?: string | null;
@@ -120,7 +131,7 @@ export interface ApiCustomerDeposit {
   currency: string;
   paymentMethod?: string | null;
   reference?: string | null;
-  status: 'CONFIRMED' | 'PARTIALLY_APPLIED' | 'FULLY_APPLIED' | 'REVERSED';
+  status: "CONFIRMED" | "PARTIALLY_APPLIED" | "FULLY_APPLIED" | "REVERSED";
   paymentDate?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -136,7 +147,7 @@ export interface ApiSupplierPayment {
   currency: string;
   paymentMethod?: string | null;
   reference?: string | null;
-  status: 'PENDING' | 'CONFIRMED' | 'REVERSED';
+  status: "PENDING" | "CONFIRMED" | "REVERSED";
   paymentDate?: string | null;
   paidAt?: string | null;
   confirmedAt?: string | null;
@@ -161,7 +172,7 @@ export interface ApiCost {
   customsFileId?: string | null;
   occurredAt: string;
   description?: string | null;
-  status: 'POSTED' | 'REVERSED';
+  status: "POSTED" | "REVERSED";
   dossier?: { id: string; reference: string } | null;
   purchase?: { id: string; purchaseNumber: string } | null;
   shipment?: { id: string; shipmentNumber: string } | null;
@@ -188,6 +199,9 @@ export interface DossierFinancialSummary {
     totalInBaseCurrency: string;
     collected: string;
     outstanding: string;
+    percentage: string;
+    state: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID_DEPOSIT";
+    overpayment: string;
   };
   gates: {
     strategy: string;
@@ -246,16 +260,19 @@ export async function fetchInvoices(params: {
   currency?: string;
 }): Promise<PaginatedData<ApiInvoice>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.search) query.set('search', params.search);
-  if (params.status && params.status !== 'tous') query.set('status', params.status);
-  if (params.clientId) query.set('clientId', params.clientId);
-  if (params.dossierId) query.set('dossierId', params.dossierId);
-  if (params.orderId) query.set('orderId', params.orderId);
-  if (params.currency) query.set('currency', params.currency);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.search) query.set("search", params.search);
+  if (params.status && params.status !== "tous")
+    query.set("status", params.status);
+  if (params.clientId) query.set("clientId", params.clientId);
+  if (params.dossierId) query.set("dossierId", params.dossierId);
+  if (params.orderId) query.set("orderId", params.orderId);
+  if (params.currency) query.set("currency", params.currency);
 
-  return apiRequest<PaginatedData<ApiInvoice>>(`/finance/invoices?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiInvoice>>(
+    `/finance/invoices?${query.toString()}`,
+  );
 }
 
 export async function fetchInvoice(id: string): Promise<ApiInvoice> {
@@ -278,21 +295,24 @@ export async function createInvoice(data: {
     sourceEntity?: string;
   }>;
 }): Promise<ApiInvoice> {
-  return apiRequest<ApiInvoice>('/finance/invoices', {
-    method: 'POST',
+  return apiRequest<ApiInvoice>("/finance/invoices", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export async function issueInvoice(id: string): Promise<ApiInvoice> {
   return apiRequest<ApiInvoice>(`/finance/invoices/${id}/issue`, {
-    method: 'POST',
+    method: "POST",
   });
 }
 
-export async function voidInvoice(id: string, reason: string): Promise<ApiInvoice> {
+export async function voidInvoice(
+  id: string,
+  reason: string,
+): Promise<ApiInvoice> {
   return apiRequest<ApiInvoice>(`/finance/invoices/${id}/void`, {
-    method: 'POST',
+    method: "POST",
     body: JSON.stringify({ reason }),
   });
 }
@@ -307,14 +327,16 @@ export async function fetchPaymentPlans(params: {
   status?: string;
 }): Promise<PaginatedData<ApiPaymentPlan>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.clientId) query.set('clientId', params.clientId);
-  if (params.dossierId) query.set('dossierId', params.dossierId);
-  if (params.orderId) query.set('orderId', params.orderId);
-  if (params.status) query.set('status', params.status);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.clientId) query.set("clientId", params.clientId);
+  if (params.dossierId) query.set("dossierId", params.dossierId);
+  if (params.orderId) query.set("orderId", params.orderId);
+  if (params.status) query.set("status", params.status);
 
-  return apiRequest<PaginatedData<ApiPaymentPlan>>(`/finance/payment-plans?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiPaymentPlan>>(
+    `/finance/payment-plans?${query.toString()}`,
+  );
 }
 
 export async function createPaymentPlan(data: {
@@ -325,8 +347,8 @@ export async function createPaymentPlan(data: {
   currency: string;
   strategy?: string;
 }): Promise<ApiPaymentPlan> {
-  return apiRequest<ApiPaymentPlan>('/finance/payment-plans', {
-    method: 'POST',
+  return apiRequest<ApiPaymentPlan>("/finance/payment-plans", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
@@ -342,15 +364,17 @@ export async function fetchPayments(params: {
   orderId?: string;
 }): Promise<PaginatedData<ApiPayment>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.search) query.set('search', params.search);
-  if (params.status) query.set('status', params.status);
-  if (params.clientId) query.set('clientId', params.clientId);
-  if (params.dossierId) query.set('dossierId', params.dossierId);
-  if (params.orderId) query.set('orderId', params.orderId);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.clientId) query.set("clientId", params.clientId);
+  if (params.dossierId) query.set("dossierId", params.dossierId);
+  if (params.orderId) query.set("orderId", params.orderId);
 
-  return apiRequest<PaginatedData<ApiPayment>>(`/finance/payments?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiPayment>>(
+    `/finance/payments?${query.toString()}`,
+  );
 }
 
 export async function recordPayment(data: {
@@ -367,21 +391,24 @@ export async function recordPayment(data: {
   paymentDate?: string;
   notes?: string;
 }): Promise<ApiPayment> {
-  return apiRequest<ApiPayment>('/finance/payments', {
-    method: 'POST',
+  return apiRequest<ApiPayment>("/finance/payments", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export async function confirmPayment(id: string): Promise<ApiPayment> {
   return apiRequest<ApiPayment>(`/finance/payments/${id}/confirm`, {
-    method: 'POST',
+    method: "POST",
   });
 }
 
-export async function reversePayment(id: string, reason: string): Promise<ApiPayment> {
+export async function reversePayment(
+  id: string,
+  reason: string,
+): Promise<ApiPayment> {
   return apiRequest<ApiPayment>(`/finance/payments/${id}/reverse`, {
-    method: 'POST',
+    method: "POST",
     body: JSON.stringify({ reason }),
   });
 }
@@ -394,22 +421,27 @@ export async function fetchCustomerDeposits(params: {
   dossierId?: string;
 }): Promise<PaginatedData<ApiCustomerDeposit>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.clientId) query.set('clientId', params.clientId);
-  if (params.dossierId) query.set('dossierId', params.dossierId);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.clientId) query.set("clientId", params.clientId);
+  if (params.dossierId) query.set("dossierId", params.dossierId);
 
-  return apiRequest<PaginatedData<ApiCustomerDeposit>>(`/finance/customer-deposits?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiCustomerDeposit>>(
+    `/finance/customer-deposits?${query.toString()}`,
+  );
 }
 
 export async function applyCustomerDeposit(
   id: string,
   data: { amount: number; invoiceId?: string; installmentId?: string },
 ): Promise<ApiCustomerDeposit> {
-  return apiRequest<ApiCustomerDeposit>(`/finance/customer-deposits/${id}/apply`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ApiCustomerDeposit>(
+    `/finance/customer-deposits/${id}/apply`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 // Supplier Payments API
@@ -421,13 +453,15 @@ export async function fetchSupplierPayments(params: {
   status?: string;
 }): Promise<PaginatedData<ApiSupplierPayment>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.supplierId) query.set('supplierId', params.supplierId);
-  if (params.purchaseId) query.set('purchaseId', params.purchaseId);
-  if (params.status) query.set('status', params.status);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.supplierId) query.set("supplierId", params.supplierId);
+  if (params.purchaseId) query.set("purchaseId", params.purchaseId);
+  if (params.status) query.set("status", params.status);
 
-  return apiRequest<PaginatedData<ApiSupplierPayment>>(`/finance/supplier-payments?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiSupplierPayment>>(
+    `/finance/supplier-payments?${query.toString()}`,
+  );
 }
 
 export async function createSupplierPayment(data: {
@@ -441,16 +475,21 @@ export async function createSupplierPayment(data: {
   paymentDate?: string;
   notes?: string;
 }): Promise<ApiSupplierPayment> {
-  return apiRequest<ApiSupplierPayment>('/finance/supplier-payments', {
-    method: 'POST',
+  return apiRequest<ApiSupplierPayment>("/finance/supplier-payments", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
 
-export async function confirmSupplierPayment(id: string): Promise<ApiSupplierPayment> {
-  return apiRequest<ApiSupplierPayment>(`/finance/supplier-payments/${id}/confirm`, {
-    method: 'POST',
-  });
+export async function confirmSupplierPayment(
+  id: string,
+): Promise<ApiSupplierPayment> {
+  return apiRequest<ApiSupplierPayment>(
+    `/finance/supplier-payments/${id}/confirm`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 // Costs API
@@ -466,17 +505,19 @@ export async function fetchCosts(params: {
   status?: string;
 }): Promise<PaginatedData<ApiCost>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.type) query.set('type', params.type);
-  if (params.dossierId) query.set('dossierId', params.dossierId);
-  if (params.orderId) query.set('orderId', params.orderId);
-  if (params.purchaseId) query.set('purchaseId', params.purchaseId);
-  if (params.shipmentId) query.set('shipmentId', params.shipmentId);
-  if (params.customsFileId) query.set('customsFileId', params.customsFileId);
-  if (params.status) query.set('status', params.status);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.type) query.set("type", params.type);
+  if (params.dossierId) query.set("dossierId", params.dossierId);
+  if (params.orderId) query.set("orderId", params.orderId);
+  if (params.purchaseId) query.set("purchaseId", params.purchaseId);
+  if (params.shipmentId) query.set("shipmentId", params.shipmentId);
+  if (params.customsFileId) query.set("customsFileId", params.customsFileId);
+  if (params.status) query.set("status", params.status);
 
-  return apiRequest<PaginatedData<ApiCost>>(`/finance/costs?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiCost>>(
+    `/finance/costs?${query.toString()}`,
+  );
 }
 
 export async function createCost(data: {
@@ -491,8 +532,8 @@ export async function createCost(data: {
   description?: string;
   occurredAt?: string;
 }): Promise<ApiCost> {
-  return apiRequest<ApiCost>('/finance/costs', {
-    method: 'POST',
+  return apiRequest<ApiCost>("/finance/costs", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
@@ -505,12 +546,14 @@ export async function fetchExchangeRates(params: {
   quoteCurrency?: string;
 }): Promise<PaginatedData<ApiExchangeRate>> {
   const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.baseCurrency) query.set('baseCurrency', params.baseCurrency);
-  if (params.quoteCurrency) query.set('quoteCurrency', params.quoteCurrency);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.baseCurrency) query.set("baseCurrency", params.baseCurrency);
+  if (params.quoteCurrency) query.set("quoteCurrency", params.quoteCurrency);
 
-  return apiRequest<PaginatedData<ApiExchangeRate>>(`/finance/exchange-rates?${query.toString()}`);
+  return apiRequest<PaginatedData<ApiExchangeRate>>(
+    `/finance/exchange-rates?${query.toString()}`,
+  );
 }
 
 export async function createExchangeRate(data: {
@@ -520,17 +563,21 @@ export async function createExchangeRate(data: {
   effectiveAt?: string;
   source?: string;
 }): Promise<ApiExchangeRate> {
-  return apiRequest<ApiExchangeRate>('/finance/exchange-rates', {
-    method: 'POST',
+  return apiRequest<ApiExchangeRate>("/finance/exchange-rates", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 // Summaries API
-export async function fetchDossierFinancialSummary(dossierId: string): Promise<DossierFinancialSummary> {
-  return apiRequest<DossierFinancialSummary>(`/finance/dossiers/${dossierId}/summary`);
+export async function fetchDossierFinancialSummary(
+  dossierId: string,
+): Promise<DossierFinancialSummary> {
+  return apiRequest<DossierFinancialSummary>(
+    `/finance/dossiers/${dossierId}/summary`,
+  );
 }
 
 export async function fetchOrganizationFinancialOverview(): Promise<OrganizationFinancialOverview> {
-  return apiRequest<OrganizationFinancialOverview>('/finance/summary');
+  return apiRequest<OrganizationFinancialOverview>("/finance/summary");
 }

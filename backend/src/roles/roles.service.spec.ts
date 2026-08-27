@@ -21,6 +21,7 @@ describe('RolesService (Privilege Escalation & Platform Role Protection)', () =>
     firstName: 'Tenant',
     lastName: 'Admin',
     organizationId: TENANT_A,
+    locale: 'fr',
     office: null,
     roles: [{ id: 'admin-role-a', name: 'Admin', scope: 'tenant' }],
     permissions: [...ALL_PERMISSIONS],

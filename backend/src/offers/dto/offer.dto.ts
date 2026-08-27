@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsIn,
@@ -28,7 +28,16 @@ export class CreateOfferDto {
   year?: number;
   @IsIn(conditions) condition: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) mileage?: number;
-  @IsObject() specification: Record<string, unknown>;
+  @Transform(({ value }: { value: unknown }): unknown => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  })
+  @IsObject()
+  specification: Record<string, unknown>;
   @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
   @Type(() => Number) @Min(0) cifPrice: number;
   @Type(() => Number) @Min(0) ddpPrice: number;

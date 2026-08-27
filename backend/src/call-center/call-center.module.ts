@@ -14,6 +14,9 @@ import { MockTelephonyProvider } from './providers/mock-telephony.provider';
 import { MockWhatsappProvider } from './providers/mock-whatsapp.provider';
 import { ProviderRegistryService } from './providers/provider-registry.service';
 
+const simulatorControllers =
+  process.env.NODE_ENV === 'production' ? [] : [SimulatorController];
+
 @Module({
   imports: [
     AuthModule,
@@ -29,7 +32,7 @@ import { ProviderRegistryService } from './providers/provider-registry.service';
   ],
   controllers: [
     CallCenterController,
-    SimulatorController,
+    ...simulatorControllers,
     ProviderWebhooksController,
   ],
   providers: [
@@ -41,6 +44,6 @@ import { ProviderRegistryService } from './providers/provider-registry.service';
     MockWhatsappProvider,
     ProviderRegistryService,
   ],
-  exports: [CallCenterService, CallCenterGateway],
+  exports: [CallCenterService, CallCenterGateway, ProviderRegistryService],
 })
 export class CallCenterModule {}

@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, FileBarChart } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -120,7 +122,7 @@ export default function ReportsWorkspace() {
                     {label}
                   </p>
                   <p className="mt-1 text-xl font-bold">
-                    {Number(value).toLocaleString("fr-FR")}{" "}
+                    {Number(value).toLocaleString(getRuntimeLocale())}{" "}
                     {data.period.baseCurrency}
                   </p>
                 </section>
@@ -153,7 +155,7 @@ export default function ReportsWorkspace() {
               </section>
             </div>
             <p className="text-xs text-muted">
-              Généré le {new Date(data.generatedAt).toLocaleString("fr-FR")} ·{" "}
+              Généré le {new Date(data.generatedAt).toLocaleString(getRuntimeLocale())} ·{" "}
               {data.period.timezone}
             </p>
           </>

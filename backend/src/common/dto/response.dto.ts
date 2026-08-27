@@ -40,6 +40,8 @@ export interface ApiErrorBody {
   code: string;
   message: string;
   details?: string[];
+  checkpoint?: string;
+  missingVehicleIds?: string[];
 }
 
 export interface ApiErrorResponse {

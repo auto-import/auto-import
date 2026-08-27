@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
@@ -131,9 +126,12 @@ export class ExchangeRatesService {
     if (base === 'DZD' && quote === 'USD') return new Prisma.Decimal(135.0);
     if (base === 'DZD' && quote === 'EUR') return new Prisma.Decimal(145.0);
     if (base === 'DZD' && quote === 'CNY') return new Prisma.Decimal(18.5);
-    if (base === 'USD' && quote === 'DZD') return new Prisma.Decimal(1).dividedBy(135.0);
-    if (base === 'EUR' && quote === 'DZD') return new Prisma.Decimal(1).dividedBy(145.0);
-    if (base === 'CNY' && quote === 'DZD') return new Prisma.Decimal(1).dividedBy(18.5);
+    if (base === 'USD' && quote === 'DZD')
+      return new Prisma.Decimal(1).dividedBy(135.0);
+    if (base === 'EUR' && quote === 'DZD')
+      return new Prisma.Decimal(1).dividedBy(145.0);
+    if (base === 'CNY' && quote === 'DZD')
+      return new Prisma.Decimal(1).dividedBy(18.5);
 
     return new Prisma.Decimal(1);
   }

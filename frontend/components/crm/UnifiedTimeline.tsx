@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import {
   Calendar,
   MessageSquare,
@@ -42,7 +44,7 @@ export default function UnifiedTimeline({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium">{item.title}</p>
               <time className="text-xs text-muted">
-                {new Date(item.occurredAt).toLocaleString("fr-FR")}
+                {new Date(item.occurredAt).toLocaleString(getRuntimeLocale())}
               </time>
             </div>
             {item.description && (

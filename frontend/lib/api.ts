@@ -10,6 +10,7 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   organizationId: string;
+  locale: "fr" | "en";
   office: { id: string; name: string } | null;
   roles: Array<{ id: string; name: string; scope: string }>;
   permissions: ApiPermission[];
@@ -150,8 +151,10 @@ export async function apiDownload(
     await parseResponse(response);
   }
   const disposition = response.headers.get("content-disposition") ?? "";
-  const filename =
-    /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "export.pdf";
+  const encodedFilename = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  const filename = encodedFilename
+    ? decodeURIComponent(encodedFilename)
+    : (/filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? "download");
   return { blob: await response.blob(), filename };
 }
 
@@ -229,6 +232,8 @@ export interface ApiProfile {
   organization: { id: string; name: string };
   roles: Array<{ id: string; name: string; scope: string }>;
   avatarUrl: string | null;
+  locale: "fr" | "en";
+  branding: { companyName: string; logoUrl: string | null };
 }
 
 export const profileApi = {
@@ -241,4 +246,23 @@ export const profileApi = {
   removeAvatar: () =>
     apiRequest<ApiProfile>("/profile/avatar", { method: "DELETE" }),
   avatarBlob: () => apiDownload("/profile/avatar").then(({ blob }) => blob),
+  updateLocale: (locale: "fr" | "en") =>
+    apiRequest<ApiProfile>("/profile/locale", {
+      method: "PATCH",
+      body: JSON.stringify({ locale }),
+    }),
+  updateBranding: (companyName: string) =>
+    apiRequest<ApiProfile>("/profile/branding", {
+      method: "PATCH",
+      body: JSON.stringify({ companyName }),
+    }),
+  uploadBrandingLogo: (file: File) => {
+    const body = new FormData();
+    body.append("logo", file);
+    return apiUpload<ApiProfile>("/profile/branding/logo", body);
+  },
+  removeBrandingLogo: () =>
+    apiRequest<ApiProfile>("/profile/branding/logo", { method: "DELETE" }),
+  brandingLogoBlob: () =>
+    apiDownload("/profile/branding/logo").then(({ blob }) => blob),
 };

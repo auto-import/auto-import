@@ -7,7 +7,14 @@ import {
   Patch,
   Post,
   Query,
+  BadRequestException,
+  UploadedFiles,
+  UseInterceptors,
+  Res,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import type { UploadedBufferFile } from '../documents/documents.service';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -35,7 +42,65 @@ export class OffersController {
   @Post()
   @RequirePermission(Permission.OFFERS_WRITE)
   create(@Body() dto: CreateOfferDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.offers.create(dto, user.organizationId);
+    void dto;
+    void user;
+    throw new BadRequestException(
+      'Offer creation requires exactly three photos; use /offers/with-photos',
+    );
+  }
+
+  @Post('with-photos')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  @UseInterceptors(
+    FilesInterceptor('photos', 3, {
+      limits: { files: 3, fileSize: 8 * 1024 * 1024 },
+    }),
+  )
+  createWithPhotos(
+    @Body() dto: CreateOfferDto,
+    @UploadedFiles() photos: UploadedBufferFile[],
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.createWithPhotos(
+      dto,
+      user.organizationId,
+      user.id,
+      photos ?? [],
+    );
+  }
+
+  @Patch(':id/photos')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  @UseInterceptors(
+    FilesInterceptor('photos', 3, {
+      limits: { files: 3, fileSize: 8 * 1024 * 1024 },
+    }),
+  )
+  replacePhotos(
+    @Param('id') id: string,
+    @UploadedFiles() photos: UploadedBufferFile[],
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.replacePhotos(
+      id,
+      user.organizationId,
+      user.id,
+      photos ?? [],
+    );
+  }
+
+  @Get('photos/:photoId')
+  @RequirePermission(Permission.OFFERS_READ)
+  async photo(
+    @Param('photoId') photoId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() response: Response,
+  ) {
+    const file = await this.offers.photoStream(photoId, user.organizationId);
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Length', file.size);
+    response.setHeader('Cache-Control', 'private, max-age=300');
+    file.stream.pipe(response);
   }
 
   @Get()

@@ -1,16 +1,8 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
-import {
-  CreatePaymentPlanDto,
-  FilterPaymentPlansDto,
-} from './dto/finance.dto';
+import { CreatePaymentPlanDto, FilterPaymentPlansDto } from './dto/finance.dto';
 
 @Injectable()
 export class PaymentPlansService {
@@ -32,7 +24,11 @@ export class PaymentPlansService {
 
       // Idempotency: Check if an active plan already exists for this dossier
       const existingPlan = await this.prisma.paymentPlan.findFirst({
-        where: { dossierId: dto.dossierId, organizationId, status: 'active' },
+        where: {
+          dossierId: dto.dossierId,
+          organizationId,
+          status: { in: ['active', 'completed'] },
+        },
         include: {
           installments: {
             orderBy: { installmentNumber: 'asc' },
@@ -76,7 +72,10 @@ export class PaymentPlansService {
         });
       } else {
         // THIRTY_SEVENTY
-        const firstAmount = totalAmount.mul(30).dividedBy(100).toDecimalPlaces(2);
+        const firstAmount = totalAmount
+          .mul(30)
+          .dividedBy(100)
+          .toDecimalPlaces(2);
         const secondAmount = totalAmount.minus(firstAmount);
 
         await tx.paymentInstallment.createMany({

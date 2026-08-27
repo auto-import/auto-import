@@ -1,19 +1,9 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
-import {
-  CreatePaymentPlanDto,
-  FilterPaymentPlansDto,
-} from './dto/finance.dto';
+import { CreatePaymentPlanDto, FilterPaymentPlansDto } from './dto/finance.dto';
 import { PaymentPlansService } from './payment-plans.service';
 
 @Controller('finance/payment-plans')

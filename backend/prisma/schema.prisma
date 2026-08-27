@@ -74,6 +74,10 @@ model Organization {
   notificationTemplates NotificationTemplate[]
   notifications         Notification[]
   userAvatars           UserAvatar[]
+  offerPhotos           OfferPhoto[]
+  checkpointEvidence    DossierCheckpointEvidence[]
+  integrationConfigs    IntegrationConfig[]
+  brandingLogo          OrganizationBrandingLogo?
 
   @@index([status])
 }
@@ -106,6 +110,7 @@ model User {
   passwordHash   String
   status         String       @default("active")
   lastLoginAt    DateTime?
+  locale         String       @default("fr")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -149,6 +154,8 @@ model User {
   shipmentStatusChanges     ShipmentStatusHistory[] @relation("ShipmentStatusUser")
   customsStatusChanges      CustomsStatusHistory[]  @relation("CustomsStatusUser")
   avatar                    UserAvatar?
+  checkpointEvidence       DossierCheckpointEvidence[] @relation("CheckpointEvidenceUploader")
+  integrationUpdates       IntegrationConfig[]          @relation("IntegrationConfigUpdater")
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -285,6 +292,11 @@ model Client {
   phone             String?
   email             String?
   passportNumber    String?
+  passportEncrypted String?
+  passportLookupHash String?
+  ninEncrypted      String?
+  ninLookupHash     String?
+  identityIssueDate DateTime?
   passportExpiry    DateTime?
   nationality       String?
   address           String?
@@ -310,10 +322,13 @@ model Client {
   offerReservations     OfferReservation[]
   paymentPlans          PaymentPlan[]
   payments              Payment[]
+  documents             DossierDocumentAsset[]
 
   @@index([organizationId, createdAt])
   @@index([organizationId, email])
   @@index([organizationId, assignedTo])
+  @@unique([organizationId, ninLookupHash])
+  @@unique([organizationId, passportLookupHash])
 }
 
 enum LeadQualification {
@@ -759,6 +774,7 @@ model ChinaOffer {
   updatedAt          DateTime     @updatedAt
 
   reservations OfferReservation[]
+  photos       OfferPhoto[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, validUntil])
@@ -835,6 +851,7 @@ model Dossier {
   notes            DossierNote[]
   customsFiles     CustomsFile[]
   tasks            Task[]
+  checkpointEvidence DossierCheckpointEvidence[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
@@ -881,6 +898,14 @@ model Vehicle {
   year              Int?
   mileage           Int?
   condition         String?
+  trim              String?
+  bodyType          String?
+  drivetrain        String?
+  displacement      String?
+  steeringSide      String?
+  interiorColor     String?
+  warranty          String?
+  equipment         Json?
   purchasePrice     Decimal?           @db.Decimal(12, 2)
   sellingPrice      Decimal?           @db.Decimal(12, 2)
   currency          String?
@@ -905,6 +930,7 @@ model Vehicle {
   purchases        Purchase[]
   shipmentVehicles ShipmentVehicle[]
   customsFiles     CustomsFile[]
+  checkpointEvidence DossierCheckpointEvidence[]
 
   @@index([organizationId, status, createdAt])
   @@index([supplierId])
@@ -946,6 +972,9 @@ model FileAsset {
   businessDocuments BusinessDocument[]
   dossierDocuments  DossierDocumentAsset[]
   avatarUses        UserAvatar[]
+  offerPhotos       OfferPhoto[]
+  checkpointEvidence DossierCheckpointEvidence[]
+  brandingLogoUses   OrganizationBrandingLogo[]
 
   @@index([organizationId, category, status])
   @@index([uploadedBy, createdAt])
@@ -965,6 +994,49 @@ model VehiclePhoto {
   @@index([fileId])
 }
 
+model OfferPhoto {
+  id        String     @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  offerId   String
+  offer     ChinaOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  fileId    String
+  file      FileAsset  @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  isPrimary Boolean    @default(false)
+  sortOrder Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  @@unique([offerId, sortOrder])
+  @@index([organizationId, offerId])
+  @@index([fileId])
+}
+
+model DossierCheckpointEvidence {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  vehicleId      String
+  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  fileId         String
+  file           FileAsset    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  checkpoint     String
+  note           String?
+  location       String?
+  status         String       @default("active")
+  uploadedBy     String
+  uploadedByUser User         @relation("CheckpointEvidenceUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  reliedAt       DateTime?
+  replacedById   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, dossierId, checkpoint, status])
+  @@index([dossierId, vehicleId, checkpoint, status])
+  @@index([fileId])
+}
+
 model UserAvatar {
   userId         String       @id
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -975,6 +1047,18 @@ model UserAvatar {
   updatedAt      DateTime     @updatedAt
 
   @@index([organizationId])
+}
+
+model OrganizationBrandingLogo {
+  organizationId String       @id
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fileId         String       @unique
+  file           FileAsset    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  updatedBy      String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([updatedAt])
 }
 
 // ──────────────────────────────────────────────
@@ -1428,8 +1512,10 @@ model DossierDocumentAsset {
   id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  dossierId      String
-  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossierId      String?
+  dossier        Dossier?     @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   fileId         String
   file           FileAsset    @relation(fields: [fileId], references: [id])
   kind           String // "DOSSIER_DOCUMENT" | "PROOF" | "CONTRACT" | "CUSTOMS_DOCUMENT" | "PAYMENT_RECEIPT" | "VEHICLE_PHOTO" | "BUSINESS_DOCUMENT"
@@ -1445,6 +1531,30 @@ model DossierDocumentAsset {
   @@index([organizationId, dossierId, kind, status])
   @@index([fileId])
   @@index([dossierId, documentType])
+  @@index([organizationId, clientId, createdAt])
+}
+
+model IntegrationConfig {
+  id                   String       @id @default(uuid())
+  organizationId       String
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kind                 String
+  providerName         String
+  displayName          String?
+  baseUrl              String?
+  publicIdentifiers    Json?
+  encryptedCredentials String?
+  encryptionKeyVersion Int          @default(1)
+  enabled              Boolean      @default(false)
+  webhookLastEventAt   DateTime?
+  webhookLastStatus    String?
+  updatedBy            String
+  updatedByUser        User         @relation("IntegrationConfigUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([organizationId, kind])
+  @@index([organizationId, enabled])
 }
 
 model DossierNote {

@@ -10,6 +10,7 @@ import { PartnersService } from '../partners/partners.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierType } from '@auto-import/contracts';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audit', () => {
   let vehicleRequestsService: VehicleRequestsService;
@@ -101,6 +102,20 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         DossiersService,
         PartnersService,
         DossierWorkflowService,
+        {
+          provide: DocumentsService,
+          useValue: {
+            verifySignedContract: jest
+              .fn()
+              .mockResolvedValue({ id: 'contract-1' }),
+            verifyCheckpoint: jest.fn().mockResolvedValue({
+              complete: true,
+              missingVehicleIds: [],
+              evidenceIds: [],
+            }),
+            markEvidenceRelied: jest.fn(),
+          },
+        },
         {
           provide: PrismaService,
           useValue: prisma,
@@ -638,7 +653,10 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       });
       prisma.vehicle.count.mockResolvedValue(3); // 3 vehicles linked to this supplier
 
-      prisma.partner.update.mockResolvedValue({ id: 'partner-1', status: 'archived' });
+      prisma.partner.update.mockResolvedValue({
+        id: 'partner-1',
+        status: 'archived',
+      });
       await expect(partnersService.remove('partner-1', ORG_A)).resolves.toEqual(
         expect.objectContaining({ status: 'archived' }),
       );

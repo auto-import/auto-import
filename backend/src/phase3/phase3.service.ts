@@ -1109,6 +1109,49 @@ export class Phase3Service {
     user: AuthenticatedUser,
     query: DateRangeDto,
   ): Promise<Buffer> {
+    const locale = user.locale === 'en' ? 'en-US' : 'fr-DZ';
+    const copy =
+      user.locale === 'en'
+        ? {
+            title: 'Financial and operational report',
+            period: 'Period',
+            timezone: 'Time zone',
+            generated: 'Generated on',
+            by: 'by',
+            finance: 'Financial summary',
+            issued: 'Invoiced',
+            collected: 'Collected',
+            outstanding: 'Outstanding',
+            overdue: 'Overdue invoices',
+            costs: 'Costs',
+            margin: 'Gross margin',
+            none: 'No data',
+            dossiersStatus: 'Dossiers by status',
+            dossiersType: 'Dossiers by type',
+            vehiclesStatus: 'Vehicles by status',
+            offersStatus: 'Offers by status',
+            page: 'Page',
+          }
+        : {
+            title: 'Rapport financier et opérationnel',
+            period: 'Période',
+            timezone: 'Fuseau',
+            generated: 'Généré le',
+            by: 'par',
+            finance: 'Synthèse financière',
+            issued: 'Facturé',
+            collected: 'Encaissé',
+            outstanding: 'Reste à encaisser',
+            overdue: 'Factures en retard',
+            costs: 'Coûts',
+            margin: 'Marge brute',
+            none: 'Aucune donnée',
+            dossiersStatus: 'Dossiers par statut',
+            dossiersType: 'Dossiers par type',
+            vehiclesStatus: 'Véhicules par statut',
+            offersStatus: 'Offres par statut',
+            page: 'Page',
+          };
     const [report, settings] = await Promise.all([
       this.reportSummary(user, query),
       this.getSettings(user),
@@ -1129,7 +1172,7 @@ export class Phase3Service {
       margin: 42,
       bufferPages: true,
       info: {
-        Title: 'Rapport financier',
+        Title: copy.title,
         Author: settings.displayName ?? settings.legalName ?? 'Auto-Import ERP',
       },
     });
@@ -1141,7 +1184,7 @@ export class Phase3Service {
       document.on('error', reject);
     });
     const money = (value: string) =>
-      `${new Intl.NumberFormat('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} ${report.period.baseCurrency}`;
+      `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} ${report.period.baseCurrency}`;
     const heading = (value: string) => {
       if (document.y > 500) document.addPage();
       document
@@ -1170,39 +1213,39 @@ export class Phase3Service {
     document
       .fontSize(20)
       .text(settings.displayName ?? settings.legalName ?? 'Auto-Import ERP');
-    document.fontSize(15).text('Rapport financier et opérationnel');
+    document.fontSize(15).text(copy.title);
     document
       .moveDown(0.4)
       .fontSize(9)
       .fillColor('#555555')
       .text(
-        `Période : ${new Date(report.period.from).toLocaleDateString('fr-FR')} – ${new Date(report.period.to).toLocaleDateString('fr-FR')} · Fuseau : ${report.period.timezone}`,
+        `${copy.period}: ${new Date(report.period.from).toLocaleDateString(locale)} – ${new Date(report.period.to).toLocaleDateString(locale)} · ${copy.timezone}: ${report.period.timezone}`,
       );
     document.text(
-      `Généré le ${new Date(report.generatedAt).toLocaleString('fr-FR', { timeZone: report.period.timezone })} par ${user.firstName} ${user.lastName}`,
+      `${copy.generated} ${new Date(report.generatedAt).toLocaleString(locale, { timeZone: report.period.timezone })} ${copy.by} ${user.firstName} ${user.lastName}`,
     );
     document.fillColor('#111111');
-    heading('Synthèse financière');
+    heading(copy.finance);
     [
-      ['Facturé', money(report.finance.issued)],
-      ['Encaissé', money(report.finance.collected)],
-      ['Reste à encaisser', money(report.finance.outstanding)],
-      ['Factures en retard', String(report.finance.overdueInvoices)],
-      ['Coûts', money(report.finance.costs)],
-      ['Marge brute', money(report.finance.grossMargin)],
+      [copy.issued, money(report.finance.issued)],
+      [copy.collected, money(report.finance.collected)],
+      [copy.outstanding, money(report.finance.outstanding)],
+      [copy.overdue, String(report.finance.overdueInvoices)],
+      [copy.costs, money(report.finance.costs)],
+      [copy.margin, money(report.finance.grossMargin)],
     ].forEach(([label, value], index) => row(label, value, index % 2 === 1));
     const distribution = (title: string, values: Record<string, number>) => {
       heading(title);
       const entries = Object.entries(values).slice(0, 100);
-      if (!entries.length) row('Aucune donnée', '0');
+      if (!entries.length) row(copy.none, '0');
       entries.forEach(([label, value], index) =>
-        row(label, String(value), index % 2 === 1),
+        row(pdfStatusLabel(label, user.locale), String(value), index % 2 === 1),
       );
     };
-    distribution('Dossiers par statut', report.dossiers.byStatus);
-    distribution('Dossiers par type', report.dossiers.byType);
-    distribution('Véhicules par statut', report.vehicles.byStatus);
-    distribution('Offres par statut', report.offers.byStatus);
+    distribution(copy.dossiersStatus, report.dossiers.byStatus);
+    distribution(copy.dossiersType, report.dossiers.byType);
+    distribution(copy.vehiclesStatus, report.vehicles.byStatus);
+    distribution(copy.offersStatus, report.offers.byStatus);
     const range = document.bufferedPageRange();
     for (
       let index = range.start;
@@ -1214,7 +1257,7 @@ export class Phase3Service {
         .fontSize(8)
         .fillColor('#666666')
         .text(
-          `Page ${index + 1}/${range.count}`,
+          `${copy.page} ${index + 1}/${range.count}`,
           42,
           document.page.height - 28,
           { width: document.page.width - 84, align: 'right' },
@@ -1308,4 +1351,27 @@ export class Phase3Service {
       },
     });
   }
+}
+
+function pdfStatusLabel(value: string, locale: 'fr' | 'en') {
+  const labels: Record<string, readonly [string, string]> = {
+    active: ['Actif', 'Active'],
+    archived: ['Archivé', 'Archived'],
+    available: ['Disponible', 'Available'],
+    reserved: ['Réservé', 'Reserved'],
+    expired: ['Expiré', 'Expired'],
+    pending: ['En attente', 'Pending'],
+    paid: ['Payé', 'Paid'],
+    completed: ['Terminé', 'Completed'],
+    closed: ['Clôturé', 'Closed'],
+    in_transit: ['En transit', 'In transit'],
+    arrived: ['Arrivé', 'Arrived'],
+    delivered: ['Livré', 'Delivered'],
+    cif: ['CIF', 'CIF'],
+    ddp: ['DDP', 'DDP'],
+    shipping_only: ['Expédition seule', 'Shipping only'],
+    unassigned: ['Non assigné', 'Unassigned'],
+  };
+  const label = labels[value.toLowerCase()];
+  return label ? label[locale === 'en' ? 1 : 0] : value.replaceAll('_', ' ');
 }

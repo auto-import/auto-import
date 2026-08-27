@@ -34,6 +34,6 @@ import { NotificationsGateway } from './notifications.gateway';
     SettingsController,
   ],
   providers: [Phase3Service, NotificationsGateway],
-  exports: [Phase3Service],
+  exports: [Phase3Service, NotificationsGateway],
 })
 export class Phase3Module {}

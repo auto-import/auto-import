@@ -1,7 +1,16 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import Image from "next/image";
 import { CarFront, Eye, Plus, Search, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { useAuth } from "@/components/AuthProvider";
@@ -70,6 +79,7 @@ export default function OffersChinaPolished() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState<Array<File | null>>([null, null, null]);
   const syncUrl = useCallback(() => {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
@@ -122,21 +132,57 @@ export default function OffersChinaPolished() {
     setSaving(true);
     setError("");
     try {
-      await commerceApi.offers.create({
-        ...form,
-        year: form.year ? Number(form.year) : undefined,
-        purchasePrice: form.purchasePrice
-          ? Number(form.purchasePrice)
-          : undefined,
-        cifPrice: Number(form.cifPrice),
-        ddpPrice: Number(form.ddpPrice),
-        availableQuantity: Number(form.availableQuantity),
-        specification: {},
-        validFrom: new Date(form.validFrom).toISOString(),
-        validUntil: new Date(form.validUntil).toISOString(),
-      });
+      const selectedPhotos = photos.filter((photo): photo is File =>
+        Boolean(photo),
+      );
+      if (selectedPhotos.length !== 3)
+        throw new Error("Les trois photos distinctes sont obligatoires.");
+      if (
+        selectedPhotos.some(
+          (photo) =>
+            photo.size > 8 * 1024 * 1024 ||
+            !["image/jpeg", "image/png", "image/webp"].includes(photo.type),
+        )
+      ) {
+        throw new Error(
+          "Chaque photo doit être un JPEG, PNG ou WebP de 8 Mo maximum.",
+        );
+      }
+      const checksums = await Promise.all(
+        selectedPhotos.map(async (photo) => {
+          const digest = await crypto.subtle.digest(
+            "SHA-256",
+            await photo.arrayBuffer(),
+          );
+          return Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+        }),
+      );
+      if (new Set(checksums).size !== 3) {
+        throw new Error(
+          "Les trois photos doivent contenir des images distinctes.",
+        );
+      }
+      await commerceApi.offers.createWithPhotos(
+        {
+          ...form,
+          year: form.year ? Number(form.year) : undefined,
+          purchasePrice: form.purchasePrice
+            ? Number(form.purchasePrice)
+            : undefined,
+          cifPrice: Number(form.cifPrice),
+          ddpPrice: Number(form.ddpPrice),
+          availableQuantity: Number(form.availableQuantity),
+          specification: {},
+          validFrom: new Date(form.validFrom).toISOString(),
+          validUntil: new Date(form.validUntil).toISOString(),
+        },
+        selectedPhotos,
+      );
       setShowForm(false);
       setForm(empty);
+      setPhotos([null, null, null]);
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Création impossible");
@@ -278,9 +324,7 @@ export default function OffersChinaPolished() {
               {items.map((offer) => (
                 <article key={offer.id} className="card">
                   <div className="flex gap-4">
-                    <div className="flex h-20 w-24 items-center justify-center rounded-lg bg-neutral-100">
-                      <CarFront className="text-muted" />
-                    </div>
+                    <OfferCover offer={offer} className="h-20 w-24" />
                     <div>
                       <p className="font-bold">
                         {offer.brand} {offer.model}
@@ -314,7 +358,7 @@ export default function OffersChinaPolished() {
                     <Mini
                       label="Validité"
                       value={new Date(offer.validUntil).toLocaleDateString(
-                        "fr-FR",
+                        getRuntimeLocale(),
                       )}
                     />
                   </dl>
@@ -446,6 +490,39 @@ export default function OffersChinaPolished() {
                 ),
               )}
             </div>
+            <fieldset className="mt-5">
+              <legend className="field-label">Trois photos ordonnées *</legend>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {photos.map((photo, index) => (
+                  <label
+                    key={index}
+                    className="rounded-xl border border-dashed p-3 text-sm"
+                  >
+                    <span className="block font-semibold">
+                      {index === 0
+                        ? "Photo 1 · couverture"
+                        : `Photo ${index + 1}`}
+                    </span>
+                    <input
+                      required
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="mt-2 w-full text-xs"
+                      onChange={(event) =>
+                        setPhotos((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? (event.target.files?.[0] ?? null)
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    {photo && <OfferPhotoPreview file={photo} index={index} />}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <button disabled={saving} className={`${buttonClass} mt-6 w-full`}>
               {saving ? "Création…" : "Créer l’offre"}
             </button>
@@ -465,9 +542,7 @@ function OfferRow({
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-4">
-        <div className="flex h-14 w-16 items-center justify-center rounded-lg bg-neutral-100">
-          <CarFront className="h-5 w-5 text-muted" />
-        </div>
+        <OfferCover offer={offer} className="h-14 w-16" />
       </td>
       <td className="px-4 py-4">
         <strong>
@@ -504,7 +579,7 @@ function OfferRow({
         </span>
       </td>
       <td className="px-4 py-4">
-        {new Date(offer.validUntil).toLocaleDateString("fr-FR")}
+        {new Date(offer.validUntil).toLocaleDateString(getRuntimeLocale())}
       </td>
       <td className="px-4 py-4">
         <Link
@@ -515,6 +590,78 @@ function OfferRow({
         </Link>
       </td>
     </tr>
+  );
+}
+function OfferCover({
+  offer,
+  className,
+}: {
+  offer: ApiOffer;
+  className: string;
+}) {
+  const photo =
+    offer.photos?.find(({ isPrimary }) => isPrimary) ?? offer.photos?.[0];
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!photo) return;
+    let active = true;
+    let objectUrl = "";
+    void commerceApi.offers
+      .photoBlob(photo.id)
+      .then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => setUrl(null));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [photo]);
+  return (
+    <div
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-100 ${className}`}
+    >
+      {url ? (
+        <Image
+          unoptimized
+          fill
+          sizes="96px"
+          src={url}
+          alt={`${offer.brand} ${offer.model}`}
+          className="object-cover"
+        />
+      ) : (
+        <CarFront className="h-5 w-5 text-muted" />
+      )}
+    </div>
+  );
+}
+
+function OfferPhotoPreview({ file, index }: { file: File; index: number }) {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => {
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+  return (
+    <span className="mt-2 block">
+      <span className="relative block aspect-[4/3] overflow-hidden rounded-lg bg-neutral-100">
+        {url && (
+          <Image
+            unoptimized
+            fill
+            sizes="240px"
+            src={url}
+            alt={`Aperçu de la photo ${index + 1}`}
+            className="object-cover"
+          />
+        )}
+      </span>
+      <span className="mt-1 block truncate text-xs text-muted">
+        {file.name}
+      </span>
+    </span>
   );
 }
 function Mini({ label, value }: { label: string; value: string }) {

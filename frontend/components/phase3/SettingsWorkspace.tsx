@@ -9,8 +9,12 @@ import {
   inputClass,
   LoadingState,
 } from "@/components/commerce/common";
+import IntegrationsPanel from "./IntegrationsPanel";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
 
 export default function SettingsWorkspace() {
+  const { hasPermission } = useAuth();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -208,6 +212,9 @@ export default function SettingsWorkspace() {
             </button>
           </div>
         </form>
+        {hasPermission(Permission.SETTINGS_INTEGRATIONS_MANAGE) && (
+          <IntegrationsPanel />
+        )}
       </main>
     </>
   );

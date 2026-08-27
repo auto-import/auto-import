@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -84,7 +83,10 @@ export class InvoicesService {
     const total = subtotal.add(totalTax);
 
     return this.prisma.$transaction(async (tx) => {
-      const invoiceNumber = await this.generateInvoiceNumber(tx, organizationId);
+      const invoiceNumber = await this.generateInvoiceNumber(
+        tx,
+        organizationId,
+      );
       const invoice = await tx.invoice.create({
         data: {
           organizationId,
@@ -130,7 +132,9 @@ export class InvoicesService {
       ...(filter.search
         ? {
             OR: [
-              { invoiceNumber: { contains: filter.search, mode: 'insensitive' } },
+              {
+                invoiceNumber: { contains: filter.search, mode: 'insensitive' },
+              },
               { notes: { contains: filter.search, mode: 'insensitive' } },
             ],
           }
@@ -270,7 +274,10 @@ export class InvoicesService {
         (sum, item) => sum.add(item.quantity.mul(item.unitPrice)),
         new Prisma.Decimal(0),
       );
-      const tax = items.reduce((sum, item) => sum.add(item.tax), new Prisma.Decimal(0));
+      const tax = items.reduce(
+        (sum, item) => sum.add(item.tax),
+        new Prisma.Decimal(0),
+      );
       const total = subtotal.add(tax);
 
       await tx.invoice.update({

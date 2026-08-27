@@ -217,6 +217,20 @@ export const DocumentKind: {
 };
 export type DocumentKind = ValueOf<typeof DocumentKind>;
 
+export const DossierEvidenceCheckpoint: {
+  readonly ARRIVAL_AT_PORT: 'ARRIVAL_AT_PORT';
+  readonly CUSTOMS: 'CUSTOMS';
+  readonly PORT_EXIT: 'PORT_EXIT';
+  readonly LOCAL_TRANSPORT: 'LOCAL_TRANSPORT';
+};
+export type DossierEvidenceCheckpoint = ValueOf<typeof DossierEvidenceCheckpoint>;
+
+export const IntegrationKind: {
+  readonly TELEPHONY: 'telephony';
+  readonly WHATSAPP: 'whatsapp';
+};
+export type IntegrationKind = ValueOf<typeof IntegrationKind>;
+
 export const RecordStatus: {
   readonly ACTIVE: 'active'; readonly INACTIVE: 'inactive';
   readonly SUSPENDED: 'suspended';
@@ -263,6 +277,8 @@ export const Permission: {
   readonly CHANNELS_MANAGE: 'channels:manage';
   readonly REPORTS_READ: 'reports:read'; readonly REPORTS_EXPORT: 'reports:export';
   readonly SETTINGS_READ: 'settings:read'; readonly SETTINGS_WRITE: 'settings:write'; readonly SETTINGS_MANAGE: 'settings:manage';
+  readonly SETTINGS_INTEGRATIONS_MANAGE: 'integrations:manage';
+  readonly CLIENTS_IDENTITY_REVEAL: 'clients:identityReveal';
 };
 export type Permission = ValueOf<typeof Permission>;
 

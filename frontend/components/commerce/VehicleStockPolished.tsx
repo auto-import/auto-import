@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Camera, Fuel, Gauge, Plus, Search, Settings2, X } from "lucide-react";
@@ -47,6 +49,7 @@ const empty = {
 export default function VehicleStockPolished() {
   const { hasPermission } = useAuth();
   const canWrite = hasPermission(Permission.VEHICLES_WRITE);
+  const canSeePrices = hasPermission(Permission.FINANCE_READ);
   const [items, setItems] = useState<ApiVehicle[]>([]);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -339,7 +342,7 @@ export default function VehicleStockPolished() {
                       <span className="inline-flex gap-1">
                         <Gauge className="h-4 w-4" />
                         {vehicle.mileage != null
-                          ? `${vehicle.mileage.toLocaleString("fr-FR")} km`
+                          ? `${vehicle.mileage.toLocaleString(getRuntimeLocale())} km`
                           : "Non renseigné"}
                       </span>
                     </p>
@@ -403,6 +406,7 @@ export default function VehicleStockPolished() {
           vehicle={selected}
           urls={photoUrls}
           canWrite={canWrite}
+          canSeePrices={canSeePrices}
           close={() => setSelected(null)}
           edit={() => {
             setSelected(null);
@@ -432,12 +436,14 @@ function VehicleDialog({
   close,
   edit,
   canWrite,
+  canSeePrices,
 }: {
   vehicle: ApiVehicle;
   urls: Record<string, string>;
   close: () => void;
   edit: () => void;
   canWrite: boolean;
+  canSeePrices: boolean;
 }) {
   const [index, setIndex] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -459,6 +465,13 @@ function VehicleDialog({
     ["Portes", vehicle.specs?.doors],
     ["Places", vehicle.specs?.seats],
     ["Couleur extérieure", vehicle.specs?.color],
+    ["Finition", vehicle.trim],
+    ["Carrosserie", vehicle.bodyType],
+    ["Transmission intégrale", vehicle.drivetrain],
+    ["Cylindrée", vehicle.displacement],
+    ["Conduite", vehicle.steeringSide],
+    ["Couleur intérieure", vehicle.interiorColor],
+    ["Garantie", vehicle.warranty],
   ];
   return (
     <div
@@ -548,6 +561,30 @@ function VehicleDialog({
             <div className="mt-5 border-t border-border pt-5 text-sm text-muted">
               <p>Fournisseur : {vehicle.supplier?.name ?? "Non renseigné"}</p>
               <p className="mt-1">VIN : {vehicle.vin ?? "Non renseigné"}</p>
+              <p className="mt-1">
+                Entrepôt :{" "}
+                {vehicle.currentLocation?.warehouse?.name ?? "Non renseigné"} /{" "}
+                {vehicle.currentLocation?.name ?? "Non renseigné"}
+              </p>
+              <p className="mt-1">
+                Équipement :{" "}
+                {vehicle.equipment
+                  ? Object.entries(vehicle.equipment)
+                      .map(([key, value]) => `${key}: ${String(value)}`)
+                      .join(", ")
+                  : "Non renseigné"}
+              </p>
+              {canSeePrices && (
+                <p className="mt-1">
+                  Achat / vente :{" "}
+                  {formatMoney(
+                    vehicle.purchasePrice,
+                    vehicle.currency ?? "DZD",
+                  )}{" "}
+                  /{" "}
+                  {formatMoney(vehicle.sellingPrice, vehicle.currency ?? "DZD")}
+                </p>
+              )}
             </div>
             {canWrite && (
               <button className={`${buttonClass} mt-5`} onClick={edit}>

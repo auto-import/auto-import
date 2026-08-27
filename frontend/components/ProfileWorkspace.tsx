@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Camera, KeyRound, Trash2 } from "lucide-react";
+import { Building2, Camera, KeyRound, Languages, Trash2 } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { authApi, profileApi, type ApiProfile } from "@/lib/api";
 import {
@@ -10,25 +10,35 @@ import {
   LoadingState,
   inputClass,
 } from "@/components/commerce/common";
+import { useI18n } from "@/components/I18nProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
+import { useBranding } from "@/components/BrandingProvider";
 
 export default function ProfileWorkspace() {
+  const { locale, setLocale, t } = useI18n();
+  const { hasPermission } = useAuth();
+  const { logoUrl, refreshBranding } = useBranding();
+  const canManageBranding = hasPermission(Permission.SETTINGS_WRITE);
   const [profile, setProfile] = useState<ApiProfile | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const avatarRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [companyName, setCompanyName] = useState("");
   const [password, setPassword] = useState({
     currentPassword: "",
     newPassword: "",
     confirmation: "",
   });
 
-  async function load() {
+  const load = useCallback(async () => {
     setError("");
     try {
       const next = await profileApi.get();
       setProfile(next);
+      setCompanyName(next.branding.companyName);
       let avatarBlob: Blob | null = null;
       if (next.avatarUrl) {
         avatarBlob = await profileApi.avatarBlob();
@@ -49,16 +59,18 @@ export default function ProfileWorkspace() {
         }),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Profil indisponible");
+      setError(
+        cause instanceof Error ? cause.message : t("profileUnavailable"),
+      );
     }
-  }
+  }, [t]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => {
       window.clearTimeout(timer);
       if (avatarRef.current) URL.revokeObjectURL(avatarRef.current);
     };
-  }, []);
+  }, [load]);
 
   async function upload(file?: File) {
     if (!file) return;
@@ -70,15 +82,13 @@ export default function ProfileWorkspace() {
         !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
         file.size > 5 * 1024 * 1024
       ) {
-        throw new Error(
-          "Choisissez une image JPEG, PNG ou WebP de 5 Mo maximum.",
-        );
+        throw new Error(t("chooseImage"));
       }
       await profileApi.uploadAvatar(file);
       await load();
-      setMessage("Avatar mis à jour.");
+      setMessage(t("avatarUpdated"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Import impossible");
+      setError(cause instanceof Error ? cause.message : t("uploadFailed"));
     } finally {
       setBusy(false);
     }
@@ -90,11 +100,9 @@ export default function ProfileWorkspace() {
     try {
       await profileApi.removeAvatar();
       await load();
-      setMessage("Avatar supprimé.");
+      setMessage(t("avatarRemoved"));
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Suppression impossible",
-      );
+      setError(cause instanceof Error ? cause.message : t("deleteFailed"));
     } finally {
       setBusy(false);
     }
@@ -107,16 +115,68 @@ export default function ProfileWorkspace() {
     setMessage("");
     try {
       if (password.newPassword !== password.confirmation)
-        throw new Error("La confirmation ne correspond pas.");
+        throw new Error(t("passwordMismatch"));
       await authApi.changePassword(password);
       setPassword({ currentPassword: "", newPassword: "", confirmation: "" });
-      setMessage(
-        "Mot de passe modifié. La session actuelle a été renouvelée et les autres sessions ont été révoquées.",
-      );
+      setMessage(t("passwordUpdated"));
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Modification impossible",
-      );
+      setError(cause instanceof Error ? cause.message : t("updateFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveBranding(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await profileApi.updateBranding(companyName);
+      await refreshBranding();
+      await load();
+      window.dispatchEvent(new Event("tenant-branding-changed"));
+      setMessage(t("brandingSaved"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("updateFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadBrandingLogo(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (
+        !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+        file.size > 2 * 1024 * 1024
+      ) {
+        throw new Error(t("logoRule"));
+      }
+      await profileApi.uploadBrandingLogo(file);
+      await refreshBranding();
+      window.dispatchEvent(new Event("tenant-branding-changed"));
+      setMessage(t("logoUpdated"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("uploadFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBrandingLogo() {
+    setBusy(true);
+    setError("");
+    try {
+      await profileApi.removeBrandingLogo();
+      await refreshBranding();
+      window.dispatchEvent(new Event("tenant-branding-changed"));
+      setMessage(t("logoRemoved"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("deleteFailed"));
     } finally {
       setBusy(false);
     }
@@ -125,8 +185,8 @@ export default function ProfileWorkspace() {
   return (
     <>
       <Topbar
-        title="Mon profil"
-        subtitle="Identité, avatar et sécurité du compte"
+        title={t("profileTitle")}
+        subtitle={t("profileSubtitle")}
         avatarUrlOverride={avatar}
       />
       <main className="mx-auto max-w-5xl space-y-6 p-4 sm:p-8">
@@ -160,7 +220,7 @@ export default function ProfileWorkspace() {
                   )}
                 </div>
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold">
-                  <Camera className="h-4 w-4" /> Changer
+                  <Camera className="h-4 w-4" /> {t("change")}
                   <input
                     disabled={busy}
                     className="sr-only"
@@ -176,46 +236,172 @@ export default function ProfileWorkspace() {
                     className="inline-flex items-center gap-2 text-sm text-red-700"
                   >
                     <Trash2 className="h-4 w-4" />
-                    Supprimer
+                    {t("remove")}
                   </button>
                 )}
               </div>
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Info
-                  label="Nom"
+                  label={t("name")}
                   value={`${profile.firstName} ${profile.lastName}`}
                 />
-                <Info label="E-mail" value={profile.email} />
-                <Info label="Organisation" value={profile.organization.name} />
+                <Info label={t("email")} value={profile.email} />
                 <Info
-                  label="Bureau"
+                  label={t("organization")}
+                  value={profile.organization.name}
+                />
+                <Info
+                  label={t("office")}
                   value={
                     profile.office
                       ? `${profile.office.name}${profile.office.city ? ` · ${profile.office.city}` : ""}`
-                      : "Non affecté"
+                      : t("unassigned")
                   }
                 />
                 <Info
-                  label="Rôles"
+                  label={t("roles")}
                   value={
-                    profile.roles.map(({ name }) => name).join(", ") || "Aucun"
+                    profile.roles.map(({ name }) => name).join(", ") ||
+                    t("none")
                   }
                 />
                 <Info
-                  label="Statut"
-                  value={profile.status === "active" ? "Actif" : profile.status}
+                  label={t("status")}
+                  value={
+                    profile.status === "active" ? t("active") : profile.status
+                  }
                 />
               </dl>
             </section>
             <section className="card">
               <div className="flex items-center gap-3">
+                <Languages className="h-5 w-5" />
+                <div>
+                  <h2 className="font-bold">{t("language")}</h2>
+                  <p className="text-sm text-muted">{t("preferenceHelp")}</p>
+                </div>
+              </div>
+              <div
+                className="mt-4 flex gap-3"
+                role="radiogroup"
+                aria-label={t("language")}
+              >
+                {(["fr", "en"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={locale === value}
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await setLocale(value);
+                        setMessage(
+                          value === "fr"
+                            ? t("languageUpdated")
+                            : "Language updated.",
+                        );
+                      } catch (cause) {
+                        setError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Language update failed",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    className={`rounded-lg border px-4 py-2 text-sm font-semibold ${locale === value ? "border-neutral-900 bg-neutral-900 text-white" : "border-border"}`}
+                  >
+                    {value === "fr" ? t("french") : t("english")}
+                  </button>
+                ))}
+              </div>
+            </section>
+            {canManageBranding && (
+              <section className="card">
+                <div className="flex items-center gap-3">
+                  <Building2 className="h-5 w-5" />
+                  <div>
+                    <h2 className="font-bold">{t("companyBranding")}</h2>
+                    <p className="text-sm text-muted">
+                      {t("companyBrandingHelp")}
+                    </p>
+                  </div>
+                </div>
+                <form
+                  onSubmit={saveBranding}
+                  className="mt-5 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end"
+                >
+                  <label>
+                    <span className="field-label">{t("companyName")}</span>
+                    <input
+                      required
+                      minLength={2}
+                      maxLength={120}
+                      className={inputClass}
+                      value={companyName}
+                      onChange={(event) => setCompanyName(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    disabled={busy}
+                    className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    {busy ? t("saving") : t("save")}
+                  </button>
+                </form>
+                <div className="mt-5 flex flex-wrap items-center gap-4 rounded-xl border border-border p-4">
+                  <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-neutral-100">
+                    {logoUrl ? (
+                      <Image
+                        unoptimized
+                        src={logoUrl}
+                        alt={t("companyLogoAlt")}
+                        width={80}
+                        height={80}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <Building2 className="h-7 w-7 text-muted" />
+                    )}
+                  </div>
+                  <div className="min-w-56 flex-1">
+                    <p className="font-semibold">{t("companyLogo")}</p>
+                    <p className="text-sm text-muted">{t("logoRule")}</p>
+                  </div>
+                  <label className="cursor-pointer rounded-lg border border-border px-3 py-2 text-sm font-semibold">
+                    {t("change")}
+                    <input
+                      disabled={busy}
+                      className="sr-only"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(event) =>
+                        void uploadBrandingLogo(event.target.files?.[0])
+                      }
+                    />
+                  </label>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void removeBrandingLogo()}
+                      className="inline-flex items-center gap-2 text-sm text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" /> {t("remove")}
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
+            <section className="card">
+              <div className="flex items-center gap-3">
                 <KeyRound className="h-5 w-5" />
                 <div>
-                  <h2 className="font-bold">Changer mon mot de passe</h2>
-                  <p className="text-sm text-muted">
-                    12 caractères minimum, avec majuscule, minuscule, chiffre et
-                    symbole.
-                  </p>
+                  <h2 className="font-bold">{t("changePassword")}</h2>
+                  <p className="text-sm text-muted">{t("passwordRule")}</p>
                 </div>
               </div>
               <form
@@ -223,7 +409,7 @@ export default function ProfileWorkspace() {
                 className="mt-5 grid gap-4 sm:grid-cols-2"
               >
                 <Password
-                  label="Mot de passe actuel"
+                  label={t("currentPassword")}
                   value={password.currentPassword}
                   onChange={(value) =>
                     setPassword((current) => ({
@@ -234,7 +420,7 @@ export default function ProfileWorkspace() {
                 />
                 <span className="hidden sm:block" />
                 <Password
-                  label="Nouveau mot de passe"
+                  label={t("newPassword")}
                   value={password.newPassword}
                   onChange={(value) =>
                     setPassword((current) => ({
@@ -244,7 +430,7 @@ export default function ProfileWorkspace() {
                   }
                 />
                 <Password
-                  label="Confirmation"
+                  label={t("confirmation")}
                   value={password.confirmation}
                   onChange={(value) =>
                     setPassword((current) => ({
@@ -257,7 +443,7 @@ export default function ProfileWorkspace() {
                   disabled={busy}
                   className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white sm:col-span-2 sm:justify-self-end"
                 >
-                  {busy ? "Enregistrement…" : "Mettre à jour"}
+                  {busy ? t("saving") : t("update")}
                 </button>
               </form>
             </section>

@@ -14,14 +14,16 @@ export class ProviderRegistryService {
   ) {}
 
   telephony(key: string): TelephonyProvider {
-    if (key === 'mock') return this.mockTelephony;
+    if (key === 'mock' && process.env.NODE_ENV !== 'production')
+      return this.mockTelephony;
     throw new NotImplementedException(
       `Telephony provider adapter '${key}' is not installed`,
     );
   }
 
   messaging(key: string): MessagingProvider {
-    if (key === 'mock') return this.mockWhatsapp;
+    if (key === 'mock' && process.env.NODE_ENV !== 'production')
+      return this.mockWhatsapp;
     throw new NotImplementedException(
       `Messaging provider adapter '${key}' is not installed`,
     );

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,12 +14,14 @@ import {
   ReversePaymentDto,
 } from './dto/finance.dto';
 import { ReconciliationService } from './reconciliation.service';
+import { NotificationsGateway } from '../phase3/notifications.gateway';
 
 @Injectable()
 export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reconciliation: ReconciliationService,
+    @Optional() private readonly realtime?: NotificationsGateway,
   ) {}
 
   async record(organizationId: string, userId: string, dto: RecordPaymentDto) {
@@ -157,7 +160,7 @@ export class PaymentsService {
       throw new ConflictException('Cannot confirm a reversed payment');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const notification = await this.prisma.$transaction(async (tx) => {
       const confirmed = await tx.payment.update({
         where: { id },
         data: {
@@ -234,20 +237,47 @@ export class PaymentsService {
             })),
             skipDuplicates: true,
           });
+          return {
+            recipients,
+            dossierId: dossier.id,
+            paymentId: confirmed.id,
+          };
         }
       }
 
-      return this.findOne(id, organizationId);
+      return null;
     });
+    if (notification) {
+      for (const recipient of notification.recipients) {
+        this.realtime?.emitUser(recipient, {
+          type: 'PAYMENT_CONFIRMED',
+          dossierId: notification.dossierId,
+          paymentId: notification.paymentId,
+        });
+      }
+    }
+    return this.findOne(id, organizationId);
   }
 
-  async reverse(id: string, organizationId: string, dto?: ReversePaymentDto) {
+  async reverse(
+    id: string,
+    organizationId: string,
+    dto?: ReversePaymentDto,
+    userId?: string,
+  ) {
     const payment = await this.findOne(id, organizationId);
     if (payment.status === 'REVERSED') {
       return payment;
     }
+    const recipients = [
+      payment.dossier?.salesUserId,
+      payment.dossier?.opsUserId,
+    ].filter(
+      (recipient, index, values): recipient is string =>
+        Boolean(recipient) && values.indexOf(recipient) === index,
+    );
 
-    return this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // Mark all allocations as REVERSED
       await tx.paymentAllocation.updateMany({
         where: { paymentId: id, status: 'ACTIVE' },
@@ -284,9 +314,49 @@ export class PaymentsService {
           );
         }
       }
-
-      return this.findOne(id, organizationId);
+      if (userId) {
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            action: 'PAYMENT_REVERSED',
+            entityType: 'Payment',
+            entityId: id,
+            newValues: {
+              status: 'REVERSED',
+              reasonRecorded: Boolean(dto?.reason),
+            },
+          },
+        });
+      }
+      if (payment.dossier && recipients.length > 0) {
+        await tx.notification.createMany({
+          data: recipients.map((recipient) => ({
+            organizationId,
+            userId: recipient,
+            type: 'PAYMENT_REVERSED',
+            category: 'payment',
+            severity: 'warning',
+            title: `Paiement annulé pour ${payment.dossier?.reference}`,
+            content:
+              'Les soldes et les autorisations financières ont été recalculés.',
+            relatedType: 'payment',
+            relatedId: payment.id,
+            entityUrl: `/dossiers/${payment.dossierId}`,
+            dedupeKey: `payment-reversed:${payment.id}:${recipient}`,
+          })),
+          skipDuplicates: true,
+        });
+      }
     });
+    for (const recipient of recipients) {
+      this.realtime?.emitUser(recipient, {
+        type: 'PAYMENT_REVERSED',
+        dossierId: payment.dossierId,
+        paymentId: payment.id,
+      });
+    }
+    return this.findOne(id, organizationId);
   }
 
   async findAll(organizationId: string, filter: FilterPaymentsDto) {

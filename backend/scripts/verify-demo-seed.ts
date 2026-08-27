@@ -75,14 +75,14 @@ async function verifyCountsAndTenancy(): Promise<void> {
   check(
     'role variants',
     primaryUsers.length >= 8 &&
-    secondaryUsers.length >= 2 &&
-    [...primaryUsers, ...secondaryUsers].every(
-      (user) =>
-        user.userRoles.length > 0 &&
-        user.userRoles.every(
-          ({ role }) => role.organizationId === user.organizationId,
-        ),
-    ),
+      secondaryUsers.length >= 2 &&
+      [...primaryUsers, ...secondaryUsers].every(
+        (user) =>
+          user.userRoles.length > 0 &&
+          user.userRoles.every(
+            ({ role }) => role.organizationId === user.organizationId,
+          ),
+      ),
     `primary=${primaryUsers.length}, secondary=${secondaryUsers.length}`,
   );
   const minimums = [25, 15, 18, 28, 20, 12, 15, 15, 8, 8, 20, 20];
@@ -171,11 +171,11 @@ async function verifyCountsAndTenancy(): Promise<void> {
   check(
     'tenant relation integrity',
     dossierSafe &&
-    orderSafe &&
-    vehicleSafe &&
-    fileSafe &&
-    paymentSafe &&
-    customsSafe,
+      orderSafe &&
+      vehicleSafe &&
+      fileSafe &&
+      paymentSafe &&
+      customsSafe,
     `dossiers=${dossiers.length}, orders=${orders.length}, files=${files.length}`,
   );
 }
@@ -204,9 +204,9 @@ async function verifyWorkflowsAndInventory(): Promise<void> {
     for (let index = 1; index < dossier.history.length; index += 1) {
       if (
         dossier.history[index].createdAt <
-        dossier.history[index - 1].createdAt ||
+          dossier.history[index - 1].createdAt ||
         dossier.history[index].fromStatus !==
-        dossier.history[index - 1].toStatus
+          dossier.history[index - 1].toStatus
       )
         validHistories = false;
     }
@@ -223,23 +223,26 @@ async function verifyWorkflowsAndInventory(): Promise<void> {
         note.content.startsWith('SCENARIO_BLOCKED:'),
       ),
     ) &&
-    dossiers.some((dossier) =>
-      dossier.notes.some((note) =>
-        note.content.startsWith('SCENARIO_READY:'),
+      dossiers.some((dossier) =>
+        dossier.notes.some((note) =>
+          note.content.startsWith('SCENARIO_READY:'),
+        ),
       ),
-    ),
     'both scenario markers present',
   );
   check(
     'workflow type coverage',
     new Set(dossiers.map((dossier) => dossier.type)).size === 3 &&
-    dossiers.some((dossier) => dossier.status === 'cancelled'),
+      dossiers.some((dossier) => dossier.status === 'cancelled'),
     'CIF, DDP, shipping and cancellation present',
   );
 
   const offers = await prisma.chinaOffer.findMany({
     where: { organizationId: PRIMARY_ORG_ID },
-    include: { reservations: true },
+    include: {
+      reservations: true,
+      photos: { include: { file: true }, orderBy: { sortOrder: 'asc' } },
+    },
   });
   const offersValid = offers.every(
     (offer) =>
@@ -249,12 +252,27 @@ async function verifyWorkflowsAndInventory(): Promise<void> {
       offer.reservations
         .filter((reservation) => reservation.status === 'active')
         .reduce((sum, reservation) => sum + reservation.quantity, 0) <=
-      offer.availableQuantity,
+        offer.availableQuantity,
   );
   check(
     'offer reservation quantities',
     offersValid,
     `${offers.length} offers without oversubscription`,
+  );
+  check(
+    'offer private galleries',
+    offers.every(
+      (offer) =>
+        offer.photos.length === 3 &&
+        offer.photos.every(
+          (photo, index) =>
+            photo.sortOrder === index &&
+            photo.isPrimary === (index === 0) &&
+            photo.file.organizationId === offer.organizationId,
+        ) &&
+        new Set(offer.photos.map((photo) => photo.file.checksum)).size === 3,
+    ),
+    `${offers.length} offers with three ordered distinct tenant-owned files`,
   );
 
   const vehicles = await prisma.vehicle.findMany({
@@ -411,7 +429,7 @@ async function verifyFinance(): Promise<void> {
         (payment) =>
           payment.exchangeRate &&
           payment.exchangeRate.effectiveAt <=
-          (payment.paymentDate ?? payment.createdAt),
+            (payment.paymentDate ?? payment.createdAt),
       ),
     'all confirmed foreign payments use an earlier/equal effective rate',
   );
@@ -440,15 +458,15 @@ async function verifyFinance(): Promise<void> {
     (sum, cost) =>
       sum.plus(
         cost.amountInBaseCurrency ??
-        (cost.currency === 'DZD' ? cost.amount : 0),
+          (cost.currency === 'DZD' ? cost.amount : 0),
       ),
     moneyZero(),
   );
   check(
     'report source totals',
     collected.greaterThan(0) &&
-    costs.greaterThan(0) &&
-    confirmedPayments.every((payment) => payment.status === 'CONFIRMED'),
+      costs.greaterThan(0) &&
+      confirmedPayments.every((payment) => payment.status === 'CONFIRMED'),
     `collections=${collected.toFixed(2)} DZD, costs=${costs.toFixed(2)} DZD`,
   );
   const marginGroups = await prisma.dossier.findMany({
@@ -597,8 +615,8 @@ async function verifyNotificationsAuditAndStableKeys(): Promise<void> {
   check(
     'notification deduplication/read states',
     new Set(dedupeKeys).size === dedupeKeys.length &&
-    notifications.some((notification) => notification.readAt !== null) &&
-    notifications.some((notification) => notification.readAt === null),
+      notifications.some((notification) => notification.readAt !== null) &&
+      notifications.some((notification) => notification.readAt === null),
     `${notifications.length} unique notifications with read/unread states`,
   );
   const audits = await prisma.auditLog.findMany({

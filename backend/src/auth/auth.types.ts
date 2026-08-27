@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   organizationId: string;
+  locale: 'fr' | 'en';
   office: { id: string; name: string } | null;
   roles: Array<{ id: string; name: string; scope: string }>;
   permissions: PermissionValue[];

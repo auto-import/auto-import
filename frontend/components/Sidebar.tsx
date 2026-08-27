@@ -25,6 +25,31 @@ import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
 import type { ApiPermission } from "@/lib/api-contract";
+import { useI18n } from "@/components/I18nProvider";
+import { useBranding } from "@/components/BrandingProvider";
+import Image from "next/image";
+
+const NAV_TRANSLATIONS: Record<
+  string,
+  Parameters<ReturnType<typeof useI18n>["t"]>[0]
+> = {
+  "/": "dashboard",
+  "/crm": "crm",
+  "/crm/call-center": "callCenter",
+  "/offres": "offers",
+  "/dossiers": "dossiers",
+  "/vehicules": "vehicles",
+  "/fournisseurs": "suppliers",
+  "/expeditions": "shipping",
+  "/facturation": "billing",
+  "/finance": "finance",
+  "/documents": "documents",
+  "/tasks": "tasks",
+  "/notifications": "notifications",
+  "/rapports": "reports",
+  "/parametres": "settings",
+  "/utilisateurs": "users",
+};
 
 const ICON_MAP: Record<string, ReactNode> = {
   LayoutDashboard: <LayoutDashboard className="w-5 h-5" />,
@@ -67,6 +92,8 @@ const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
 export default function Sidebar() {
   const pathname = usePathname();
   const { hasPermission, currentUser } = useAuth();
+  const { t } = useI18n();
+  const { companyName, logoUrl } = useBranding();
   const initials = currentUser
     ? `${currentUser.firstName[0] ?? ""}${currentUser.lastName[0] ?? ""}`.toUpperCase()
     : "";
@@ -85,12 +112,23 @@ export default function Sidebar() {
   return (
     <aside className="hidden w-64 h-screen bg-sidebar-bg border-e border-border md:flex flex-col shrink-0 sticky top-0">
       <div className="flex items-center gap-3 px-5 py-5 border-b border-border">
-        <div className="w-9 h-9 bg-foreground rounded-lg flex items-center justify-center">
-          <LayoutDashboard className="w-5 h-5 text-white" />
+        <div className="w-9 h-9 overflow-hidden bg-foreground rounded-lg flex items-center justify-center">
+          {logoUrl ? (
+            <Image
+              unoptimized
+              src={logoUrl}
+              alt={t("companyLogoAlt")}
+              width={36}
+              height={36}
+              className="h-full w-full object-contain bg-white"
+            />
+          ) : (
+            <LayoutDashboard className="w-5 h-5 text-white" />
+          )}
         </div>
         <div>
           <span className="text-base font-bold text-foreground">
-            CarImport DZ
+            {companyName}
           </span>
           <p className="text-[10px] text-muted">ERP v2.0</p>
         </div>
@@ -114,7 +152,11 @@ export default function Sidebar() {
                   `}
                 >
                   {ICON_MAP[item.icon]}
-                  <span>{item.label}</span>
+                  <span>
+                    {NAV_TRANSLATIONS[item.href]
+                      ? t(NAV_TRANSLATIONS[item.href])
+                      : item.label}
+                  </span>
                 </Link>
               </li>
             );
@@ -132,7 +174,7 @@ export default function Sidebar() {
               {currentUser?.firstName} {currentUser?.lastName}
             </p>
             <p className="text-[11px] text-muted truncate">
-              {currentUser?.roles[0]?.name ?? "Utilisateur"}
+              {currentUser?.roles[0]?.name ?? t("user")}
             </p>
           </div>
         </div>

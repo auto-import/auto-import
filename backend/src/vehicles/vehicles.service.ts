@@ -18,6 +18,8 @@ import {
   type StoredFileResult,
 } from '../documents/storage.provider';
 import type { UploadedBufferFile } from '../documents/documents.service';
+import type { EligibleVehiclesDto } from './dto/eligible-vehicles.dto';
+import { DossierType } from '../dossiers/dto/dossier-type.enum';
 
 @Injectable()
 export class VehiclesService {
@@ -102,7 +104,11 @@ export class VehiclesService {
           }
           await this.validateTenantRelations(tx, dto, organizationId);
           const vehicle = await tx.vehicle.create({
-            data: { ...dto, organizationId },
+            data: {
+              ...dto,
+              equipment: dto.equipment as Prisma.InputJsonValue | undefined,
+              organizationId,
+            },
           });
           for (const [sortOrder, item] of stored.entries()) {
             const asset = await tx.fileAsset.create({
@@ -239,7 +245,12 @@ export class VehiclesService {
           organizationId,
         );
         return transaction.vehicle.create({
-          data: { ...createVehicleDto, organizationId },
+          data: {
+            ...createVehicleDto,
+            equipment: createVehicleDto.equipment as
+              Prisma.InputJsonValue | undefined,
+            organizationId,
+          },
           include: { specs: true, photos: true },
         });
       },
@@ -308,6 +319,96 @@ export class VehiclesService {
     ]);
 
     return paginate(vehicles, total, page, limit);
+  }
+
+  async eligibleForDossier(organizationId: string, query: EligibleVehiclesDto) {
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 50);
+    const sourceFilter =
+      query.type === DossierType.SHIPPING_ONLY
+        ? { in: ['external', 'clientRequest'] }
+        : { in: ['stock', 'chinaOffer', 'clientRequest'] };
+    const searchWhere: Prisma.VehicleWhereInput = query.search
+      ? {
+          OR: [
+            { brand: { contains: query.search, mode: 'insensitive' } },
+            { model: { contains: query.search, mode: 'insensitive' } },
+            { vin: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+    const activeStatuses = ['closed', 'serviceCompleted', 'cancelled'];
+    const eligibleWhere: Prisma.VehicleWhereInput = {
+      organizationId,
+      archivedAt: null,
+      status: 'available',
+      acquisitionType: sourceFilter,
+      dossierVehicles: {
+        none: { dossier: { status: { notIn: activeStatuses } } },
+      },
+      ...searchWhere,
+    };
+    const include = {
+      specs: true,
+      photos: { where: { isPrimary: true }, include: { file: true } },
+      dossierVehicles: {
+        where: { dossier: { status: { notIn: activeStatuses } } },
+        select: { dossier: { select: { id: true, reference: true } } },
+      },
+    } satisfies Prisma.VehicleInclude;
+    if (!query.includeExcluded) {
+      const [items, total] = await Promise.all([
+        this.prisma.vehicle.findMany({
+          where: eligibleWhere,
+          include,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.vehicle.count({ where: eligibleWhere }),
+      ]);
+      return paginate(
+        items.map((vehicle) => ({
+          ...vehicle,
+          eligibility: { eligible: true, reason: null },
+        })),
+        total,
+        page,
+        limit,
+      );
+    }
+    const where: Prisma.VehicleWhereInput = { organizationId, ...searchWhere };
+    const [items, total] = await Promise.all([
+      this.prisma.vehicle.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.vehicle.count({ where }),
+    ]);
+    return paginate(
+      items.map((vehicle) => {
+        let reason: string | null = null;
+        if (vehicle.archivedAt) reason = 'ARCHIVED';
+        else if (vehicle.status === 'sold') reason = 'SOLD';
+        else if (vehicle.status !== 'available')
+          reason =
+            vehicle.status === 'reserved' ? 'RESERVED' : 'UNAVAILABLE_STATUS';
+        else if (!sourceFilter.in.includes(vehicle.acquisitionType))
+          reason = 'INCOMPATIBLE_WORKFLOW';
+        else if (vehicle.dossierVehicles.length)
+          reason = 'ACTIVE_DOSSIER_ASSIGNMENT';
+        return {
+          ...vehicle,
+          eligibility: { eligible: reason === null, reason },
+        };
+      }),
+      total,
+      page,
+      limit,
+    );
   }
 
   async findOne(id: string, organizationId: string) {
@@ -397,7 +498,11 @@ export class VehiclesService {
         );
         return transaction.vehicle.update({
           where: { id },
-          data: updateVehicleDto,
+          data: {
+            ...updateVehicleDto,
+            equipment: updateVehicleDto.equipment as
+              Prisma.InputJsonValue | undefined,
+          },
           include: { specs: true, photos: true },
         });
       },

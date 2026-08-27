@@ -6,7 +6,6 @@ import { Prisma } from '@prisma/client';
 
 describe('FinanceService', () => {
   let service: FinanceService;
-  let prisma: PrismaService;
 
   const mockPrisma = {
     dossier: {
@@ -37,7 +36,6 @@ describe('FinanceService', () => {
     }).compile();
 
     service = module.get<FinanceService>(FinanceService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   it('should calculate 30/70 gate status and gross margin correctly', async () => {
@@ -86,7 +84,11 @@ describe('FinanceService', () => {
           id: 'pur-1',
           purchasePrice: new Prisma.Decimal(600000),
           payments: [
-            { id: 'sp-1', amount: new Prisma.Decimal(600000), status: 'CONFIRMED' },
+            {
+              id: 'sp-1',
+              amount: new Prisma.Decimal(600000),
+              status: 'CONFIRMED',
+            },
           ],
         },
       ],
@@ -109,7 +111,10 @@ describe('FinanceService', () => {
       customsFiles: [],
     });
 
-    const summary = await service.getDossierFinancialSummary('dossier-1', 'org-1');
+    const summary = await service.getDossierFinancialSummary(
+      'dossier-1',
+      'org-1',
+    );
 
     expect(summary.revenue.total).toBe('1000000');
     expect(summary.revenue.collected).toBe('300000');
@@ -121,5 +126,59 @@ describe('FinanceService', () => {
     expect(summary.costs.totalInBaseCurrency).toBe('150000');
     expect(summary.profitability.grossMargin).toBe('850000');
     expect(summary.profitability.grossMarginPercentage).toBe('85');
+  });
+
+  it('keeps a completed full-upfront plan as the dossier revenue authority', async () => {
+    mockPrisma.dossier.findFirst.mockResolvedValue({
+      id: 'dossier-completed',
+      reference: 'DOS-2026-00002',
+      paymentPlans: [
+        {
+          id: 'plan-completed',
+          strategy: 'FULL_UPFRONT',
+          totalAmount: new Prisma.Decimal(100000),
+          currency: 'DZD',
+          status: 'completed',
+          installments: [
+            {
+              id: 'installment-completed',
+              installmentNumber: 1,
+              amount: new Prisma.Decimal(100000),
+              paidAmount: new Prisma.Decimal(100000),
+              status: 'PAID',
+              allocations: [],
+            },
+          ],
+        },
+      ],
+      invoices: [],
+      payments: [
+        {
+          id: 'payment-completed',
+          amount: new Prisma.Decimal(100000),
+          status: 'CONFIRMED',
+          allocations: [],
+        },
+      ],
+      customerDeposits: [],
+      purchases: [],
+      costs: [],
+      customsFiles: [],
+    });
+
+    const summary = await service.getDossierFinancialSummary(
+      'dossier-completed',
+      'org-1',
+    );
+
+    expect(summary.revenue).toEqual(
+      expect.objectContaining({
+        total: '100000',
+        collected: '100000',
+        outstanding: '0.00',
+        state: 'PAID',
+      }),
+    );
+    expect(summary.gates.canAdvanceToDelivery).toBe(true);
   });
 });

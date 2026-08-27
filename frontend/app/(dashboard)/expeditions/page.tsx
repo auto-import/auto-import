@@ -13,7 +13,7 @@ import {
 } from '@/lib/logistics-api';
 import { formatDate, formatMontant } from '@/lib/constants';
 import type { Column } from '@/types';
-import { Search, Ship, Anchor, FileText, Plus, RefreshCw, CheckCircle, Navigation } from 'lucide-react';
+import { Search, Ship, Plus, RefreshCw } from 'lucide-react';
 
 export default function ExpeditionsPage() {
   const [activeTab, setActiveTab] = useState<'shipments' | 'customs'>('shipments');
@@ -83,11 +83,14 @@ export default function ExpeditionsPage() {
   }, [customsPage, customsSearch, customsStatus]);
 
   useEffect(() => {
-    if (activeTab === 'shipments') {
-      loadShipments();
-    } else {
-      loadCustoms();
-    }
+    const timer = window.setTimeout(() => {
+      if (activeTab === 'shipments') {
+        void loadShipments();
+      } else {
+        void loadCustoms();
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [activeTab, loadShipments, loadCustoms]);
 
   const handleTransitionShipment = async (id: string, nextStatus: string) => {

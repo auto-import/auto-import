@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -58,6 +51,6 @@ export class PaymentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ReversePaymentDto,
   ) {
-    return this.payments.reverse(id, user.organizationId, dto);
+    return this.payments.reverse(id, user.organizationId, dto, user.id);
   }
 }

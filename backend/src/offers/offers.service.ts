@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,13 +17,63 @@ import {
 } from './dto/offer.dto';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierStatus, DossierType } from '@auto-import/contracts';
+import {
+  StorageProvider,
+  type StoredFileResult,
+} from '../documents/storage.provider';
+import type { UploadedBufferFile } from '../documents/documents.service';
 
 type OfferRow = { id: string };
 
 @Injectable()
 export class OffersService {
   private readonly dossierWorkflow = new DossierWorkflowService();
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly storage: StorageProvider = new StorageProvider(),
+  ) {}
+
+  private async storePhotos(
+    organizationId: string,
+    files: UploadedBufferFile[],
+  ) {
+    if (files.length !== 3)
+      throw new BadRequestException('Exactly three offer photos are required');
+    const stored: StoredFileResult[] = [];
+    try {
+      for (const file of files) {
+        if (!file.buffer || file.buffer.length > 8 * 1024 * 1024)
+          throw new BadRequestException(
+            'Each offer photo must not exceed 8 MB',
+          );
+        const detected = this.storage.assertAllowedMime(
+          file.buffer,
+          file.mimetype,
+          ['image/jpeg', 'image/png', 'image/webp'],
+        );
+        stored.push(
+          await this.storage.saveBuffer(
+            organizationId,
+            'offer-photos',
+            file.originalname,
+            detected,
+            file.buffer,
+          ),
+        );
+      }
+      if (new Set(stored.map(({ checksum }) => checksum)).size !== 3)
+        throw new BadRequestException(
+          'The three offer photos must be distinct',
+        );
+      return stored;
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+  }
 
   private derivedStatus(offer: {
     archivedAt: Date | null;
@@ -110,6 +161,180 @@ export class OffersService {
     });
   }
 
+  async createWithPhotos(
+    dto: CreateOfferDto,
+    organizationId: string,
+    userId: string,
+    files: UploadedBufferFile[],
+  ) {
+    const stored = await this.storePhotos(organizationId, files);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.requireSupplier(tx, dto.supplierId, organizationId);
+        const validFrom = new Date(dto.validFrom);
+        const validUntil = new Date(dto.validUntil);
+        this.validateDates(validFrom, validUntil);
+        const offer = await tx.chinaOffer.create({
+          data: {
+            ...dto,
+            specification: dto.specification as Prisma.InputJsonValue,
+            validFrom,
+            validUntil,
+            organizationId,
+            reference: await this.nextReference(tx, organizationId),
+          },
+        });
+        for (const [sortOrder, item] of stored.entries()) {
+          const asset = await tx.fileAsset.create({
+            data: {
+              organizationId,
+              uploadedBy: userId,
+              category: 'OFFER_PHOTO',
+              storageKey: item.storageKey,
+              originalName: item.originalName,
+              mimeType: item.mimeType,
+              size: item.size,
+              checksum: item.checksum,
+            },
+          });
+          await tx.offerPhoto.create({
+            data: {
+              organizationId,
+              offerId: offer.id,
+              fileId: asset.id,
+              sortOrder,
+              isPrimary: sortOrder === 0,
+            },
+          });
+        }
+        const complete = await tx.chinaOffer.findUniqueOrThrow({
+          where: { id: offer.id },
+          include: {
+            supplier: true,
+            photos: { include: { file: true }, orderBy: { sortOrder: 'asc' } },
+          },
+        });
+        return this.present(complete);
+      });
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+  }
+
+  async replacePhotos(
+    offerId: string,
+    organizationId: string,
+    userId: string,
+    files: UploadedBufferFile[],
+  ) {
+    const stored = await this.storePhotos(organizationId, files);
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const offer = await tx.chinaOffer.findFirst({
+          where: { id: offerId, organizationId },
+          select: { id: true },
+        });
+        if (!offer) throw new NotFoundException('Offer not found');
+        const previous = await tx.offerPhoto.findMany({
+          where: { offerId, organizationId },
+          include: { file: true },
+        });
+        await tx.offerPhoto.deleteMany({ where: { offerId, organizationId } });
+        for (const [sortOrder, item] of stored.entries()) {
+          const asset = await tx.fileAsset.create({
+            data: {
+              organizationId,
+              uploadedBy: userId,
+              category: 'OFFER_PHOTO',
+              storageKey: item.storageKey,
+              originalName: item.originalName,
+              mimeType: item.mimeType,
+              size: item.size,
+              checksum: item.checksum,
+            },
+          });
+          await tx.offerPhoto.create({
+            data: {
+              organizationId,
+              offerId,
+              fileId: asset.id,
+              sortOrder,
+              isPrimary: sortOrder === 0,
+            },
+          });
+        }
+        const updated = await tx.chinaOffer.findUniqueOrThrow({
+          where: { id: offerId },
+          include: {
+            supplier: true,
+            photos: {
+              include: { file: true },
+              orderBy: { sortOrder: 'asc' },
+            },
+          },
+        });
+        return { updated, previous };
+      });
+
+      for (const previous of result.previous) {
+        const asset = await this.prisma.fileAsset.findFirst({
+          where: { id: previous.fileId, organizationId },
+          include: {
+            _count: {
+              select: {
+                vehiclePhotos: true,
+                offerPhotos: true,
+                customsDocuments: true,
+                businessDocuments: true,
+                dossierDocuments: true,
+                avatarUses: true,
+                checkpointEvidence: true,
+              },
+            },
+          },
+        });
+        if (
+          asset &&
+          Object.values(asset._count).every((count) => count === 0)
+        ) {
+          try {
+            await this.prisma.fileAsset.delete({ where: { id: asset.id } });
+            await this.storage.delete(asset.storageKey);
+          } catch {
+            // A concurrent relation may now own the asset; retaining private bytes is safer.
+          }
+        }
+      }
+      return this.present(result.updated);
+    } catch (error) {
+      await Promise.all(
+        stored.map(({ storageKey }) => this.storage.delete(storageKey)),
+      );
+      throw error;
+    }
+  }
+
+  async photoStream(photoId: string, organizationId: string) {
+    const photo = await this.prisma.offerPhoto.findFirst({
+      where: { id: photoId, organizationId, offer: { organizationId } },
+      include: { file: true },
+    });
+    if (
+      !photo ||
+      !(await this.storage.verify(photo.file.storageKey, photo.file.checksum))
+    ) {
+      throw new NotFoundException('Offer photo not found');
+    }
+    return {
+      stream: this.storage.getReadStream(photo.file.storageKey),
+      mimeType: photo.file.mimeType,
+      size: Number(photo.file.size),
+    };
+  }
+
   async findAll(organizationId: string, filters: FilterOfferDto) {
     await this.expireReservations(organizationId);
     const page = filters.page ?? 1;
@@ -137,6 +362,7 @@ export class OffersService {
           include: {
             supplier: true,
             _count: { select: { reservations: true } },
+            photos: { where: { isPrimary: true }, include: { file: true } },
           },
           orderBy: { createdAt: 'desc' },
           skip: (page - 1) * limit,
@@ -194,6 +420,7 @@ export class OffersService {
           include: {
             supplier: true,
             _count: { select: { reservations: true } },
+            photos: { where: { isPrimary: true }, include: { file: true } },
           },
         })
       : [];
@@ -219,6 +446,7 @@ export class OffersService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        photos: { include: { file: true }, orderBy: { sortOrder: 'asc' } },
       },
     });
     if (!offer) throw new NotFoundException('Offer not found');
@@ -375,7 +603,10 @@ export class OffersService {
             status: 'active',
             OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           },
-          include: { offer: { include: { supplier: true } }, dossier: true },
+          include: {
+            offer: { include: { supplier: true, photos: true } },
+            dossier: true,
+          },
         });
         if (!reservation || reservation.offer.validUntil < new Date()) {
           throw new ConflictException(
@@ -461,6 +692,16 @@ export class OffersService {
           },
           include: { specs: true },
         });
+        for (const photo of reservation.offer.photos) {
+          await tx.vehiclePhoto.create({
+            data: {
+              vehicleId: vehicle.id,
+              fileId: photo.fileId,
+              sortOrder: photo.sortOrder,
+              isPrimary: photo.isPrimary,
+            },
+          });
+        }
         if (reservation.dossierId) {
           await tx.dossierVehicle.create({
             data: { dossierId: reservation.dossierId, vehicleId: vehicle.id },

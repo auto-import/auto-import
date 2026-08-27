@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,7 +10,6 @@ import {
   ApplyCustomerDepositDto,
   CreateCustomerDepositDto,
 } from './dto/finance.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
 import { ReconciliationService } from './reconciliation.service';
 
 @Injectable()
@@ -27,7 +25,9 @@ export class CustomerDepositsService {
     }
 
     const amount = new Prisma.Decimal(dto.amount);
-    const paymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    const paymentDate = dto.paymentDate
+      ? new Date(dto.paymentDate)
+      : new Date();
 
     return this.prisma.customerDeposit.create({
       data: {
@@ -73,7 +73,7 @@ export class CustomerDepositsService {
 
     if (applyAmount.greaterThan(deposit.unappliedAmount)) {
       throw new BadRequestException(
-        `Cannot apply ${applyAmount}; unapplied deposit balance is ${deposit.unappliedAmount}`,
+        `Cannot apply ${applyAmount.toString()}; unapplied deposit balance is ${deposit.unappliedAmount.toString()}`,
       );
     }
 
@@ -154,7 +154,13 @@ export class CustomerDepositsService {
     });
   }
 
-  async findAll(organizationId: string, page = 1, limit = 20, clientId?: string, dossierId?: string) {
+  async findAll(
+    organizationId: string,
+    page = 1,
+    limit = 20,
+    clientId?: string,
+    dossierId?: string,
+  ) {
     const where: Prisma.CustomerDepositWhereInput = {
       organizationId,
       ...(clientId ? { clientId } : {}),

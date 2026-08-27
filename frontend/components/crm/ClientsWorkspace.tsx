@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useState } from "react";
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -159,7 +161,13 @@ function ClientForm({
     lastName: "",
     phone: "",
     email: "",
+    nationality: "DZ",
+    nin: "",
+    passportNumber: "",
+    identityIssueDate: "",
+    passportExpiry: "",
   });
+  const [passportScan, setPassportScan] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const input =
@@ -168,11 +176,22 @@ function ClientForm({
     event.preventDefault();
     setSaving(true);
     try {
-      await crmApi.createClient({
-        ...values,
-        phone: values.phone || undefined,
-        email: values.email || undefined,
-      });
+      if (passportScan) {
+        await crmApi.createClientWithPassport(
+          {
+            ...values,
+            phone: values.phone || undefined,
+            email: values.email || undefined,
+          },
+          passportScan,
+        );
+      } else {
+        await crmApi.createClient({
+          ...values,
+          phone: values.phone || undefined,
+          email: values.email || undefined,
+        });
+      }
       onSaved();
     } catch (caught) {
       setError(
@@ -227,6 +246,66 @@ function ClientForm({
             setValues({ ...values, email: event.target.value })
           }
         />
+        <input
+          className={input}
+          placeholder="Nationalité (DZ ou pays)"
+          value={values.nationality}
+          onChange={(event) =>
+            setValues({ ...values, nationality: event.target.value })
+          }
+        />
+        <input
+          className={input}
+          inputMode="numeric"
+          pattern="[0-9]{18}"
+          maxLength={18}
+          placeholder="NIN algérien (18 chiffres)"
+          value={values.nin}
+          onChange={(event) =>
+            setValues({ ...values, nin: event.target.value })
+          }
+        />
+        <input
+          className={input}
+          placeholder="Numéro de passeport"
+          value={values.passportNumber}
+          onChange={(event) =>
+            setValues({ ...values, passportNumber: event.target.value })
+          }
+        />
+        <label className="text-xs text-muted">
+          Date d’émission
+          <input
+            type="date"
+            className={`${input} mt-1 w-full`}
+            value={values.identityIssueDate}
+            onChange={(event) =>
+              setValues({ ...values, identityIssueDate: event.target.value })
+            }
+          />
+        </label>
+        <label className="text-xs text-muted">
+          Date d’expiration
+          <input
+            type="date"
+            className={`${input} mt-1 w-full`}
+            value={values.passportExpiry}
+            onChange={(event) =>
+              setValues({ ...values, passportExpiry: event.target.value })
+            }
+          />
+        </label>
+        <label className="text-xs text-muted">
+          Scan passeport privé
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            className="mt-1 w-full"
+            onChange={(event) =>
+              setPassportScan(event.target.files?.[0] ?? null)
+            }
+          />
+        </label>
         <div className="flex justify-end gap-2 md:col-span-2">
           <button
             type="button"
@@ -255,5 +334,5 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("fr-FR") : "—";
+  return value ? new Date(value).toLocaleDateString(getRuntimeLocale()) : "—";
 }

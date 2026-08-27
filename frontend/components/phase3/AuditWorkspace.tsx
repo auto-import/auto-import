@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -59,7 +61,7 @@ export default function AuditWorkspace() {
                       ? `${item.user.firstName} ${item.user.lastName}`
                       : "Système"}
                     <br />
-                    {new Date(item.createdAt).toLocaleString("fr-FR")}
+                    {new Date(item.createdAt).toLocaleString(getRuntimeLocale())}
                   </span>
                 </article>
               ))

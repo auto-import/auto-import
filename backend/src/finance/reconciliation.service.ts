@@ -152,7 +152,9 @@ export class ReconciliationService {
       where: { id: paymentId },
       data: {
         allocatedAmount: totalAllocated,
-        unallocatedAmount: unallocated.greaterThan(0) ? unallocated : new Prisma.Decimal(0),
+        unallocatedAmount: unallocated.greaterThan(0)
+          ? unallocated
+          : new Prisma.Decimal(0),
       },
     });
 

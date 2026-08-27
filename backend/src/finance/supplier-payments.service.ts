@@ -60,7 +60,9 @@ export class SupplierPaymentsService {
     }
 
     const amount = new Prisma.Decimal(dto.amount);
-    const paymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    const paymentDate = dto.paymentDate
+      ? new Date(dto.paymentDate)
+      : new Date();
 
     const payment = await this.prisma.supplierPayment.create({
       data: {

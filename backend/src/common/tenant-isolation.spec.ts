@@ -11,6 +11,7 @@ import { OrdersService } from '../orders/orders.service';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Multi-Tenant Isolation & Cross-Tenant Security (Phase 3-5)', () => {
   let dossiersService: DossiersService;
@@ -87,6 +88,20 @@ describe('Multi-Tenant Isolation & Cross-Tenant Security (Phase 3-5)', () => {
         OrdersService,
         UsersService,
         DossierWorkflowService,
+        {
+          provide: DocumentsService,
+          useValue: {
+            verifySignedContract: jest
+              .fn()
+              .mockResolvedValue({ id: 'contract-1' }),
+            verifyCheckpoint: jest.fn().mockResolvedValue({
+              complete: true,
+              missingVehicleIds: [],
+              evidenceIds: [],
+            }),
+            markEvidenceRelied: jest.fn(),
+          },
+        },
         {
           provide: PrismaService,
           useValue: prisma,

@@ -226,6 +226,18 @@ const DocumentKind = Object.freeze({
   BUSINESS_DOCUMENT: 'BUSINESS_DOCUMENT',
 });
 
+const DossierEvidenceCheckpoint = Object.freeze({
+  ARRIVAL_AT_PORT: 'ARRIVAL_AT_PORT',
+  CUSTOMS: 'CUSTOMS',
+  PORT_EXIT: 'PORT_EXIT',
+  LOCAL_TRANSPORT: 'LOCAL_TRANSPORT',
+});
+
+const IntegrationKind = Object.freeze({
+  TELEPHONY: 'telephony',
+  WHATSAPP: 'whatsapp',
+});
+
 const Permission = Object.freeze({
   DASHBOARD_READ: 'dashboard:read',
   USERS_READ: 'users:read',
@@ -308,6 +320,8 @@ const Permission = Object.freeze({
   SETTINGS_READ: 'settings:read',
   SETTINGS_WRITE: 'settings:write',
   SETTINGS_MANAGE: 'settings:manage',
+  SETTINGS_INTEGRATIONS_MANAGE: 'integrations:manage',
+  CLIENTS_IDENTITY_REVEAL: 'clients:identityReveal',
 });
 
 const DOSSIER_WORKFLOWS = Object.freeze({
@@ -378,6 +392,8 @@ module.exports = {
   CostType,
   Currency,
   DocumentKind,
+  DossierEvidenceCheckpoint,
+  IntegrationKind,
   DueTrigger,
   InstallmentStatus,
   InvoiceStatus,

@@ -32,6 +32,7 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
     firstName: 'Tenant',
     lastName: 'Admin',
     organizationId: ORG_A,
+    locale: 'fr',
     office: null,
     roles: [{ id: 'role-admin-a', name: 'Admin', scope: 'tenant' }],
     permissions: [...ALL_PERMISSIONS],

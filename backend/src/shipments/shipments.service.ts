@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
@@ -117,16 +112,33 @@ export class ShipmentsService {
     const updated = await this.prisma.shipment.update({
       where: { id },
       data: {
-        carrierPartnerId: dto.carrierPartnerId !== undefined ? dto.carrierPartnerId : shipment.carrierPartnerId,
+        carrierPartnerId:
+          dto.carrierPartnerId !== undefined
+            ? dto.carrierPartnerId
+            : shipment.carrierPartnerId,
         blNumber: dto.blNumber !== undefined ? dto.blNumber : shipment.blNumber,
-        vesselName: dto.vesselName !== undefined ? dto.vesselName : shipment.vesselName,
-        containerNumber: dto.containerNumber !== undefined ? dto.containerNumber : shipment.containerNumber,
-        departurePort: dto.departurePort !== undefined ? dto.departurePort : shipment.departurePort,
-        arrivalPort: dto.arrivalPort !== undefined ? dto.arrivalPort : shipment.arrivalPort,
+        vesselName:
+          dto.vesselName !== undefined ? dto.vesselName : shipment.vesselName,
+        containerNumber:
+          dto.containerNumber !== undefined
+            ? dto.containerNumber
+            : shipment.containerNumber,
+        departurePort:
+          dto.departurePort !== undefined
+            ? dto.departurePort
+            : shipment.departurePort,
+        arrivalPort:
+          dto.arrivalPort !== undefined
+            ? dto.arrivalPort
+            : shipment.arrivalPort,
         etd: dto.etd ? new Date(dto.etd) : shipment.etd,
         eta: dto.eta ? new Date(dto.eta) : shipment.eta,
-        actualDepartureDate: dto.actualDepartureDate ? new Date(dto.actualDepartureDate) : shipment.actualDepartureDate,
-        actualArrivalDate: dto.actualArrivalDate ? new Date(dto.actualArrivalDate) : shipment.actualArrivalDate,
+        actualDepartureDate: dto.actualDepartureDate
+          ? new Date(dto.actualDepartureDate)
+          : shipment.actualDepartureDate,
+        actualArrivalDate: dto.actualArrivalDate
+          ? new Date(dto.actualArrivalDate)
+          : shipment.actualArrivalDate,
         notes: dto.notes !== undefined ? dto.notes : shipment.notes,
       },
       include: {
@@ -198,15 +210,36 @@ export class ShipmentsService {
     const where: Prisma.ShipmentWhereInput = {
       organizationId,
       ...(filter.status ? { status: filter.status } : {}),
-      ...(filter.carrierPartnerId ? { carrierPartnerId: filter.carrierPartnerId } : {}),
-      ...(filter.containerNumber ? { containerNumber: { contains: filter.containerNumber, mode: 'insensitive' } } : {}),
-      ...(filter.blNumber ? { blNumber: { contains: filter.blNumber, mode: 'insensitive' } } : {}),
+      ...(filter.carrierPartnerId
+        ? { carrierPartnerId: filter.carrierPartnerId }
+        : {}),
+      ...(filter.containerNumber
+        ? {
+            containerNumber: {
+              contains: filter.containerNumber,
+              mode: 'insensitive',
+            },
+          }
+        : {}),
+      ...(filter.blNumber
+        ? { blNumber: { contains: filter.blNumber, mode: 'insensitive' } }
+        : {}),
       ...(filter.search
         ? {
             OR: [
-              { shipmentNumber: { contains: filter.search, mode: 'insensitive' } },
+              {
+                shipmentNumber: {
+                  contains: filter.search,
+                  mode: 'insensitive',
+                },
+              },
               { vesselName: { contains: filter.search, mode: 'insensitive' } },
-              { containerNumber: { contains: filter.search, mode: 'insensitive' } },
+              {
+                containerNumber: {
+                  contains: filter.search,
+                  mode: 'insensitive',
+                },
+              },
               { blNumber: { contains: filter.search, mode: 'insensitive' } },
             ],
           }
@@ -223,7 +256,9 @@ export class ShipmentsService {
           carrierPartner: { select: { id: true, name: true } },
           vehicles: {
             include: {
-              vehicle: { select: { id: true, brand: true, model: true, vin: true } },
+              vehicle: {
+                select: { id: true, brand: true, model: true, vin: true },
+              },
             },
           },
           customsFiles: true,
@@ -249,7 +284,11 @@ export class ShipmentsService {
         },
         customsFiles: true,
         costs: {
-          include: { actorUser: { select: { id: true, firstName: true, lastName: true } } },
+          include: {
+            actorUser: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
         },
         shippingCosts: true,
         statusHistory: {

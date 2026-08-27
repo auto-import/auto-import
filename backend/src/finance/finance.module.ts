@@ -17,9 +17,10 @@ import { CostsService } from './costs.service';
 import { CostsController } from './costs.controller';
 import { FinanceService } from './finance.service';
 import { FinanceController } from './finance.controller';
+import { Phase3Module } from '../phase3/phase3.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, Phase3Module],
   controllers: [
     InvoicesController,
     PaymentPlansController,

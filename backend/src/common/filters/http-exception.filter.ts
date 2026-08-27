@@ -51,6 +51,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
               ? rawMessage
               : (details?.[0] ?? exception.message),
           ...(details?.length ? { details } : {}),
+          ...(typeof body.checkpoint === 'string'
+            ? { checkpoint: body.checkpoint }
+            : {}),
+          ...(Array.isArray(body.missingVehicleIds) &&
+          body.missingVehicleIds.every((value) => typeof value === 'string')
+            ? { missingVehicleIds: body.missingVehicleIds.map(String) }
+            : {}),
         };
       } else {
         errorBody = {

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -21,11 +20,7 @@ export class CostsService {
     private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
-  async create(
-    organizationId: string,
-    userId: string,
-    dto: CreateCostDto,
-  ) {
+  async create(organizationId: string, userId: string, dto: CreateCostDto) {
     if (dto.amount <= 0) {
       throw new BadRequestException('Cost amount must be positive');
     }

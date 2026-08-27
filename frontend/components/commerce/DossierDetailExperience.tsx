@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -31,6 +33,12 @@ import {
 import { adminApi, type User } from "@/lib/admin-api";
 import { commerceApi, type ApiDossier } from "@/lib/commerce-api";
 import { ErrorState, LoadingState, inputClass } from "./common";
+import DossierEvidencePanel from "./DossierEvidencePanel";
+import { downloadDocument } from "@/lib/documents-api";
+import {
+  fetchDossierFinancialSummary,
+  type DossierFinancialSummary,
+} from "@/lib/finance-api";
 
 const workflows: Record<string, ApiDossierStatus[]> = {
   VEHICLE_SALE_CIF: [
@@ -95,6 +103,8 @@ export default function DossierDetailExperience({
   const { id } = React.use(params);
   const { hasPermission } = useAuth();
   const [dossier, setDossier] = useState<ApiDossier | null>(null);
+  const [financialSummary, setFinancialSummary] =
+    useState<DossierFinancialSummary | null>(null);
   const [allowed, setAllowed] = useState<ApiDossierStatus[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [salesUserId, setSalesUserId] = useState("");
@@ -108,14 +118,18 @@ export default function DossierDetailExperience({
   const load = useCallback(async () => {
     setError("");
     try {
-      const [record, transitions, userPage] = await Promise.all([
+      const [record, transitions, userPage, finance] = await Promise.all([
         commerceApi.dossiers.get(id),
         commerceApi.dossiers.allowed(id),
         adminApi.listUsers({ status: "active", limit: 100 }),
+        hasPermission(Permission.FINANCE_READ)
+          ? fetchDossierFinancialSummary(id)
+          : Promise.resolve(null),
       ]);
       setDossier(record);
       setAllowed(transitions.allowedTransitions);
       setUsers(userPage.items);
+      setFinancialSummary(finance);
       setSalesUserId(record.salesUserId ?? "");
       setOpsUserId(record.opsUserId ?? "");
     } catch (caught) {
@@ -123,11 +137,18 @@ export default function DossierDetailExperience({
         caught instanceof Error ? caught.message : "Chargement impossible",
       );
     }
-  }, [id]);
+  }, [hasPermission, id]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
+  }, [load]);
+
+  useEffect(() => {
+    const refresh = () => void load();
+    window.addEventListener("auto-import:notification", refresh);
+    return () =>
+      window.removeEventListener("auto-import:notification", refresh);
   }, [load]);
 
   async function transition(status: ApiDossierStatus) {
@@ -224,7 +245,7 @@ export default function DossierDetailExperience({
                 <p className="mt-2 flex items-center gap-2 text-sm text-muted">
                   <CalendarDays className="h-4 w-4" />
                   Ouvert le{" "}
-                  {new Date(dossier.openedAt).toLocaleDateString("fr-FR", {
+                  {new Date(dossier.openedAt).toLocaleDateString(getRuntimeLocale(), {
                     day: "2-digit",
                     month: "long",
                     year: "numeric",
@@ -322,7 +343,7 @@ export default function DossierDetailExperience({
                 </h2>
                 <p className="mt-1 text-sm leading-6">
                   L’acompte initial de{" "}
-                  {Number(upfront.amount).toLocaleString("fr-FR")}{" "}
+                  {Number(upfront.amount).toLocaleString(getRuntimeLocale())}{" "}
                   {dossier.sections?.finance?.paymentPlan?.currency} doit être
                   confirmé. La transition restera bloquée tant que cette
                   condition financière n’est pas satisfaite.
@@ -411,7 +432,9 @@ export default function DossierDetailExperience({
                   saveTeam={saveTeam}
                 />
               )}
-              {tab === "finance" && <Finance dossier={dossier} />}
+              {tab === "finance" && (
+                <Finance dossier={dossier} summary={financialSummary} />
+              )}
               {tab === "shipping" && <Logistics dossier={dossier} />}
               {tab === "documents" && <Documents dossier={dossier} />}
               {tab === "history" && <History dossier={dossier} />}
@@ -573,27 +596,43 @@ function Overview({
   );
 }
 
-function Finance({ dossier }: { dossier: ApiDossier }) {
-  const plan = dossier.sections?.finance?.paymentPlan;
+function Finance({
+  dossier,
+  summary,
+}: {
+  dossier: ApiDossier;
+  summary: DossierFinancialSummary | null;
+}) {
+  const plan = summary?.paymentPlan ?? dossier.sections?.finance?.paymentPlan;
+  const currency = summary?.currency ?? plan?.currency ?? "DZD";
+  const collected = Number(summary?.revenue.collected ?? 0);
+  const total = Number(summary?.revenue.total ?? 0);
+  const stateLabels: Record<
+    DossierFinancialSummary["revenue"]["state"],
+    string
+  > = {
+    UNPAID: "Non payé",
+    PARTIALLY_PAID: "Partiellement payé",
+    PAID: "Dossier soldé",
+    OVERPAID_DEPOSIT: "Surpaiement / dépôt",
+  };
   return (
     <div>
       <div className="grid gap-4 md:grid-cols-3">
         <Metric
           icon={Banknote}
           label="Total encaissé"
-          value={`${(dossier.stats?.totalPayments ?? 0).toLocaleString("fr-FR")} DZD`}
+          value={`${collected.toLocaleString(getRuntimeLocale())} ${currency}`}
         />
         <Metric
           icon={ReceiptText}
           label="Facturation"
-          value={`${(dossier.stats?.totalInvoiceAmount ?? 0).toLocaleString("fr-FR")} DZD`}
+          value={`${total.toLocaleString(getRuntimeLocale())} ${currency}`}
         />
         <Metric
           icon={Check}
           label="Situation"
-          value={
-            dossier.stats?.isFullyPaid ? "Dossier soldé" : "Solde à percevoir"
-          }
+          value={summary ? stateLabels[summary.revenue.state] : "Non renseigné"}
         />
       </div>
       <h2 className="mt-7 font-bold">Échéancier</h2>
@@ -611,8 +650,8 @@ function Finance({ dossier }: { dossier: ApiDossier }) {
                 </p>
               </div>
               <p className="text-sm font-bold">
-                {Number(item.paidAmount).toLocaleString("fr-FR")} /{" "}
-                {Number(item.amount).toLocaleString("fr-FR")} {plan.currency}
+                {Number(item.paidAmount).toLocaleString(getRuntimeLocale())} /{" "}
+                {Number(item.amount).toLocaleString(getRuntimeLocale())} {plan.currency}
               </p>
             </div>
           ))}
@@ -669,12 +708,18 @@ function Logistics({ dossier }: { dossier: ApiDossier }) {
 
 function Documents({ dossier }: { dossier: ApiDossier }) {
   const documents = dossier.sections?.documents ?? [];
+  const [downloadError, setDownloadError] = useState("");
   return (
     <div>
       <h2 className="font-bold">Documents du dossier</h2>
       <p className="mt-1 text-sm text-muted">
         Pièces persistées dans le stockage privé de l’organisation.
       </p>
+      {downloadError && (
+        <p role="alert" className="mt-3 text-sm text-red-700">
+          {downloadError}
+        </p>
+      )}
       {documents.length ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {documents.map((document) => (
@@ -685,7 +730,7 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100">
                 <FileText className="h-5 w-5" />
               </span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">
                   {document.title || document.file?.originalName}
                 </p>
@@ -693,6 +738,21 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
                   {document.documentType || document.kind} · {document.status}
                 </p>
               </div>
+              <button
+                type="button"
+                className="rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold"
+                onClick={() =>
+                  void downloadDocument(document.id).catch((cause: unknown) =>
+                    setDownloadError(
+                      cause instanceof Error
+                        ? cause.message
+                        : "Téléchargement impossible",
+                    ),
+                  )
+                }
+              >
+                Télécharger
+              </button>
             </article>
           ))}
         </div>
@@ -701,6 +761,7 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
           Aucun document déposé.
         </p>
       )}
+      <DossierEvidencePanel dossier={dossier} />
     </div>
   );
 }
@@ -725,7 +786,7 @@ function History({ dossier }: { dossier: ApiDossier }) {
                   ] ?? entry.toStatus}
                 </p>
                 <p className="mt-1 text-xs text-muted">
-                  {new Date(entry.createdAt).toLocaleString("fr-FR")}
+                  {new Date(entry.createdAt).toLocaleString(getRuntimeLocale())}
                   {entry.user
                     ? ` · ${entry.user.firstName} ${entry.user.lastName}`
                     : ""}

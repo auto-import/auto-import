@@ -20,6 +20,9 @@ export default function DossierCreateWorkspace() {
   const offerId = searchParams.get("offerId") ?? "";
   const [clients, setClients] = useState<ApiClient[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehiclePage, setVehiclePage] = useState(1);
+  const [vehiclePages, setVehiclePages] = useState(1);
   const [requests, setRequests] = useState<ApiVehicleRequest[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [offer, setOffer] = useState<ApiOffer | null>(null);
@@ -43,16 +46,14 @@ export default function DossierCreateWorkspace() {
   useEffect(() => {
     void (async () => {
       try {
-        const [clientPage, vehiclePage, requestPage, userPage, selectedOffer] =
+        const [clientPage, requestPage, userPage, selectedOffer] =
           await Promise.all([
             crmApi.listClients({ limit: 100 }),
-            commerceApi.vehicles.list({ status: "available", limit: 100 }),
             commerceApi.vehicleRequests.list({ limit: 100 }),
             adminApi.listUsers({ status: "active", limit: 100 }),
             offerId ? commerceApi.offers.get(offerId) : Promise.resolve(null),
           ]);
         setClients(clientPage.items);
-        setVehicles(vehiclePage.items);
         setRequests(requestPage.items);
         setUsers(userPage.items);
         setOffer(selectedOffer);
@@ -66,6 +67,30 @@ export default function DossierCreateWorkspace() {
       }
     })();
   }, [offerId]);
+
+  useEffect(() => {
+    if (offer) return;
+    const timer = window.setTimeout(() => {
+      void commerceApi.vehicles
+        .eligible({
+          type,
+          search: vehicleSearch || undefined,
+          page: vehiclePage,
+          limit: 12,
+          includeExcluded: true,
+        })
+        .then((result) => {
+          setVehicles(result.items);
+          setVehiclePages(Math.max(result.pagination.totalPages, 1));
+        })
+        .catch((cause: unknown) =>
+          setError(
+            cause instanceof Error ? cause.message : "Sélecteur indisponible",
+          ),
+        );
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [offer, type, vehiclePage, vehicleSearch]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -205,7 +230,11 @@ export default function DossierCreateWorkspace() {
             <select
               className={inputClass}
               value={type}
-              onChange={(e) => setType(e.target.value)}
+              onChange={(e) => {
+                setType(e.target.value);
+                setVehicleId("");
+                setVehiclePage(1);
+              }}
             >
               {Object.values(DossierType).map((value) => (
                 <option key={value} value={value}>
@@ -235,6 +264,16 @@ export default function DossierCreateWorkspace() {
                 </label>
                 <label>
                   <span className="field-label">Véhicule en stock</span>
+                  <input
+                    aria-label="Rechercher un véhicule éligible"
+                    className={`${inputClass} mb-2`}
+                    placeholder="VIN, marque ou modèle"
+                    value={vehicleSearch}
+                    onChange={(event) => {
+                      setVehicleSearch(event.target.value);
+                      setVehiclePage(1);
+                    }}
+                  />
                   <select
                     className={inputClass}
                     value={vehicleId}
@@ -242,11 +281,36 @@ export default function DossierCreateWorkspace() {
                   >
                     <option value="">Aucun</option>
                     {vehicles.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.brand} {vehicle.model} · {vehicle.vin}
+                      <option
+                        key={vehicle.id}
+                        value={vehicle.id}
+                        disabled={!vehicle.eligibility?.eligible}
+                      >
+                        {vehicle.brand} {vehicle.model} ·{" "}
+                        {vehicle.vin ?? "VIN en attente"}
+                        {vehicle.eligibility?.reason
+                          ? ` — ${vehicle.eligibility.reason}`
+                          : ""}
                       </option>
                     ))}
                   </select>
+                  <span className="mt-2 flex items-center justify-between text-xs text-muted">
+                    <button
+                      type="button"
+                      disabled={vehiclePage <= 1}
+                      onClick={() => setVehiclePage((page) => page - 1)}
+                    >
+                      Précédent
+                    </button>
+                    Page {vehiclePage}/{vehiclePages}
+                    <button
+                      type="button"
+                      disabled={vehiclePage >= vehiclePages}
+                      onClick={() => setVehiclePage((page) => page + 1)}
+                    >
+                      Suivant
+                    </button>
+                  </span>
                 </label>
               </div>
             )}

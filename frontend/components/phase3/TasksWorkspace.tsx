@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Circle, Clock3, Plus, XCircle } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -289,7 +291,7 @@ export default function TasksWorkspace() {
                       {task.dueDate && (
                         <span className="inline-flex items-center gap-1">
                           <Clock3 className="h-3.5 w-3.5" />
-                          {new Date(task.dueDate).toLocaleString("fr-FR")}
+                          {new Date(task.dueDate).toLocaleString(getRuntimeLocale())}
                         </span>
                       )}
                       {task.dossier && <span>{task.dossier.reference}</span>}

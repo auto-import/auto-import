@@ -20,6 +20,7 @@ const user = (
   firstName: 'Agent',
   lastName: 'Tenant',
   organizationId: '20000000-0000-4000-8000-000000000001',
+  locale: 'fr',
   office: null,
   roles: [],
   permissions,

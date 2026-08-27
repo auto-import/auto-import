@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
@@ -256,7 +258,7 @@ export default function CallCenterWorkspace() {
                     <p className="text-xs text-muted">
                       {item.currentCall?.externalNumber ||
                         new Date(item.lastHeartbeatAt).toLocaleTimeString(
-                          "fr-FR",
+                          getRuntimeLocale(),
                         )}
                     </p>
                   </div>
@@ -360,7 +362,7 @@ export default function CallCenterWorkspace() {
                       <p className="text-sm font-medium">{task.title}</p>
                       <p className="text-xs text-muted">
                         {task.dueDate
-                          ? new Date(task.dueDate).toLocaleString("fr-FR")
+                          ? new Date(task.dueDate).toLocaleString(getRuntimeLocale())
                           : "Sans échéance"}
                       </p>
                     </div>
@@ -387,7 +389,7 @@ export default function CallCenterWorkspace() {
                   <p className="text-sm font-medium">{appointment.title}</p>
                   <p className="text-xs text-muted">
                     {new Date(appointment.scheduledStart).toLocaleString(
-                      "fr-FR",
+                      getRuntimeLocale(),
                     )}{" "}
                     · {appointment.status}
                   </p>
@@ -749,7 +751,7 @@ function CallCard({ call, onSelect }: { call: ApiCall; onSelect: () => void }) {
       </div>
       <p className="text-xs text-muted">
         {call.externalNumber} ·{" "}
-        {new Date(call.receivedAt).toLocaleTimeString("fr-FR")}
+        {new Date(call.receivedAt).toLocaleTimeString(getRuntimeLocale())}
       </p>
     </button>
   );

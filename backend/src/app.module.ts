@@ -27,6 +27,7 @@ import { ShipmentsModule } from './shipments/shipments.module';
 import { CustomsModule } from './customs/customs.module';
 import { DocumentsModule } from './documents/documents.module';
 import { Phase3Module } from './phase3/phase3.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { Phase3Module } from './phase3/phase3.module';
     CustomsModule,
     DocumentsModule,
     Phase3Module,
+    IntegrationsModule,
   ],
   controllers: [AppController],
   providers: [

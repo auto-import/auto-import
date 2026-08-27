@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExchangeRatesService } from './exchange-rates.service';
@@ -13,15 +10,14 @@ export class FinanceService {
     private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
-  async getDossierFinancialSummary(
-    dossierId: string,
-    organizationId: string,
-  ) {
+  async getDossierFinancialSummary(dossierId: string, organizationId: string) {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
       include: {
         paymentPlans: {
-          where: { status: 'active' },
+          where: { status: { in: ['active', 'completed'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
           include: {
             installments: {
               orderBy: { installmentNumber: 'asc' },
@@ -51,7 +47,9 @@ export class FinanceService {
           },
         },
         customerDeposits: {
-          where: { status: { in: ['CONFIRMED', 'PARTIALLY_APPLIED', 'FULLY_APPLIED'] } },
+          where: {
+            status: { in: ['CONFIRMED', 'PARTIALLY_APPLIED', 'FULLY_APPLIED'] },
+          },
         },
         purchases: {
           include: {
@@ -99,6 +97,19 @@ export class FinanceService {
     );
 
     const outstandingBalance = totalRevenue.minus(totalCollected);
+    const paymentPercentage = totalRevenue.greaterThan(0)
+      ? Prisma.Decimal.min(
+          totalCollected.mul(100).div(totalRevenue),
+          100,
+        ).toDecimalPlaces(2)
+      : new Prisma.Decimal(0);
+    const paymentState = totalCollected.lessThanOrEqualTo(0)
+      ? 'UNPAID'
+      : totalCollected.greaterThan(totalRevenue)
+        ? 'OVERPAID_DEPOSIT'
+        : totalCollected.greaterThanOrEqualTo(totalRevenue)
+          ? 'PAID'
+          : 'PARTIALLY_PAID';
 
     // Installments & Gates breakdown
     let upfrontRequired = new Prisma.Decimal(0);
@@ -128,8 +139,11 @@ export class FinanceService {
         : new Prisma.Decimal(0);
     }
 
-    const upfrontPaid = upfrontCollected.greaterThanOrEqualTo(upfrontRequired) && upfrontRequired.greaterThan(0);
-    const finalPaid = outstandingBalance.lessThanOrEqualTo(0) && totalRevenue.greaterThan(0);
+    const upfrontPaid =
+      upfrontCollected.greaterThanOrEqualTo(upfrontRequired) &&
+      upfrontRequired.greaterThan(0);
+    const finalPaid =
+      outstandingBalance.lessThanOrEqualTo(0) && totalRevenue.greaterThan(0);
 
     // Costs Breakdown
     let purchaseCost = new Prisma.Decimal(0);
@@ -199,7 +213,14 @@ export class FinanceService {
         total: totalRevenue.toString(),
         totalInBaseCurrency: totalRevenueBase.toString(),
         collected: totalCollected.toString(),
-        outstanding: outstandingBalance.greaterThan(0) ? outstandingBalance.toString() : '0.00',
+        outstanding: outstandingBalance.greaterThan(0)
+          ? outstandingBalance.toString()
+          : '0.00',
+        percentage: paymentPercentage.toString(),
+        state: paymentState,
+        overpayment: outstandingBalance.lessThan(0)
+          ? outstandingBalance.abs().toString()
+          : '0.00',
       },
       gates: {
         strategy: activePlan?.strategy || 'THIRTY_SEVENTY',
@@ -268,7 +289,9 @@ export class FinanceService {
       baseCurrency: 'DZD',
       totalInvoiced: totalInvoiced.toString(),
       totalCollected: totalCollected.toString(),
-      totalOutstanding: outstanding.greaterThan(0) ? outstanding.toString() : '0.00',
+      totalOutstanding: outstanding.greaterThan(0)
+        ? outstanding.toString()
+        : '0.00',
       totalCosts: totalCosts.toString(),
       grossProfit: grossProfit.toString(),
       invoiceCount: invoices.length,

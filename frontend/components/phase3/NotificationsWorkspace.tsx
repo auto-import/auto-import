@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Bell, CheckCheck, Circle } from "lucide-react";
@@ -390,7 +392,7 @@ export default function NotificationsWorkspace() {
                       {item.content || "Sans détail"}
                     </span>
                     <span className="mt-2 block text-xs text-muted">
-                      {new Date(item.createdAt).toLocaleString("fr-FR")} ·{" "}
+                      {new Date(item.createdAt).toLocaleString(getRuntimeLocale())} ·{" "}
                       {item.category}
                     </span>
                   </span>

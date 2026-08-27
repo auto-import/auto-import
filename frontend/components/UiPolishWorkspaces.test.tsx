@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar";
 import VehicleStockPolished from "./commerce/VehicleStockPolished";
+import { I18nProvider } from "./I18nProvider";
 
 const mocks = vi.hoisted(() => ({ listVehicles: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/vehicules" }));
@@ -20,9 +21,11 @@ vi.mock("@/components/AuthProvider", () => ({
     currentUser: {
       firstName: "Amina",
       lastName: "Admin",
+      locale: "fr",
       roles: [{ name: "Admin" }],
     },
     hasPermission: () => true,
+    refreshCurrentUser: vi.fn(),
   }),
 }));
 vi.mock("@/lib/commerce-api", () => ({
@@ -56,7 +59,11 @@ describe("UI polish navigation and vehicle photos", () => {
   });
 
   it("keeps Audit out of normal navigation", () => {
-    render(<Sidebar />);
+    render(
+      <I18nProvider>
+        <Sidebar />
+      </I18nProvider>,
+    );
     expect(screen.queryByRole("link", { name: /audit/i })).toBeNull();
   });
 

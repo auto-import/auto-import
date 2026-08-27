@@ -28,6 +28,14 @@ export class UpdateClientDto {
   passportNumber?: string;
 
   @IsOptional()
+  @IsString()
+  nin?: string;
+
+  @IsOptional()
+  @IsDateString()
+  identityIssueDate?: string;
+
+  @IsOptional()
   @IsDateString()
   passportExpiry?: string;
 

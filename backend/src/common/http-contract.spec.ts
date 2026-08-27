@@ -128,4 +128,38 @@ describe('HTTP envelopes', () => {
     });
     expect(JSON.stringify(payload)).not.toContain('database password leaked');
   });
+
+  it('preserves only allowlisted workflow-gate diagnostics', () => {
+    const json = jest.fn();
+    const status = jest.fn(() => ({ json }));
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status }),
+        getRequest: () => ({ method: 'PATCH', url: '/api/dossiers/id/status' }),
+      }),
+    } as ArgumentsHost;
+
+    new HttpExceptionFilter().catch(
+      new BadRequestException({
+        code: 'DOSSIER_CHECKPOINT_EVIDENCE_REQUIRED',
+        message: 'Evidence is incomplete',
+        checkpoint: 'CUSTOMS',
+        missingVehicleIds: ['vehicle-a'],
+        unsafeInternalPath: 'must-not-leak',
+      }),
+      host,
+    );
+
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: {
+          code: 'DOSSIER_CHECKPOINT_EVIDENCE_REQUIRED',
+          message: 'Evidence is incomplete',
+          checkpoint: 'CUSTOMS',
+          missingVehicleIds: ['vehicle-a'],
+        },
+      }),
+    );
+    expect(JSON.stringify(json.mock.calls)).not.toContain('must-not-leak');
+  });
 });

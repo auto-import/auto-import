@@ -59,7 +59,12 @@ export default function Topbar({
       transports: ["websocket"],
       auth: { token: authApi.accessToken() },
     });
-    socket.on("notification.created", () => void load());
+    socket.on("notification.created", (payload) => {
+      window.dispatchEvent(
+        new CustomEvent("auto-import:notification", { detail: payload }),
+      );
+      void load();
+    });
     return () => {
       socket.disconnect();
     };

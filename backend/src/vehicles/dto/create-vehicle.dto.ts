@@ -7,6 +7,7 @@ import {
   IsIn,
   Min,
   Max,
+  IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { VehicleStatus } from '@auto-import/contracts';
@@ -45,6 +46,15 @@ export class CreateVehicleDto {
   @IsOptional()
   @IsString()
   condition?: string;
+
+  @IsOptional() @IsString() trim?: string;
+  @IsOptional() @IsString() bodyType?: string;
+  @IsOptional() @IsString() drivetrain?: string;
+  @IsOptional() @IsString() displacement?: string;
+  @IsOptional() @IsString() steeringSide?: string;
+  @IsOptional() @IsString() interiorColor?: string;
+  @IsOptional() @IsString() warranty?: string;
+  @IsOptional() @IsObject() equipment?: Record<string, unknown>;
 
   @IsOptional()
   @Type(() => Number)

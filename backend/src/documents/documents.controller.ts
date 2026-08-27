@@ -20,6 +20,7 @@ import {
   UploadDossierDocumentDto,
 } from './dto/upload-document.dto';
 import { DocumentsService, type UploadedBufferFile } from './documents.service';
+import { UploadCheckpointEvidenceDto } from './dto/upload-evidence.dto';
 
 @Controller('documents')
 export class DocumentsController {
@@ -36,7 +37,9 @@ export class DocumentsController {
 
   @Post('upload')
   @RequirePermission(Permission.DOCUMENTS_WRITE)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }),
+  )
   upload(
     @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: UploadedBufferFile,
@@ -63,12 +66,41 @@ export class DocumentsController {
     res.setHeader('Content-Type', mimeType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(originalName)}"`,
+      `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(originalName.replace(/[\r\n]/g, ''))}`,
     );
     if (size) {
       res.setHeader('Content-Length', size);
     }
 
     stream.pipe(res);
+  }
+
+  @Get('dossiers/:dossierId/evidence')
+  @RequirePermission(Permission.DOSSIERS_READ)
+  evidence(
+    @Param('dossierId') dossierId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.documents.evidenceSummary(dossierId, user.organizationId);
+  }
+
+  @Post('dossiers/:dossierId/evidence')
+  @RequirePermission(Permission.DOCUMENTS_WRITE)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }),
+  )
+  uploadEvidence(
+    @Param('dossierId') dossierId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: UploadedBufferFile,
+    @Body() dto: UploadCheckpointEvidenceDto,
+  ) {
+    return this.documents.uploadCheckpointEvidence(
+      user.organizationId,
+      dossierId,
+      user.id,
+      file,
+      dto,
+    );
   }
 }

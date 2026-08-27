@@ -1,11 +1,14 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Package } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { commerceApi, type ApiOffer } from "@/lib/commerce-api";
 import { ErrorState, formatMoney, LoadingState } from "./common";
+import PrivateOfferGallery from "./PrivateOfferGallery";
 
 export default function OfferDetailWorkspace({
   params,
@@ -48,6 +51,7 @@ export default function OfferDetailWorkspace({
           <LoadingState />
         ) : (
           <>
+            <PrivateOfferGallery offer={offer} onReplaced={setOffer} />
             <section className="card space-y-5 p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -101,8 +105,8 @@ export default function OfferDetailWorkspace({
                   Validité
                 </h2>
                 <p className="text-sm">
-                  Du {new Date(offer.validFrom).toLocaleDateString("fr-FR")} au{" "}
-                  {new Date(offer.validUntil).toLocaleDateString("fr-FR")}
+                  Du {new Date(offer.validFrom).toLocaleDateString(getRuntimeLocale())} au{" "}
+                  {new Date(offer.validUntil).toLocaleDateString(getRuntimeLocale())}
                 </p>
                 <p className="mt-2 text-sm text-muted">
                   Délai estimé : {offer.estimatedDelayDays ?? "—"} jours

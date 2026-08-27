@@ -54,15 +54,21 @@ export class StorageProvider {
       }
       // WEBP: RIFF....WEBP
       if (
+        buffer.length >= 12 &&
         buffer[0] === 0x52 &&
         buffer[1] === 0x49 &&
         buffer[2] === 0x46 &&
-        buffer[3] === 0x46
+        buffer[3] === 0x46 &&
+        buffer[8] === 0x57 &&
+        buffer[9] === 0x45 &&
+        buffer[10] === 0x42 &&
+        buffer[11] === 0x50
       ) {
         return 'image/webp';
       }
     }
-    return originalMime || 'application/octet-stream';
+    void originalMime;
+    return 'application/octet-stream';
   }
 
   /**
@@ -113,6 +119,32 @@ export class StorageProvider {
       throw new BadRequestException('File not found in storage');
     }
     return fs.createReadStream(filePath);
+  }
+
+  async verify(storageKey: string, expectedChecksum: string): Promise<boolean> {
+    const filePath = this.resolveStoragePath(storageKey);
+    try {
+      const buffer = await fs.promises.readFile(filePath);
+      const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+      return Boolean(expectedChecksum) && checksum === expectedChecksum;
+    } catch {
+      return false;
+    }
+  }
+
+  assertAllowedMime(
+    buffer: Buffer,
+    clientMime: string,
+    allowed: string[],
+  ): string {
+    const detected = this.detectMimeType(buffer, clientMime);
+    if (!allowed.includes(detected)) {
+      throw new BadRequestException({
+        code: 'FILE_TYPE_NOT_ALLOWED',
+        message: `Allowed file types: ${allowed.join(', ')}`,
+      });
+    }
+    return detected;
   }
 
   async delete(storageKey: string): Promise<void> {

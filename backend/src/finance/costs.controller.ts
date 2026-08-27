@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -38,10 +31,7 @@ export class CostsController {
 
   @Post()
   @RequirePermission(Permission.COSTS_WRITE)
-  create(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateCostDto,
-  ) {
+  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateCostDto) {
     return this.costs.create(user.organizationId, user.id, dto);
   }
 

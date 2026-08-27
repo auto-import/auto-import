@@ -1,3 +1,4 @@
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 import { AlertCircle, LoaderCircle, RefreshCw } from "lucide-react";
 
 export const inputClass =
@@ -49,5 +50,5 @@ export function formatMoney(
   currency?: string | null,
 ) {
   if (value == null) return "—";
-  return `${Number(value).toLocaleString("fr-FR")} ${currency ?? ""}`.trim();
+  return `${Number(value).toLocaleString(getRuntimeLocale())} ${currency ?? ""}`.trim();
 }

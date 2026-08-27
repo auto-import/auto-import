@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -63,8 +65,8 @@ export default function DashboardWorkspace() {
               <Kpi
                 icon={Banknote}
                 label="Encaissé"
-                value={`${Number(data.finance.collected).toLocaleString("fr-FR")} ${data.period.baseCurrency}`}
-                detail={`${Number(data.finance.outstanding).toLocaleString("fr-FR")} restant`}
+                value={`${Number(data.finance.collected).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`}
+                detail={`${Number(data.finance.outstanding).toLocaleString(getRuntimeLocale())} restant`}
               />
               <Kpi
                 icon={AlertTriangle}

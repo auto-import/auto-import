@@ -15,6 +15,7 @@ import { ProspectsService } from '../prospects/prospects.service';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
   let dossiersService: DossiersService;
@@ -166,6 +167,20 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         ProspectsService,
         UsersService,
         DossierWorkflowService,
+        {
+          provide: DocumentsService,
+          useValue: {
+            verifySignedContract: jest
+              .fn()
+              .mockResolvedValue({ id: 'contract-1' }),
+            verifyCheckpoint: jest.fn().mockResolvedValue({
+              complete: true,
+              missingVehicleIds: [],
+              evidenceIds: [],
+            }),
+            markEvidenceRelied: jest.fn(),
+          },
+        },
         {
           provide: PrismaService,
           useValue: prisma,

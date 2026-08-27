@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -14,7 +7,6 @@ import {
   ApplyCustomerDepositDto,
   CreateCustomerDepositDto,
 } from './dto/finance.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
 import { CustomerDepositsService } from './customer-deposits.service';
 
 @Controller('finance/customer-deposits')
@@ -30,7 +22,13 @@ export class CustomerDepositsController {
     @Query('clientId') clientId?: string,
     @Query('dossierId') dossierId?: string,
   ) {
-    return this.deposits.findAll(user.organizationId, Number(page), Number(limit), clientId, dossierId);
+    return this.deposits.findAll(
+      user.organizationId,
+      Number(page),
+      Number(limit),
+      clientId,
+      dossierId,
+    );
   }
 
   @Get(':id')

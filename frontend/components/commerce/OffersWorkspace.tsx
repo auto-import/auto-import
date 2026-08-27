@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Calendar, Plus, Search, X } from "lucide-react";
@@ -153,7 +155,7 @@ export default function OffersWorkspace() {
     };
     try {
       if (editing) await commerceApi.offers.update(editing.id, payload);
-      else await commerceApi.offers.create(payload);
+      else await commerceApi.offers.createWithPhotos(payload, []);
       setShowForm(false);
       setEditing(null);
       await load();
@@ -242,7 +244,7 @@ export default function OffersWorkspace() {
                   <span>{offer.remainingQuantity} disponible(s)</span>
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    {new Date(offer.validUntil).toLocaleDateString("fr-FR")}
+                    {new Date(offer.validUntil).toLocaleDateString(getRuntimeLocale())}
                   </span>
                 </div>
                 <div className="flex gap-2">

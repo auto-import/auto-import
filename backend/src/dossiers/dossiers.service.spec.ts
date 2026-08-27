@@ -8,11 +8,17 @@ import { DossiersService } from './dossiers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { DossierType } from './dto/dossier-type.enum';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   let service: DossiersService;
   let workflowService: DossierWorkflowService;
   let prisma: any;
+  let documentsGate: {
+    verifySignedContract: jest.Mock;
+    verifyCheckpoint: jest.Mock;
+    markEvidenceRelied: jest.Mock;
+  };
 
   const mockOrgId = 'org-1';
 
@@ -91,10 +97,23 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       }),
     };
 
+    documentsGate = {
+      verifySignedContract: jest.fn().mockResolvedValue({ id: 'contract-1' }),
+      verifyCheckpoint: jest.fn().mockResolvedValue({
+        complete: true,
+        missingVehicleIds: [],
+        evidenceIds: [],
+      }),
+      markEvidenceRelied: jest.fn(),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DossiersService,
         DossierWorkflowService,
+        {
+          provide: DocumentsService,
+          useValue: documentsGate,
+        },
         {
           provide: PrismaService,
           useValue: prisma,
@@ -106,6 +125,80 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
     workflowService = module.get<DossierWorkflowService>(
       DossierWorkflowService,
     );
+  });
+
+  describe('post-UAT evidence gates', () => {
+    it('rejects the signed-contract transition with a stable code when bytes are absent', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'dos-contract',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: 'clientConfirmed',
+      } as Awaited<ReturnType<DossiersService['findOne']>>);
+      documentsGate.verifySignedContract.mockResolvedValue(null);
+
+      await expect(
+        service.updateStatus(
+          'dos-contract',
+          { status: 'contractSigned' },
+          'user-1',
+          mockOrgId,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'DOSSIER_SIGNED_CONTRACT_REQUIRED' },
+      });
+    });
+
+    it.each([
+      ['inTransit', 'arrivedAtPort', 'ARRIVAL_AT_PORT'],
+      ['arrivedAtPort', 'customsClearance', 'CUSTOMS'],
+      ['customsReleased', 'portExit', 'PORT_EXIT'],
+      ['portExit', 'localTransport', 'LOCAL_TRANSPORT'],
+    ] as const)(
+      'rejects %s → %s when one vehicle lacks %s evidence',
+      async (from, to, checkpoint) => {
+        jest.spyOn(service, 'findOne').mockResolvedValue({
+          id: 'dos-ddp',
+          organizationId: mockOrgId,
+          type: DossierType.VEHICLE_SALE_DDP,
+          status: from,
+        } as Awaited<ReturnType<DossiersService['findOne']>>);
+        documentsGate.verifyCheckpoint.mockResolvedValue({
+          complete: false,
+          missingVehicleIds: ['vehicle-b'],
+          evidenceIds: ['evidence-a'],
+        });
+
+        await expect(
+          service.updateStatus('dos-ddp', { status: to }, 'user-1', mockOrgId),
+        ).rejects.toMatchObject({
+          response: {
+            code: 'DOSSIER_CHECKPOINT_EVIDENCE_REQUIRED',
+            checkpoint,
+            missingVehicleIds: ['vehicle-b'],
+          },
+        });
+      },
+    );
+
+    it('does not apply DDP checkpoint categories to shipping-only arrival', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'dos-shipping',
+        organizationId: mockOrgId,
+        type: DossierType.SHIPPING_ONLY,
+        status: 'inTransit',
+      } as Awaited<ReturnType<DossiersService['findOne']>>);
+
+      await service
+        .updateStatus(
+          'dos-shipping',
+          { status: 'arrived' },
+          'user-1',
+          mockOrgId,
+        )
+        .catch(() => undefined);
+      expect(documentsGate.verifyCheckpoint).not.toHaveBeenCalled();
+    });
   });
 
   describe('Workflow 1: VEHICLE_SALE_CIF', () => {

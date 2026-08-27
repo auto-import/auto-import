@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, History, Users } from "lucide-react";
@@ -11,6 +13,7 @@ import {
   type ApiDossierStatus,
 } from "@/lib/api-contract";
 import { commerceApi, type ApiDossier } from "@/lib/commerce-api";
+import { downloadDocument } from "@/lib/documents-api";
 import {
   buttonClass,
   EmptyState,
@@ -102,7 +105,9 @@ export default function DossierDetailWorkspace({
       setPurchasePrice("");
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Confirmation impossible");
+      setError(
+        caught instanceof Error ? caught.message : "Confirmation impossible",
+      );
     } finally {
       setWorking(false);
     }
@@ -138,7 +143,7 @@ export default function DossierDetailWorkspace({
                   <p className="text-sm text-muted">
                     {dossier.client.firstName} {dossier.client.lastName} ·
                     ouvert le{" "}
-                    {new Date(dossier.openedAt).toLocaleDateString("fr-FR")}
+                    {new Date(dossier.openedAt).toLocaleDateString(getRuntimeLocale())}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -265,7 +270,7 @@ export default function DossierDetailWorkspace({
                       className="grid gap-1 py-3 text-sm md:grid-cols-[180px_1fr]"
                     >
                       <span className="text-muted">
-                        {new Date(entry.createdAt).toLocaleString("fr-FR")}
+                        {new Date(entry.createdAt).toLocaleString(getRuntimeLocale())}
                       </span>
                       <span>
                         {DOSSIER_STATUS_LABELS_API[
@@ -281,69 +286,140 @@ export default function DossierDetailWorkspace({
             {dossier.offerReservation?.status === "active" && (
               <section className="card space-y-3 p-5">
                 <h2 className="font-semibold">Confirmer l’achat fournisseur</h2>
-                <p className="text-sm text-muted">Le véhicule n’est matérialisé qu’avec un VIN et un prix d’achat faisant autorité.</p>
-                <div className="grid gap-3 md:grid-cols-2"><label><span className="field-label">VIN *</span><input className={inputClass} value={vin} onChange={(event) => setVin(event.target.value)} /></label><label><span className="field-label">Prix d’achat</span><input type="number" className={inputClass} value={purchasePrice} onChange={(event) => setPurchasePrice(event.target.value)} /></label></div>
-                <button className={buttonClass} disabled={working || !vin.trim()} onClick={() => void confirmOfferPurchase()}>Confirmer et matérialiser le véhicule</button>
+                <p className="text-sm text-muted">
+                  Le véhicule n’est matérialisé qu’avec un VIN et un prix
+                  d’achat faisant autorité.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label>
+                    <span className="field-label">VIN *</span>
+                    <input
+                      className={inputClass}
+                      value={vin}
+                      onChange={(event) => setVin(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Prix d’achat</span>
+                    <input
+                      type="number"
+                      className={inputClass}
+                      value={purchasePrice}
+                      onChange={(event) => setPurchasePrice(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <button
+                  className={buttonClass}
+                  disabled={working || !vin.trim()}
+                  onClick={() => void confirmOfferPurchase()}
+                >
+                  Confirmer et matérialiser le véhicule
+                </button>
               </section>
             )}
             {/* Phase 2: Live Operational Sections */}
             <section className="card p-6 space-y-6">
               <div className="flex flex-wrap items-center justify-between border-b border-border pb-4 gap-4">
                 <div>
-                  <h2 className="text-lg font-bold text-foreground">Opérations, Finance & Documents</h2>
-                  <p className="text-xs text-muted">Contrôle des paiements, statut logistique, transit douanier et pièces justificatives</p>
+                  <h2 className="text-lg font-bold text-foreground">
+                    Opérations, Finance & Documents
+                  </h2>
+                  <p className="text-xs text-muted">
+                    Contrôle des paiements, statut logistique, transit douanier
+                    et pièces justificatives
+                  </p>
                 </div>
               </div>
 
               {/* Financial Gating & Margin Summary */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
-                  <p className="text-xs font-semibold text-muted uppercase">Porte 1 · Acompte 30%</p>
+                  <p className="text-xs font-semibold text-muted uppercase">
+                    Porte 1 · Acompte 30%
+                  </p>
                   <div className="flex items-center gap-2">
                     <span className="text-lg font-bold text-foreground">
-                      {dossier.sections?.finance?.paymentPlan?.installments?.[0]?.paidAmount ?? '0.00'} / {dossier.sections?.finance?.paymentPlan?.installments?.[0]?.amount ?? '30% requis'}
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[0]
+                        ?.paidAmount ?? "0.00"}{" "}
+                      /{" "}
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[0]
+                        ?.amount ?? "30% requis"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted">Requis avant confirmation d'achat fournisseur</p>
+                  <p className="text-xs text-muted">
+                    Requis avant confirmation d&apos;achat fournisseur
+                  </p>
                 </div>
 
                 <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
-                  <p className="text-xs font-semibold text-muted uppercase">Porte 2 · Solde 70%</p>
+                  <p className="text-xs font-semibold text-muted uppercase">
+                    Porte 2 · Solde 70%
+                  </p>
                   <div className="flex items-center gap-2">
                     <span className="text-lg font-bold text-foreground">
-                      {dossier.sections?.finance?.paymentPlan?.installments?.[1]?.paidAmount ?? '0.00'} / {dossier.sections?.finance?.paymentPlan?.installments?.[1]?.amount ?? '70% requis'}
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[1]
+                        ?.paidAmount ?? "0.00"}{" "}
+                      /{" "}
+                      {dossier.sections?.finance?.paymentPlan?.installments?.[1]
+                        ?.amount ?? "70% requis"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted">Requis avant remise des documents / livraison</p>
+                  <p className="text-xs text-muted">
+                    Requis avant remise des documents / livraison
+                  </p>
                 </div>
 
                 <div className="p-4 rounded-input border border-border bg-surface/50 space-y-2">
-                  <p className="text-xs font-semibold text-muted uppercase">Total Encaissé</p>
+                  <p className="text-xs font-semibold text-muted uppercase">
+                    Total Encaissé
+                  </p>
                   <span className="text-lg font-bold text-status-green-text">
-                    {dossier.stats?.totalPayments ? `${dossier.stats.totalPayments.toLocaleString()} DZD` : '0 DZD'}
+                    {dossier.stats?.totalPayments
+                      ? `${dossier.stats.totalPayments.toLocaleString()} DZD`
+                      : "0 DZD"}
                   </span>
                   <p className="text-xs text-muted">
-                    {dossier.stats?.isFullyPaid ? '✅ Dossier intégralement soldé' : 'Solde restant à percevoir'}
+                    {dossier.stats?.isFullyPaid
+                      ? "✅ Dossier intégralement soldé"
+                      : "Solde restant à percevoir"}
                   </p>
                 </div>
               </div>
 
               {/* Invoices and Payments Section */}
               <div className="space-y-3">
-                <h3 className="font-semibold text-sm text-foreground">Factures & Règlements associés</h3>
+                <h3 className="font-semibold text-sm text-foreground">
+                  Factures & Règlements associés
+                </h3>
                 {!dossier.sections?.finance?.invoices?.length ? (
-                  <p className="text-xs text-muted">Aucune facture enregistrée pour ce dossier.</p>
+                  <p className="text-xs text-muted">
+                    Aucune facture enregistrée pour ce dossier.
+                  </p>
                 ) : (
                   <div className="divide-y border border-border rounded-input overflow-hidden text-sm">
                     {dossier.sections.finance.invoices.map((inv) => (
-                      <div key={inv.id} className="p-3 flex justify-between items-center bg-background">
+                      <div
+                        key={inv.id}
+                        className="p-3 flex justify-between items-center bg-background"
+                      >
                         <div>
-                          <span className="font-mono font-bold text-foreground">{inv.invoiceNumber}</span>
-                          <span className="ms-3 text-xs text-muted">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</span>
+                          <span className="font-mono font-bold text-foreground">
+                            {inv.invoiceNumber}
+                          </span>
+                          <span className="ms-3 text-xs text-muted">
+                            {new Date(inv.createdAt).toLocaleDateString(
+                              getRuntimeLocale(),
+                            )}
+                          </span>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="font-semibold">{Number(inv.total).toLocaleString()} {inv.currency}</span>
-                          <span className="text-xs uppercase px-2 py-0.5 rounded bg-muted/20">{inv.status}</span>
+                          <span className="font-semibold">
+                            {Number(inv.total).toLocaleString()} {inv.currency}
+                          </span>
+                          <span className="text-xs uppercase px-2 py-0.5 rounded bg-muted/20">
+                            {inv.status}
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -354,53 +430,114 @@ export default function DossierDetailWorkspace({
               {/* Customs & Shipping Summary */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                 <div className="border border-border rounded-input p-4 space-y-2">
-                  <h3 className="font-semibold text-sm text-foreground">Expédition & Conteneur</h3>
+                  <h3 className="font-semibold text-sm text-foreground">
+                    Expédition & Conteneur
+                  </h3>
                   {dossier.sections?.shipping ? (
                     <div className="text-xs space-y-1 text-muted">
-                      <p>Conteneur : <strong className="text-foreground font-mono">{dossier.sections.shipping.containerNumber || 'N/A'}</strong></p>
-                      <p>Navire : <strong className="text-foreground">{dossier.sections.shipping.vesselName || 'N/A'}</strong> (BL: {dossier.sections.shipping.blNumber || '—'})</p>
-                      <p>Statut : <strong className="text-primary">{dossier.sections.shipping.status}</strong></p>
+                      <p>
+                        Conteneur :{" "}
+                        <strong className="text-foreground font-mono">
+                          {dossier.sections.shipping.containerNumber || "N/A"}
+                        </strong>
+                      </p>
+                      <p>
+                        Navire :{" "}
+                        <strong className="text-foreground">
+                          {dossier.sections.shipping.vesselName || "N/A"}
+                        </strong>{" "}
+                        (BL: {dossier.sections.shipping.blNumber || "—"})
+                      </p>
+                      <p>
+                        Statut :{" "}
+                        <strong className="text-primary">
+                          {dossier.sections.shipping.status}
+                        </strong>
+                      </p>
                     </div>
                   ) : (
-                    <p className="text-xs text-muted">Aucune expédition maritime active liée.</p>
+                    <p className="text-xs text-muted">
+                      Aucune expédition maritime active liée.
+                    </p>
                   )}
                 </div>
 
                 <div className="border border-border rounded-input p-4 space-y-2">
-                  <h3 className="font-semibold text-sm text-foreground">Dédouanement</h3>
+                  <h3 className="font-semibold text-sm text-foreground">
+                    Dédouanement
+                  </h3>
                   {dossier.sections?.customs?.length ? (
                     <div className="text-xs space-y-1 text-muted">
-                      <p>Dossier douane : <strong className="text-foreground font-mono">{dossier.sections.customs[0].reference}</strong></p>
-                      <p>Déclaration (DUM) : <strong className="text-foreground">{dossier.sections.customs[0].declarationNumber || 'En cours'}</strong></p>
-                      <p>Statut : <strong className="text-primary">{dossier.sections.customs[0].status}</strong></p>
+                      <p>
+                        Dossier douane :{" "}
+                        <strong className="text-foreground font-mono">
+                          {dossier.sections.customs[0].reference}
+                        </strong>
+                      </p>
+                      <p>
+                        Déclaration (DUM) :{" "}
+                        <strong className="text-foreground">
+                          {dossier.sections.customs[0].declarationNumber ||
+                            "En cours"}
+                        </strong>
+                      </p>
+                      <p>
+                        Statut :{" "}
+                        <strong className="text-primary">
+                          {dossier.sections.customs[0].status}
+                        </strong>
+                      </p>
                     </div>
                   ) : (
-                    <p className="text-xs text-muted">Dossier de transit douanier non ouvert.</p>
+                    <p className="text-xs text-muted">
+                      Dossier de transit douanier non ouvert.
+                    </p>
                   )}
                 </div>
               </div>
 
               {/* Documents & Proofs Section */}
               <div className="space-y-3 pt-2">
-                <h3 className="font-semibold text-sm text-foreground">Pièces justificatives & Documents déposés ({dossier.sections?.documents?.length || 0})</h3>
+                <h3 className="font-semibold text-sm text-foreground">
+                  Pièces justificatives & Documents déposés (
+                  {dossier.sections?.documents?.length || 0})
+                </h3>
                 {!dossier.sections?.documents?.length ? (
-                  <p className="text-xs text-muted">Aucune pièce déposée. Déposez les contrats, justificatifs de paiement et mainlevées.</p>
+                  <p className="text-xs text-muted">
+                    Aucune pièce déposée. Déposez les contrats, justificatifs de
+                    paiement et mainlevées.
+                  </p>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {dossier.sections.documents.map((doc) => (
-                      <div key={doc.id} className="p-3 border border-border rounded-input bg-surface/30 flex items-center justify-between text-xs">
+                      <div
+                        key={doc.id}
+                        className="p-3 border border-border rounded-input bg-surface/30 flex items-center justify-between text-xs"
+                      >
                         <div>
-                          <p className="font-semibold text-foreground truncate max-w-[180px]">{doc.title || doc.file?.originalName}</p>
-                          <p className="text-muted uppercase text-[10px]">{doc.kind} · {doc.documentType || 'general'}</p>
+                          <p className="font-semibold text-foreground truncate max-w-[180px]">
+                            {doc.title || doc.file?.originalName}
+                          </p>
+                          <p className="text-muted uppercase text-[10px]">
+                            {doc.kind} · {doc.documentType || "general"}
+                          </p>
                         </div>
-                        <a
-                          href={`/api/documents/${doc.id}/download`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void downloadDocument(doc.id).catch(
+                              (cause: unknown) =>
+                                setError(
+                                  cause instanceof Error
+                                    ? cause.message
+                                    : "Téléchargement impossible",
+                                ),
+                            )
+                          }
                           className="px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 font-medium"
                         >
                           Ouvrir
-                        </a>
+                        </button>
                       </div>
                     ))}
                   </div>

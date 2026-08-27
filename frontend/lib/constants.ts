@@ -1,3 +1,4 @@
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 import type {
   StatutDossier,
   StatutVehicule,
@@ -721,7 +722,7 @@ export const CLIENT_PROFILE_TABS: TabItem[] = [
 
 export function formatMontant(value: number): string {
   return (
-    new Intl.NumberFormat("fr-DZ", {
+    new Intl.NumberFormat(getRuntimeLocale(), {
       style: "decimal",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
@@ -731,7 +732,7 @@ export function formatMontant(value: number): string {
 
 export function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
-  return new Intl.DateTimeFormat("fr-FR", {
+  return new Intl.DateTimeFormat(getRuntimeLocale(), {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -745,7 +746,7 @@ export function dossierVehiculesSummary(vehicles: Vehicule[]): string {
 
 export function formatOffrePrix(value: number, devise: string): string {
   return (
-    new Intl.NumberFormat("fr-FR", {
+    new Intl.NumberFormat(getRuntimeLocale(), {
       style: "decimal",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
@@ -756,7 +757,7 @@ export function formatOffrePrix(value: number, devise: string): string {
 }
 
 export function formatMontantDevise(montant: number, devise: Devise): string {
-  const value = new Intl.NumberFormat("fr-FR", {
+  const value = new Intl.NumberFormat(getRuntimeLocale(), {
     style: "decimal",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,

@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Calendar,
@@ -224,11 +226,11 @@ export default function LeadsWorkspace() {
                             <Calendar className="h-3 w-3" />
                             Relance{" "}
                             {new Date(lead.nextActionAt).toLocaleDateString(
-                              "fr-FR",
+                              getRuntimeLocale(),
                             )}
                           </span>
                         ) : lead.lastInteractionAt ? (
-                          `Dernière interaction ${new Date(lead.lastInteractionAt).toLocaleDateString("fr-FR")}`
+                          `Dernière interaction ${new Date(lead.lastInteractionAt).toLocaleDateString(getRuntimeLocale())}`
                         ) : (
                           "Aucune interaction"
                         )}

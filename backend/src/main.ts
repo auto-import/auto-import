@@ -9,14 +9,24 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { PrismaService } from './prisma/prisma.service';
 import helmet from 'helmet';
 import { configureOpenApi } from './common/openapi';
+import { validateProductionEnvironment } from './config/production-environment';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
+  validateProductionEnvironment(process.env);
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  if (nodeEnv === 'production') {
+    const hops = Number(configService.get<string>('TRUST_PROXY_HOPS'));
+    app.set('trust proxy', hops);
+  }
   const allowedOrigins = configService
     .get<string>('CORS_ORIGIN', 'http://localhost:3001')
     .split(',')
@@ -71,8 +81,8 @@ async function bootstrap() {
   configureOpenApi(app);
 
   await app.listen(port);
-  logger.log(`🚀 Application running on: http://localhost:${port}`);
-  logger.log(`📝 Environment: ${nodeEnv}`);
-  logger.log(`🔍 Health check: http://localhost:${port}/health`);
+  logger.log(`Application listening on port ${port}`);
+  logger.log(`Environment: ${nodeEnv}`);
+  logger.log(`Health check path: /health`);
 }
 void bootstrap();

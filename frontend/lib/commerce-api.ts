@@ -52,6 +52,15 @@ export interface ApiVehicle {
   currency?: string | null;
   status: ApiVehicleStatus;
   acquisitionType: string;
+  trim?: string | null;
+  bodyType?: string | null;
+  drivetrain?: string | null;
+  displacement?: string | null;
+  steeringSide?: string | null;
+  interiorColor?: string | null;
+  warranty?: string | null;
+  equipment?: Record<string, unknown> | null;
+  eligibility?: { eligible: boolean; reason: string | null };
   supplierId?: string | null;
   supplier?: ApiPartner | null;
   currentLocationId?: string | null;
@@ -112,6 +121,22 @@ export interface ApiOffer {
   status: string;
   notes?: string | null;
   reservations?: ApiOfferReservation[];
+  photos?: ApiVehicle["photos"];
+}
+
+export interface ApiDossierEvidence {
+  id: string;
+  vehicleId: string;
+  checkpoint: "ARRIVAL_AT_PORT" | "CUSTOMS" | "PORT_EXIT" | "LOCAL_TRANSPORT";
+  note?: string | null;
+  location?: string | null;
+  reliedAt?: string | null;
+  file: {
+    id: string;
+    originalName: string;
+    mimeType: string;
+    checksum: string;
+  };
 }
 
 export interface ApiDossier {
@@ -172,7 +197,9 @@ export interface ApiVehicleRequest {
   status: string;
 }
 
-function queryString(values: Record<string, string | number | undefined>) {
+function queryString(
+  values: Record<string, string | number | boolean | undefined>,
+) {
   const params = new URLSearchParams();
   Object.entries(values).forEach(
     ([key, value]) =>
@@ -225,6 +252,12 @@ export const commerceApi = {
     },
     photoBlob: (photoId: string) =>
       apiDownload(`/vehicles/photos/${photoId}`).then(({ blob }) => blob),
+    eligible: (
+      filters: Record<string, string | number | boolean | undefined>,
+    ) =>
+      apiRequest<PaginatedData<ApiVehicle>>(
+        `/vehicles/eligible-for-dossier${queryString(filters)}`,
+      ),
     update: (id: string, data: Record<string, unknown>) =>
       apiRequest<ApiVehicle>(`/vehicles/${id}`, {
         method: "PATCH",
@@ -244,11 +277,25 @@ export const commerceApi = {
     list: (filters: Record<string, string | number | undefined> = {}) =>
       apiRequest<PaginatedData<ApiOffer>>(`/offers${queryString(filters)}`),
     get: (id: string) => apiRequest<ApiOffer>(`/offers/${id}`),
-    create: (data: Record<string, unknown>) =>
-      apiRequest<ApiOffer>("/offers", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+    createWithPhotos: (data: Record<string, unknown>, photos: File[]) => {
+      const body = new FormData();
+      for (const [key, value] of Object.entries(data)) {
+        if (value === undefined || value === null || value === "") continue;
+        body.append(
+          key,
+          typeof value === "object" ? JSON.stringify(value) : String(value),
+        );
+      }
+      photos.forEach((photo) => body.append("photos", photo));
+      return apiUpload<ApiOffer>("/offers/with-photos", body);
+    },
+    photoBlob: (photoId: string) =>
+      apiDownload(`/offers/photos/${photoId}`).then(({ blob }) => blob),
+    replacePhotos: (id: string, photos: File[]) => {
+      const body = new FormData();
+      photos.forEach((photo) => body.append("photos", photo));
+      return apiUpload<ApiOffer>(`/offers/${id}/photos`, body, "PATCH");
+    },
     update: (id: string, data: Record<string, unknown>) =>
       apiRequest<ApiOffer>(`/offers/${id}`, {
         method: "PATCH",
@@ -320,6 +367,35 @@ export const commerceApi = {
         byType: Record<string, number>;
         completionRate: number;
       }>("/dossiers/statistics"),
+    evidence: (id: string) =>
+      apiRequest<{
+        vehicles: Array<{
+          vehicleId: string;
+          vehicle: Pick<ApiVehicle, "brand" | "model" | "vin">;
+        }>;
+        evidence: ApiDossierEvidence[];
+      }>(`/documents/dossiers/${id}/evidence`),
+    uploadEvidence: (
+      id: string,
+      data: {
+        vehicleId: string;
+        checkpoint: ApiDossierEvidence["checkpoint"];
+        note?: string;
+        location?: string;
+      },
+      file: File,
+    ) => {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("vehicleId", data.vehicleId);
+      body.append("checkpoint", data.checkpoint);
+      if (data.note) body.append("note", data.note);
+      if (data.location) body.append("location", data.location);
+      return apiUpload<ApiDossierEvidence>(
+        `/documents/dossiers/${id}/evidence`,
+        body,
+      );
+    },
   },
   vehicleRequests: {
     list: (filters: Record<string, string | number | undefined> = {}) =>

@@ -1,5 +1,7 @@
 "use client";
 
+import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -121,7 +123,12 @@ export default function ClientProfileWorkspace({
                 </div>
               </div>
             </section>
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <Info label="NIN" value={client.ninMasked ?? "Non renseigné"} />
+              <Info
+                label="Passeport"
+                value={client.passportNumberMasked ?? "Non renseigné"}
+              />
               <Info label="Dossiers" value={client.stats?.totalDossiers ?? 0} />
               <Info
                 label="Dossiers actifs"
@@ -132,7 +139,7 @@ export default function ClientProfileWorkspace({
                 label="Prochaine action"
                 value={
                   client.nextActionAt
-                    ? new Date(client.nextActionAt).toLocaleDateString("fr-FR")
+                    ? new Date(client.nextActionAt).toLocaleDateString(getRuntimeLocale())
                     : "—"
                 }
                 icon={<Calendar className="h-4 w-4" />}

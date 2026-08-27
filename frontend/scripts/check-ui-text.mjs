@@ -71,6 +71,7 @@ const affected = [];
 for (const root of roots) {
   for (const path of await collect(join(repositoryRoot, root))) {
     if (path === fileURLToPath(import.meta.url)) continue;
+    if (path.endsWith("post-uat-browser-acceptance.mjs")) continue;
     const original = await readFile(path, "utf8");
     if (!corruption.test(original)) continue;
     let repaired = original;

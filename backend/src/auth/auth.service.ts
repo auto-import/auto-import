@@ -261,6 +261,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       organizationId: user.organizationId,
+      locale: user.locale === 'en' ? 'en' : 'fr',
     });
   }
 
@@ -296,6 +297,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       organizationId: user.organizationId,
+      locale: user.locale === 'en' ? 'en' : 'fr',
       office: user.office,
       roles: user.userRoles.map(({ role }) => ({
         id: role.id,

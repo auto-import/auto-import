@@ -25,6 +25,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import type { UploadedBufferFile } from '../documents/documents.service';
+import { EligibleVehiclesDto } from './dto/eligible-vehicles.dto';
 
 @Controller('vehicles')
 export class VehiclesController {
@@ -109,6 +110,15 @@ export class VehiclesController {
   @RequirePermission(Permission.VEHICLES_READ)
   getStockSummary(@CurrentUser() user: AuthenticatedUser) {
     return this.vehiclesService.getStockSummary(user.organizationId);
+  }
+
+  @Get('eligible-for-dossier')
+  @RequirePermission(Permission.VEHICLES_READ)
+  eligible(
+    @Query() query: EligibleVehiclesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.vehiclesService.eligibleForDossier(user.organizationId, query);
   }
 
   @Get(':id')

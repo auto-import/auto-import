@@ -4,6 +4,7 @@ import { DossierStatus } from '@auto-import/contracts';
 import { DossiersService } from './dossiers.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { DossierType } from './dto/dossier-type.enum';
+import { DocumentsService } from '../documents/documents.service';
 
 describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
   let dossiersService: DossiersService;
@@ -20,6 +21,9 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
     payment: {
       findMany: jest.fn(),
     },
+    paymentInstallment: {
+      findMany: jest.fn(),
+    },
     dossierStatusHistory: {
       create: jest.fn(),
     },
@@ -29,7 +33,16 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     workflowService = new DossierWorkflowService();
-    dossiersService = new DossiersService(mockPrisma, workflowService);
+    const documentsService = {
+      verifySignedContract: jest.fn(),
+      verifyCheckpoint: jest.fn(),
+      markEvidenceRelied: jest.fn(),
+    };
+    dossiersService = new DossiersService(
+      mockPrisma,
+      workflowService,
+      documentsService as unknown as DocumentsService,
+    );
   });
 
   describe('Gate 1: Upfront 30% Deposit Enforcement', () => {
@@ -154,6 +167,10 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         status: 'active',
       });
 
+      mockPrisma.paymentInstallment.findMany.mockResolvedValue([
+        { paidAmount: new Prisma.Decimal(300000) },
+      ]);
+
       // Only 300,000 confirmed, 700,000 remaining
       mockPrisma.payment.findMany.mockResolvedValue([
         { amount: new Prisma.Decimal(300000), status: 'CONFIRMED' },
@@ -202,6 +219,11 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         currency: 'DZD',
         status: 'active',
       });
+
+      mockPrisma.paymentInstallment.findMany.mockResolvedValue([
+        { paidAmount: new Prisma.Decimal(300000) },
+        { paidAmount: new Prisma.Decimal(700000) },
+      ]);
 
       mockPrisma.payment.findMany.mockResolvedValue([
         { amount: new Prisma.Decimal(300000), status: 'CONFIRMED' },
