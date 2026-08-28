@@ -22,7 +22,9 @@
     "test:phase3:isolation": "node scripts/test-phase3-isolation.mjs",
     "seed:demo": "ts-node prisma/seed-demo.ts",
     "seed:demo:verify": "ts-node scripts/verify-demo-seed.ts",
-    "bootstrap:admin": "ts-node scripts/bootstrap-admin.ts",
+    "bootstrap:admin": "node dist/scripts/bootstrap-admin.js",
+    "admin:inspect": "node dist/scripts/inspect-admin-state.js",
+    "admin:rotate-credentials": "node dist/scripts/rotate-admin-credentials.js",
     "privacy:backfill-identities": "ts-node scripts/backfill-client-identity-encryption.ts",
     "test:post-uat:data-safety": "ts-node scripts/post-uat-data-safety-probe.ts"
   },
