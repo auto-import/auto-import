@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "ChinaOffer" ALTER COLUMN "cifPrice" DROP NOT NULL;
+ALTER TABLE "ChinaOffer" ALTER COLUMN "ddpPrice" DROP NOT NULL;
