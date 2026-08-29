@@ -150,7 +150,50 @@ Exact next action: create the verified Phase 3 Git checkpoint, then implement Ph
 
 ## Phase 4 — Contracts, Collections, Finance and Treasury
 
-Status: not started.
+Status: implemented; minimum verification completed. Historical financial backfill reconciliation and exhaustive integration are deferred until tomorrow.
+
+Completed requirements:
+
+- New customer `Contract` authority linked to one Client and Dossier with generated number, total/currency, required deposit, append-only schedule, signed GED document and optional invoice. Schedule totals are decimal-validated and signing is controlled/audited.
+- Customer collections reuse canonical `Payment`; contract detail derives total paid, balance and deposit/partial/paid state only from confirmed payments. Idempotency keys prevent duplicate collection recording.
+- Additive central `FinanceTransaction` ledger with unique source module/record and idempotency keys, original amount/currency, permanent exchange-rate snapshot, DZD value, dossier/client/supplier/account links and supporting GED document.
+- Confirmed customer and supplier payments and posted direct/operating costs create their source-linked ledger movement automatically. Missing historical FX evidence blocks non-DZD validation instead of inventing a rate.
+- Direct dossier cost and operating expense classification; dossier margin continues to derive from canonical validated records.
+- Treasury accounts for cash/bank/currency/other and balances derived from validated credit/debit movements plus opening balance.
+- Validated ledger entries have no edit/delete route. Authorized correction creates an opposite linked transaction and audits the reversal; payment/supplier-payment/cost reversals also invalidate their projected ledger entry.
+- New contracts, treasury and reversal permissions; Contracts & Collections and Finance/Treasury frontend projections with French labels. Legacy invoice/payment views remain compatible and invoices remain optional.
+
+Migration:
+
+- `backend/prisma/migrations/20260829040000_erp_v2_phase4_contracts_finance/migration.sql`
+- Additive tables, nullable links, cost-scope projection, indexes, checks and permissions only. Existing financial records are not altered; ledger backfill is deliberately a reconciliation gate because rate/validator/account evidence cannot be guessed.
+- Read-only reports: `backend/scripts/erp-v2-phase4-finance-{preflight,reconciliation}-readonly.sql`.
+
+Verification evidence:
+
+- Prisma format, validation and client generation: passed.
+- Focused finance suites: 2 suites, 15 tests passed (contract schedule/balance, exchange snapshots, idempotency, reversals and existing comprehensive finance behavior).
+- A real focused-test failure exposed missing currency in a legacy fixture; the fixture was corrected to represent the required persisted field and the suites passed.
+- Backend build: passed.
+- Frontend production build: passed with Contracts & Collections, ledger and treasury projections.
+- Fresh disposable PostgreSQL 17 migration: all 18 migrations applied; migration status up to date.
+- Fresh post-migration reconciliation: all six missing-ledger/schedule/snapshot/cross-tenant metrics were zero.
+- Labeled tmpfs disposable PostgreSQL container removed after verification.
+
+Affected areas:
+
+- Prisma schema, Phase 4 migration and read-only reports.
+- Finance module: contract/ledger controllers, services, DTOs, payment/supplier-payment/cost projections and focused tests.
+- Shared permissions.
+- Frontend finance API, Contracts & Collections page and Finance/Treasury page.
+
+Known deferred checks/gates:
+
+- Read-only preflight against a production-shaped copy and controlled historical ledger backfill for confirmed payments, supplier payments and posted costs.
+- Treasury-account assignment and payment-evidence linking workflows require operator reference/account decisions.
+- Authenticated concurrent collection confirmation, cross-tenant contract/GED access, Finance/Direction reversal authorization and complete Docker/full-suite verification.
+
+Exact next action: create the verified Phase 4 Git checkpoint, then implement Phase 5 by extending shared maritime shipments and enforcing one customs/transit file per vehicle and Dossier with idempotent arrival automation.
 
 ## Phase 5 — Shipping, Customs, Transit and Delivery
 

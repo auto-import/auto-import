@@ -12,6 +12,8 @@ import {
   type ApiInvoice,
   type ApiPayment,
   type OrganizationFinancialOverview,
+  fetchContracts,
+  type ApiContract,
 } from "@/lib/finance-api";
 import { formatMontant, formatDate } from "@/lib/constants";
 import type { Column } from "@/types";
@@ -48,6 +50,7 @@ export default function FacturationPage() {
   const [paymentTotal, setPaymentTotal] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [contracts, setContracts] = useState<ApiContract[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Load Overview
@@ -125,6 +128,9 @@ export default function FacturationPage() {
   useEffect(() => {
     const refresh = () => {
       void loadOverview();
+      void fetchContracts()
+        .then(setContracts)
+        .catch(() => undefined);
       if (activeTab === "payments") void loadPayments();
     };
     window.addEventListener("auto-import:notification", refresh);
@@ -392,11 +398,47 @@ export default function FacturationPage() {
   return (
     <>
       <Topbar
-        title="Facturation & Trésorerie Client"
-        subtitle="Gestion des factures émises, encaissements et réconciliation"
+        title="Contrats & Encaissements Clients"
+        subtitle="Contrats signés, acomptes, paiements multiples et solde; facture B2B optionnelle"
       />
 
       <div className="p-8 space-y-6">
+        <section className="card p-5">
+          <h2 className="font-bold">Contrats clients ({contracts.length})</h2>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {contracts.slice(0, 12).map((contract) => (
+              <article
+                key={contract.id}
+                className="rounded-card border p-3 text-sm"
+              >
+                <b>{contract.contractNumber}</b>
+                <p>
+                  {contract.client.firstName} {contract.client.lastName} ·{" "}
+                  {contract.dossier.reference}
+                </p>
+                <p className="text-muted">
+                  Encaissé {formatMontant(Number(contract.totalPaid))} /{" "}
+                  {formatMontant(Number(contract.totalAmount))}{" "}
+                  {contract.currency}
+                </p>
+                <p>
+                  Reste:{" "}
+                  <b>
+                    {formatMontant(Number(contract.remainingBalance))}{" "}
+                    {contract.currency}
+                  </b>{" "}
+                  · {contract.collectionStatus}
+                </p>
+              </article>
+            ))}
+            {!contracts.length && (
+              <p className="text-sm text-muted">
+                Aucun contrat V2. Les factures historiques restent disponibles
+                ci-dessous.
+              </p>
+            )}
+          </div>
+        </section>
         {/* KPI Cards Header */}
         {overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

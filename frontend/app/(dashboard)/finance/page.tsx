@@ -14,6 +14,10 @@ import {
   type ApiSupplierPayment,
   type ApiCost,
   type ApiExchangeRate,
+  fetchFinanceTransactions,
+  fetchTreasuryAccounts,
+  type ApiFinanceTransaction,
+  type ApiTreasuryAccount,
 } from "@/lib/finance-api";
 import { formatMontant, formatDate } from "@/lib/constants";
 import type { Column } from "@/types";
@@ -44,6 +48,10 @@ export default function FinanceDashboardPage() {
 
   // Exchange rates
   const [exchangeRates, setExchangeRates] = useState<ApiExchangeRate[]>([]);
+  const [transactions, setTransactions] = useState<ApiFinanceTransaction[]>([]);
+  const [treasuryAccounts, setTreasuryAccounts] = useState<
+    ApiTreasuryAccount[]
+  >([]);
 
   // New Cost Form Modal state
   const [showCostModal, setShowCostModal] = useState(false);
@@ -105,6 +113,12 @@ export default function FinanceDashboardPage() {
       void loadSupplierPayments();
       void loadCosts();
       void loadRates();
+      void fetchFinanceTransactions()
+        .then(setTransactions)
+        .catch(() => undefined);
+      void fetchTreasuryAccounts()
+        .then(setTreasuryAccounts)
+        .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadOverview, loadSupplierPayments, loadCosts, loadRates]);
@@ -334,6 +348,58 @@ export default function FinanceDashboardPage() {
       />
 
       <div className="p-8 space-y-6">
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="card p-5">
+            <h2 className="font-bold">Transactions financières canoniques</h2>
+            <p className="text-sm text-muted">
+              {transactions.length} mouvements source-liés; les écritures
+              validées sont corrigées uniquement par extourne.
+            </p>
+            <div className="mt-3 max-h-52 divide-y overflow-auto text-sm">
+              {transactions.slice(0, 20).map((transaction) => (
+                <div key={transaction.id} className="flex justify-between py-2">
+                  <span>
+                    {transaction.type} · {transaction.sourceModule}
+                  </span>
+                  <b
+                    className={
+                      transaction.direction === "CREDIT"
+                        ? "text-status-green-text"
+                        : "text-status-yellow-text"
+                    }
+                  >
+                    {transaction.direction === "CREDIT" ? "+" : "−"}
+                    {formatMontant(Number(transaction.originalAmount))}{" "}
+                    {transaction.currency}
+                  </b>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5">
+            <h2 className="font-bold">Comptes & Trésorerie</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {treasuryAccounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="rounded-card border p-3 text-sm"
+                >
+                  <b>
+                    {account.code} · {account.name}
+                  </b>
+                  <p className="text-xl font-bold">
+                    {formatMontant(Number(account.balance))} {account.currency}
+                  </p>
+                </div>
+              ))}
+              {!treasuryAccounts.length && (
+                <p className="text-sm text-muted">
+                  Aucun compte de trésorerie configuré.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
         {/* Metric Cards */}
         {overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

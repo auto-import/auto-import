@@ -18,6 +18,10 @@ import { CostsController } from './costs.controller';
 import { FinanceService } from './finance.service';
 import { FinanceController } from './finance.controller';
 import { Phase3Module } from '../phase3/phase3.module';
+import { ContractsV2Controller } from './contracts-v2.controller';
+import { ContractsV2Service } from './contracts-v2.service';
+import { FinanceLedgerController } from './finance-ledger.controller';
+import { FinanceLedgerService } from './finance-ledger.service';
 
 @Module({
   imports: [PrismaModule, Phase3Module],
@@ -30,6 +34,8 @@ import { Phase3Module } from '../phase3/phase3.module';
     CostsController,
     ExchangeRatesController,
     FinanceController,
+    ContractsV2Controller,
+    FinanceLedgerController,
   ],
   providers: [
     ReconciliationService,
@@ -41,6 +47,8 @@ import { Phase3Module } from '../phase3/phase3.module';
     SupplierPaymentsService,
     CostsService,
     FinanceService,
+    ContractsV2Service,
+    FinanceLedgerService,
   ],
   exports: [
     ReconciliationService,
@@ -52,6 +60,8 @@ import { Phase3Module } from '../phase3/phase3.module';
     SupplierPaymentsService,
     CostsService,
     FinanceService,
+    ContractsV2Service,
+    FinanceLedgerService,
   ],
 })
 export class FinanceModule {}

@@ -173,6 +173,65 @@ export class PaymentsService {
         },
       });
 
+      const rate =
+        confirmed.currency === 'DZD'
+          ? new Prisma.Decimal(1)
+          : confirmed.exchangeRateId
+            ? (
+                await tx.exchangeRate.findUnique({
+                  where: { id: confirmed.exchangeRateId },
+                })
+              )?.rate
+            : (
+                await tx.exchangeRate.findFirst({
+                  where: {
+                    organizationId,
+                    baseCurrency: 'DZD',
+                    quoteCurrency: confirmed.currency,
+                    effectiveAt: { lte: confirmed.paymentDate ?? new Date() },
+                  },
+                  orderBy: { effectiveAt: 'desc' },
+                })
+              )?.rate;
+      if (!rate)
+        throw new ConflictException(
+          'A historical DZD exchange rate is required before confirmation',
+        );
+      await tx.financeTransaction.upsert({
+        where: {
+          organizationId_sourceModule_sourceRecordId: {
+            organizationId,
+            sourceModule: 'CUSTOMER_PAYMENT',
+            sourceRecordId: confirmed.id,
+          },
+        },
+        create: {
+          organizationId,
+          type: 'CUSTOMER_COLLECTION',
+          direction: 'CREDIT',
+          sourceModule: 'CUSTOMER_PAYMENT',
+          sourceRecordId: confirmed.id,
+          idempotencyKey: confirmed.idempotencyKey
+            ? `payment:${confirmed.idempotencyKey}`
+            : `payment:${confirmed.id}`,
+          originalAmount: confirmed.amount,
+          currency: confirmed.currency,
+          exchangeRateSnapshot: rate,
+          amountDzd: confirmed.amount.mul(rate).toDecimalPlaces(2),
+          dossierId: confirmed.dossierId,
+          clientId: confirmed.clientId,
+          paymentMode: confirmed.paymentMethod,
+          reference: confirmed.reference,
+          customerPaymentId: confirmed.id,
+          status: 'VALIDATED',
+          createdBy: userId,
+          validatedBy: userId,
+          validatedAt: new Date(),
+          occurredAt: confirmed.paymentDate ?? new Date(),
+        },
+        update: {},
+      });
+
       await this.reconciliation.reconcilePayment(tx, id);
 
       // If there is an unallocated amount, create / update customer deposit
@@ -300,6 +359,10 @@ export class PaymentsService {
           reversedAt: new Date(),
           reversalReason: dto?.reason,
         },
+      });
+      await tx.financeTransaction.updateMany({
+        where: { organizationId, customerPaymentId: id, status: 'VALIDATED' },
+        data: { status: 'REVERSED' },
       });
 
       // Reconcile affected invoices and installments

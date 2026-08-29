@@ -69,30 +69,79 @@ export class CostsService {
       amountInBaseCurrency = amount.mul(rate).toDecimalPlaces(2);
     }
 
-    const cost = await this.prisma.cost.create({
-      data: {
-        organizationId,
-        type: dto.type,
-        amount,
-        currency,
-        exchangeRateId: dto.exchangeRateId,
-        amountInBaseCurrency,
-        dossierId: dto.dossierId,
-        orderId: dto.orderId,
-        purchaseId: dto.purchaseId,
-        shipmentId: dto.shipmentId,
-        customsFileId: dto.customsFileId,
-        occurredAt,
-        description: dto.description,
-        actorUserId: userId,
-        status: 'POSTED',
-      },
-      include: {
-        dossier: { select: { id: true, reference: true } },
-        purchase: { select: { id: true, purchaseNumber: true } },
-        shipment: { select: { id: true, shipmentNumber: true } },
-        customsFile: { select: { id: true, reference: true } },
-      },
+    const costScope = dto.costScope ?? (dto.dossierId ? 'DIRECT' : 'OPERATING');
+    if (!['DIRECT', 'OPERATING'].includes(costScope)) {
+      throw new BadRequestException('costScope must be DIRECT or OPERATING');
+    }
+    if (costScope === 'OPERATING' && dto.dossierId) {
+      throw new BadRequestException(
+        'Operating expenses cannot be dossier costs',
+      );
+    }
+    const cost = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.cost.create({
+        data: {
+          organizationId,
+          type: dto.type,
+          costScope,
+          amount,
+          currency,
+          exchangeRateId: dto.exchangeRateId,
+          amountInBaseCurrency,
+          dossierId: dto.dossierId,
+          orderId: dto.orderId,
+          purchaseId: dto.purchaseId,
+          shipmentId: dto.shipmentId,
+          customsFileId: dto.customsFileId,
+          occurredAt,
+          description: dto.description,
+          actorUserId: userId,
+          status: 'POSTED',
+        },
+        include: {
+          dossier: { select: { id: true, reference: true } },
+          purchase: { select: { id: true, purchaseNumber: true } },
+          shipment: { select: { id: true, shipmentNumber: true } },
+          customsFile: { select: { id: true, reference: true } },
+        },
+      });
+      const snapshot = amount.equals(0)
+        ? new Prisma.Decimal(1)
+        : amountInBaseCurrency.div(amount);
+      await tx.financeTransaction.upsert({
+        where: {
+          organizationId_sourceModule_sourceRecordId: {
+            organizationId,
+            sourceModule: 'COST',
+            sourceRecordId: created.id,
+          },
+        },
+        create: {
+          organizationId,
+          type:
+            costScope === 'OPERATING'
+              ? 'OPERATING_EXPENSE'
+              : `DIRECT_COST_${dto.type}`,
+          direction: 'DEBIT',
+          sourceModule: 'COST',
+          sourceRecordId: created.id,
+          idempotencyKey: `cost:${created.id}`,
+          originalAmount: amount,
+          currency,
+          exchangeRateSnapshot: snapshot,
+          amountDzd: amountInBaseCurrency,
+          dossierId: dto.dossierId,
+          purchaseId: dto.purchaseId,
+          costId: created.id,
+          status: 'VALIDATED',
+          createdBy: userId,
+          validatedBy: userId,
+          validatedAt: new Date(),
+          occurredAt,
+        },
+        update: {},
+      });
+      return created;
     });
 
     return cost;
@@ -113,13 +162,30 @@ export class CostsService {
       return cost;
     }
 
-    return this.prisma.cost.update({
-      where: { id },
-      data: {
-        status: 'REVERSED',
-        reversedAt: new Date(),
-        reversalReason: dto.reason,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const reversed = await tx.cost.update({
+        where: { id },
+        data: {
+          status: 'REVERSED',
+          reversedAt: new Date(),
+          reversalReason: dto.reason,
+        },
+      });
+      await tx.financeTransaction.updateMany({
+        where: { organizationId, costId: id, status: 'VALIDATED' },
+        data: { status: 'REVERSED' },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'COST_REVERSED',
+          entityType: 'Cost',
+          entityId: id,
+          newValues: { reasonRecorded: true },
+        },
+      });
+      return reversed;
     });
   }
 

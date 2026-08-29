@@ -282,6 +282,10 @@ export class CreateCostDto {
   @IsString()
   type: string; // 'PURCHASE' | 'SUPPLIER' | 'SHIPPING' | 'CUSTOMS' | 'DUTY' | 'TAX' | 'INSURANCE' | 'STORAGE' | 'OTHER'
 
+  @IsOptional()
+  @IsString()
+  costScope?: string; // DIRECT | OPERATING
+
   @IsNumber()
   @IsPositive()
   amount: number;

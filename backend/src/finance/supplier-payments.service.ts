@@ -106,21 +106,81 @@ export class SupplierPaymentsService {
       throw new ConflictException('Cannot confirm a reversed supplier payment');
     }
 
-    return this.prisma.supplierPayment.update({
-      where: { id },
-      data: {
-        status: 'CONFIRMED',
-        confirmedAt: new Date(),
-        paidAt: new Date(),
-        actorUserId: userId,
-      },
-      include: {
-        supplier: true,
-        purchase: true,
-        actorUser: {
-          select: { id: true, firstName: true, lastName: true },
+    return this.prisma.$transaction(async (tx) => {
+      const confirmed = await tx.supplierPayment.update({
+        where: { id },
+        data: {
+          status: 'CONFIRMED',
+          confirmedAt: new Date(),
+          paidAt: new Date(),
+          actorUserId: userId,
         },
-      },
+        include: {
+          supplier: true,
+          purchase: true,
+          actorUser: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
+      const rate =
+        confirmed.currency === 'DZD'
+          ? new Prisma.Decimal(1)
+          : confirmed.exchangeRateId
+            ? (
+                await tx.exchangeRate.findUnique({
+                  where: { id: confirmed.exchangeRateId },
+                })
+              )?.rate
+            : (
+                await tx.exchangeRate.findFirst({
+                  where: {
+                    organizationId,
+                    baseCurrency: 'DZD',
+                    quoteCurrency: confirmed.currency,
+                    effectiveAt: { lte: confirmed.paymentDate ?? new Date() },
+                  },
+                  orderBy: { effectiveAt: 'desc' },
+                })
+              )?.rate;
+      if (!rate)
+        throw new ConflictException(
+          'A historical DZD exchange rate is required before confirmation',
+        );
+      await tx.financeTransaction.upsert({
+        where: {
+          organizationId_sourceModule_sourceRecordId: {
+            organizationId,
+            sourceModule: 'SUPPLIER_PAYMENT',
+            sourceRecordId: confirmed.id,
+          },
+        },
+        create: {
+          organizationId,
+          type: 'SUPPLIER_PAYMENT',
+          direction: 'DEBIT',
+          sourceModule: 'SUPPLIER_PAYMENT',
+          sourceRecordId: confirmed.id,
+          idempotencyKey: confirmed.idempotencyKey
+            ? `supplier-payment:${confirmed.idempotencyKey}`
+            : `supplier-payment:${confirmed.id}`,
+          originalAmount: confirmed.amount,
+          currency: confirmed.currency,
+          exchangeRateSnapshot: rate,
+          amountDzd: confirmed.amount.mul(rate).toDecimalPlaces(2),
+          dossierId: confirmed.purchase.dossierId,
+          supplierId: confirmed.supplierId,
+          paymentMode: confirmed.paymentMethod,
+          reference: confirmed.reference,
+          supplierPaymentId: confirmed.id,
+          purchaseId: confirmed.purchaseId,
+          status: 'VALIDATED',
+          createdBy: userId,
+          validatedBy: userId,
+          validatedAt: new Date(),
+          occurredAt: confirmed.paymentDate ?? new Date(),
+        },
+        update: {},
+      });
+      return confirmed;
     });
   }
 
@@ -139,17 +199,31 @@ export class SupplierPaymentsService {
       return payment;
     }
 
-    return this.prisma.supplierPayment.update({
-      where: { id },
-      data: {
-        status: 'REVERSED',
-        reversedAt: new Date(),
-        reversalReason: dto.reason,
-      },
-      include: {
-        supplier: true,
-        purchase: true,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const reversed = await tx.supplierPayment.update({
+        where: { id },
+        data: {
+          status: 'REVERSED',
+          reversedAt: new Date(),
+          reversalReason: dto.reason,
+        },
+        include: { supplier: true, purchase: true },
+      });
+      await tx.financeTransaction.updateMany({
+        where: { organizationId, supplierPaymentId: id, status: 'VALIDATED' },
+        data: { status: 'REVERSED' },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_PAYMENT_REVERSED',
+          entityType: 'SupplierPayment',
+          entityId: id,
+          newValues: { reasonRecorded: true },
+        },
+      });
+      return reversed;
     });
   }
 

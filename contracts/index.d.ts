@@ -374,6 +374,12 @@ export const Permission: {
   readonly FINANCE_READ: "finance:read";
   readonly FINANCE_WRITE: "finance:write";
   readonly FINANCE_ADMIN: "finance:admin";
+  readonly FINANCE_REVERSE: "finance:reverse";
+  readonly TREASURY_READ: "treasury:read";
+  readonly TREASURY_WRITE: "treasury:write";
+  readonly CONTRACTS_READ: "contracts:read";
+  readonly CONTRACTS_WRITE: "contracts:write";
+  readonly CONTRACTS_SIGN: "contracts:sign";
   readonly SHIPMENTS_READ: "shipments:read";
   readonly SHIPMENTS_WRITE: "shipments:write";
   readonly CUSTOMS_READ: "customs:read";

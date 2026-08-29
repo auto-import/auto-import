@@ -98,6 +98,7 @@ export interface ApiPayment {
   orderId?: string | null;
   invoiceId?: string | null;
   installmentId?: string | null;
+  contractId?: string | null;
   amount: string | number;
   allocatedAmount: string | number;
   unallocatedAmount: string | number;
@@ -162,6 +163,7 @@ export interface ApiSupplierPayment {
 export interface ApiCost {
   id: string;
   type: string;
+  costScope?: "DIRECT" | "OPERATING";
   amount: string | number;
   currency: string;
   amountInBaseCurrency?: string | number | null;
@@ -247,6 +249,55 @@ export interface OrganizationFinancialOverview {
   paymentCount: number;
   costCount: number;
 }
+
+export interface ApiContract {
+  id: string;
+  contractNumber: string;
+  clientId: string;
+  dossierId: string;
+  totalAmount: string | number;
+  requiredDeposit: string | number;
+  totalPaid: string;
+  remainingBalance: string;
+  currency: string;
+  status: string;
+  collectionStatus: string;
+  signedAt?: string | null;
+  client: { id: string; firstName: string; lastName: string };
+  dossier: { id: string; reference: string };
+}
+
+export interface ApiFinanceTransaction {
+  id: string;
+  type: string;
+  direction: "CREDIT" | "DEBIT";
+  originalAmount: string | number;
+  currency: string;
+  exchangeRateSnapshot: string | number;
+  amountDzd: string | number;
+  status: string;
+  occurredAt: string;
+  sourceModule: string;
+  sourceRecordId: string;
+}
+
+export interface ApiTreasuryAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  currency: string;
+  balance: string;
+  status: string;
+}
+
+export const fetchContracts = () => apiRequest<ApiContract[]>("/contracts");
+export const fetchFinanceTransactions = (status?: string) =>
+  apiRequest<ApiFinanceTransaction[]>(
+    `/finance/transactions${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+  );
+export const fetchTreasuryAccounts = () =>
+  apiRequest<ApiTreasuryAccount[]>("/finance/treasury/accounts");
 
 // Invoices API
 export async function fetchInvoices(params: {
