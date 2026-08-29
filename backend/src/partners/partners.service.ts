@@ -23,7 +23,7 @@ import type {
 } from './dto/supplier-v2.dto';
 
 const SUPPLIER_TRANSITIONS: Record<string, readonly string[]> = {
-  TO_VERIFY: ['VERIFIED'],
+  TO_VERIFY: ['VERIFIED', 'ACTIVE'],
   VERIFIED: ['ACTIVE', 'SUSPENDED'],
   ACTIVE: ['SUSPENDED'],
   SUSPENDED: ['VERIFIED', 'ACTIVE'],
@@ -43,9 +43,9 @@ export class PartnersService {
         organizationId,
         status:
           dto.type === 'supplier' && !dto.status
-            ? 'inactive'
+            ? 'active'
             : dto.status || 'active',
-        supplierStatus: dto.type === 'supplier' ? 'TO_VERIFY' : undefined,
+        supplierStatus: dto.type === 'supplier' ? 'ACTIVE' : undefined,
       },
     });
 
