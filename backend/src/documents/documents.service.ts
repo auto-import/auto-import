@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Permission } from '@auto-import/contracts';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import { StorageProvider } from './storage.provider';
@@ -81,6 +83,12 @@ export class DocumentsService {
       file.mimetype,
       file.buffer,
     );
+    const legacyTypeCode = `LEGACY_${(dto.documentType ?? dto.kind)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')}`;
+    const identityDocument = /passport|nin|id_client|identity/i.test(
+      dto.documentType ?? '',
+    );
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -94,9 +102,87 @@ export class DocumentsService {
             checksum: stored.checksum,
             category: dto.kind,
             status: 'active',
+            encryptionState: 'EXTERNAL_REQUIRED',
+            scanStatus: 'NOT_CONFIGURED',
+            integrityStatus: 'VERIFIED',
+            integrityCheckedAt: new Date(),
             uploadedBy: userId,
           },
         });
+
+        const category = await tx.gedCategory.upsert({
+          where: {
+            organizationId_code: { organizationId, code: 'LEGACY' },
+          },
+          create: {
+            organizationId,
+            code: 'LEGACY',
+            labelFr: 'Documents historiques',
+            defaultSensitivity: 'INTERNAL',
+          },
+          update: {},
+        });
+        const documentType = await tx.gedDocumentType.upsert({
+          where: {
+            organizationId_code: { organizationId, code: legacyTypeCode },
+          },
+          create: {
+            organizationId,
+            categoryId: category.id,
+            code: legacyTypeCode,
+            labelFr: dto.documentType ?? dto.kind,
+          },
+          update: {},
+        });
+        const gedDocument = await tx.gedDocument.create({
+          data: {
+            organizationId,
+            categoryId: category.id,
+            documentTypeId: documentType.id,
+            title: dto.title || file.originalname,
+            description: dto.description,
+            validationStatus: 'TO_VALIDATE',
+            sensitivity: identityDocument
+              ? 'RESTRICTED_IDENTITY'
+              : 'INTERNAL',
+            createdBy: userId,
+          },
+        });
+        const gedVersion = await tx.gedDocumentVersion.create({
+          data: {
+            organizationId,
+            documentId: gedDocument.id,
+            fileId: fileAsset.id,
+            versionNumber: 1,
+            checksum: stored.checksum,
+            changeReason: 'CompatibilitÃ© upload historique',
+            uploadedBy: userId,
+          },
+        });
+        await tx.gedDocument.update({
+          where: { id: gedDocument.id },
+          data: { currentVersionId: gedVersion.id },
+        });
+        if (dto.dossierId) {
+          await tx.gedDocumentLink.create({
+            data: {
+              organizationId,
+              documentId: gedDocument.id,
+              dossierId: dto.dossierId,
+              createdBy: userId,
+            },
+          });
+        }
+        if (clientId) {
+          await tx.gedDocumentLink.create({
+            data: {
+              organizationId,
+              documentId: gedDocument.id,
+              clientId,
+              createdBy: userId,
+            },
+          });
+        }
 
         const dossierDoc = await tx.dossierDocumentAsset.create({
           data: {
@@ -104,6 +190,7 @@ export class DocumentsService {
             dossierId: dto.dossierId,
             clientId,
             fileId: fileAsset.id,
+            gedDocumentId: gedDocument.id,
             kind: dto.kind,
             documentType: dto.documentType,
             title: dto.title || file.originalname,
@@ -152,7 +239,8 @@ export class DocumentsService {
     }
   }
 
-  async findAll(organizationId: string, filter: FilterDossierDocumentsDto) {
+  async findAll(user: AuthenticatedUser, filter: FilterDossierDocumentsDto) {
+    const organizationId = user.organizationId;
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
 
@@ -178,28 +266,95 @@ export class DocumentsService {
           uploadedByUser: {
             select: { id: true, firstName: true, lastName: true },
           },
+          gedDocument: { select: { sensitivity: true } },
         },
       }),
       this.prisma.dossierDocumentAsset.count({ where }),
     ]);
 
-    return paginate(items, total, page, limit);
+    return paginate(
+      items.map((item) => {
+        const restricted = item.gedDocument?.sensitivity?.startsWith('RESTRICTED_');
+        if (
+          restricted &&
+          !user.permissions.includes(Permission.GED_SENSITIVE_METADATA)
+        ) {
+          return {
+            id: item.id,
+            status: item.status,
+            createdAt: item.createdAt,
+            restricted: true,
+          };
+        }
+        return item;
+      }),
+      total,
+      page,
+      limit,
+    );
   }
 
-  async getDownloadStream(id: string, organizationId: string) {
+  async getDownloadStream(id: string, user: AuthenticatedUser) {
     const doc = await this.prisma.dossierDocumentAsset.findFirst({
-      where: { id, organizationId },
-      include: { file: true },
+      where: { id, organizationId: user.organizationId },
+      include: {
+        file: true,
+        gedDocument: { select: { id: true, sensitivity: true } },
+      },
     });
 
     if (!doc || !doc.file) {
       throw new NotFoundException('Document not found');
+    }
+    if (
+      doc.gedDocument?.sensitivity?.startsWith('RESTRICTED_') &&
+      !user.permissions.includes(Permission.GED_SENSITIVE_DOWNLOAD)
+    ) {
+      await this.prisma.auditLog.create({
+        data: {
+          organizationId: user.organizationId,
+          userId: user.id,
+          action: 'GED_SENSITIVE_ACCESS_DENIED',
+          entityType: 'ged_document',
+          entityId: doc.gedDocument.id,
+          newValues: {
+            action: 'download',
+            sensitivity: doc.gedDocument.sensitivity,
+          },
+        },
+      });
+      throw new BadRequestException({
+        code: 'GED_SENSITIVE_ACCESS_DENIED',
+        message: 'Restricted document permission required',
+      });
     }
 
     if (
       doc.file.status !== 'active' ||
       !(await this.storage.verify(doc.file.storageKey, doc.file.checksum))
     ) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.fileAsset.update({
+          where: { id: doc.file.id },
+          data: {
+            integrityStatus: 'FAILED',
+            integrityCheckedAt: new Date(),
+            quarantinedAt: new Date(),
+            status: 'quarantined',
+          },
+        });
+        if (doc.gedDocument) {
+          await tx.auditLog.create({
+            data: {
+              organizationId: user.organizationId,
+              userId: user.id,
+              action: 'GED_INTEGRITY_FAILED',
+              entityType: 'ged_document',
+              entityId: doc.gedDocument.id,
+            },
+          });
+        }
+      });
       throw new BadRequestException({
         code: 'DOCUMENT_INTEGRITY_FAILED',
         message: 'Document bytes are missing or invalid',

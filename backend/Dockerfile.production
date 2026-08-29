@@ -33,6 +33,9 @@ COPY --from=production-dependencies --chown=node:node /app/backend/node_modules 
 COPY --from=build --chown=node:node /app/backend/dist ./backend/dist
 COPY --from=build --chown=node:node /app/backend/package.json ./backend/package.json
 COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase1-authenticated-smoke.mjs ./backend/scripts/erp-v2-phase1-authenticated-smoke.mjs
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-storage-preflight.mjs ./backend/scripts/erp-v2-phase2-storage-preflight.mjs
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-ged-preflight-readonly.sql ./backend/scripts/erp-v2-phase2-ged-preflight-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-ged-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase2-ged-reconciliation-readonly.sql
 COPY --from=build --chown=node:node /app/contracts ./contracts
 WORKDIR /app/backend
 USER node

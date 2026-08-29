@@ -54,9 +54,53 @@ Exact next action: create the verified Phase 1 Git checkpoint, then implement th
 
 ## Phase 2 — Central GED/Documents
 
-Status: in progress (schema design only; no migration applied).
+Status: implemented; minimum verification completed. Exhaustive E2E/Docker runtime verification is deferred until tomorrow.
 
-Exact next action: restore the validated GED schema draft after the Phase 1 checkpoint, add the additive/backfill migration, then implement tenant/sensitivity-safe GED services, versioning, linking, validation, integrity, checklist automation, UI and focused tests.
+Completed requirements:
+
+- `FileAsset` retained as the sole physical-byte authority with explicit encryption-provider, malware-scan, integrity and quarantine state.
+- Central `GedDocument`, append-only `GedDocumentVersion`, configurable category/type, validation history and explicit FK-backed entity links for CRM, client, dossier, vehicle, supplier, offer, purchase, shipment, customs and payment.
+- Central validation state machine (`TO_VALIDATE -> VALIDATED|REJECTED`); `EXPIRED` is derived from dates and a new version returns validation to `TO_VALIDATE`.
+- Tenant-checked create/link/read paths, soft unlink/archive, no historical-version or production-file deletion, restricted metadata masking, separate preview/download/upload/validation permissions and allowlisted sensitive access audits.
+- Authenticated PDF/image preview and download with magic-byte validation, SHA-256 verification, quarantine on mismatch, `nosniff`, sandbox CSP and private/no-store headers.
+- Configurable dossier checklist rules, completion/blocking projection and idempotent task/notification generation.
+- Legacy document uploads dual-write logical GED/version/link metadata while reusing the same physical asset and preserving legacy reads/responses; existing rows are bridged additively.
+- Central GED frontend workspace with category/status/search filters, restricted-state display, preview/download and controlled upload; the historical view remains reachable during the release switch.
+- Read-only database/storage preflight and post-migration reconciliation reports plus operational encryption/scanning requirements.
+
+Migration:
+
+- `backend/prisma/migrations/20260829020000_erp_v2_phase2_central_ged/migration.sql`
+- Additive only: tables, nullable bridge, state columns, permissions, indexes and deterministic backfill. No legacy table/row/file is removed.
+- Legacy assets with invalid/missing SHA-256 remain bridged but intentionally have no current GED version and are surfaced for reconciliation.
+
+Verification evidence:
+
+- Prisma format, validation and client generation: passed.
+- Focused documents/GED tests: 2 suites, 11 tests passed.
+- Backend build: passed.
+- Frontend lint: zero errors and 13 pre-existing fixture warnings; production build passed with `/documents` generated.
+- Fresh disposable PostgreSQL 17 migration: all 16 migrations applied successfully.
+- Representative pre-Phase-2 fixture: 2 legacy rows, 2 bridges, 2 logical documents, 1 valid-checksum version, 4 explicit links and 1 intentionally unresolved current version.
+- A real migration `GROUP BY` failure was found and fixed with deterministic `SELECT DISTINCT`; the finalized migration was then reapplied successfully to a second clean database.
+- `git diff --check`: passed.
+- Labeled tmpfs disposable PostgreSQL container removed after verification.
+
+Affected areas:
+
+- Prisma schema and Phase 2 migration.
+- Backend documents controller/module, legacy compatibility service, new GED controller/service/DTO/tests and storage reconciliation scripts.
+- Shared permission contracts.
+- Frontend central GED workspace, documents API and legacy-view compatibility switch.
+- Production Docker runtime script inclusion and Phase 2 operations documentation.
+
+Known deferred checks:
+
+- Full authenticated GED integration/E2E including real multipart bytes, cross-tenant permission matrix and checklist scheduler replay.
+- Production Docker runtime inspection with the new scripts and private volume.
+- Malware scanner and encrypted-at-rest provider are documented deployment prerequisites and are not locally provisioned.
+
+Exact next action: create the verified Phase 2 Git checkpoint, then extend canonical `Partner` suppliers and `ChinaOffer` with contacts, restricted bank details, incidents/scoring and immutable offer revisions/actions.
 
 ## Phase 3 — Suppliers and China Offers
 

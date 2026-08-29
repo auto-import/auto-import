@@ -32,7 +32,7 @@ export class DocumentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: FilterDossierDocumentsDto,
   ) {
-    return this.documents.findAll(user.organizationId, query);
+    return this.documents.findAll(user, query);
   }
 
   @Post('upload')
@@ -61,7 +61,7 @@ export class DocumentsController {
     @Res() res: Response,
   ) {
     const { stream, mimeType, originalName, size } =
-      await this.documents.getDownloadStream(id, user.organizationId);
+      await this.documents.getDownloadStream(id, user);
 
     res.setHeader('Content-Type', mimeType);
     res.setHeader(

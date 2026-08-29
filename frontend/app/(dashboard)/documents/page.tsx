@@ -20,8 +20,9 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { crmApi, type ApiClient } from "@/lib/crm-api";
+import { GedWorkspace } from "@/components/documents/GedWorkspace";
 
-export default function DocumentsHubPage() {
+function LegacyDocumentsHubPage({ onGed }: { onGed: () => void }) {
   const [documents, setDocuments] = useState<ApiDossierDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [kindFilter, setKindFilter] = useState<string>("tous");
@@ -245,7 +246,7 @@ export default function DocumentsHubPage() {
               </p>
               <p className="text-2xl font-bold text-foreground mt-1">{total}</p>
               <p className="text-xs text-muted mt-1">
-                Stockage chiffré SHA-256
+                Intégrité contrôlée par SHA-256
               </p>
             </div>
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -360,6 +361,12 @@ export default function DocumentsHubPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={onGed}
+              className="px-3.5 py-2 text-sm font-medium rounded-button border border-border"
+            >
+              GED centrale
+            </button>
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
@@ -520,5 +527,14 @@ export default function DocumentsHubPage() {
         </div>
       )}
     </>
+  );
+}
+
+export default function DocumentsHubPage() {
+  const [legacy, setLegacy] = useState(false);
+  return legacy ? (
+    <LegacyDocumentsHubPage onGed={() => setLegacy(false)} />
+  ) : (
+    <GedWorkspace onLegacy={() => setLegacy(true)} />
   );
 }

@@ -11,9 +11,9 @@ datasource db {
   provider = "postgresql"
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Identity & Tenancy Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Organization {
   id        String   @id @default(uuid())
@@ -62,6 +62,13 @@ model Organization {
   prospectStatusHistory ProspectStatusHistory[]
   crmReferenceValues    CrmReferenceValue[]
   prospectConversions   ProspectConversion[]
+  gedCategories         GedCategory[]
+  gedDocumentTypes      GedDocumentType[]
+  gedDocuments          GedDocument[]
+  gedDocumentVersions   GedDocumentVersion[]
+  gedDocumentLinks      GedDocumentLink[]
+  gedValidationHistory  GedValidationHistory[]
+  dossierChecklistRules DossierChecklistRule[]
   invoices              Invoice[]
   paymentPlans          PaymentPlan[]
   payments              Payment[]
@@ -161,6 +168,12 @@ model User {
   avatar                    UserAvatar?
   checkpointEvidence        DossierCheckpointEvidence[] @relation("CheckpointEvidenceUploader")
   integrationUpdates        IntegrationConfig[]         @relation("IntegrationConfigUpdater")
+  createdGedDocuments       GedDocument[]               @relation("GedDocumentCreator")
+  archivedGedDocuments      GedDocument[]               @relation("GedDocumentArchiver")
+  uploadedGedVersions       GedDocumentVersion[]        @relation("GedVersionUploader")
+  gedValidationActions      GedValidationHistory[]      @relation("GedValidationActor")
+  createdGedLinks           GedDocumentLink[]           @relation("GedLinkCreator")
+  createdChecklistRules     DossierChecklistRule[]      @relation("ChecklistRuleCreator")
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -228,9 +241,9 @@ model RolePermission {
   @@index([permissionId])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // CRM Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Prospect {
   id                     String             @id @default(uuid())
@@ -283,6 +296,7 @@ model Prospect {
   crmNotes              CrmNote[]
   statusHistory         ProspectStatusHistory[]
   conversions           ProspectConversion[]
+  gedLinks              GedDocumentLink[]
 
   @@index([organizationId, status, createdAt])
   @@index([organizationId, assignedTo])
@@ -363,6 +377,7 @@ model Client {
   payments              Payment[]
   documents             DossierDocumentAsset[]
   conversions           ProspectConversion[]
+  gedLinks              GedDocumentLink[]
 
   @@unique([organizationId, ninLookupHash])
   @@unique([organizationId, passportLookupHash])
@@ -816,6 +831,7 @@ model Partner {
   shipments        Shipment[]
   supplierPayments SupplierPayment[]
   customsFiles     CustomsFile[]     @relation("CustomsBroker")
+  gedLinks         GedDocumentLink[]
 
   @@index([organizationId, type, status])
 }
@@ -861,6 +877,7 @@ model ChinaOffer {
 
   reservations OfferReservation[]
   photos       OfferPhoto[]
+  gedLinks     GedDocumentLink[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, validUntil])
@@ -892,9 +909,9 @@ model OfferReservation {
   @@index([clientId, createdAt])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Dossier & Vehicle Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 enum DossierType {
   VEHICLE_SALE_CIF
@@ -938,6 +955,7 @@ model Dossier {
   customsFiles       CustomsFile[]
   tasks              Task[]
   checkpointEvidence DossierCheckpointEvidence[]
+  gedLinks           GedDocumentLink[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
@@ -1017,6 +1035,7 @@ model Vehicle {
   shipmentVehicles   ShipmentVehicle[]
   customsFiles       CustomsFile[]
   checkpointEvidence DossierCheckpointEvidence[]
+  gedLinks           GedDocumentLink[]
 
   @@index([organizationId, status, createdAt])
   @@index([supplierId])
@@ -1048,6 +1067,13 @@ model FileAsset {
   checksum           String       @default("")
   category           String?
   status             String       @default("active")
+  encryptionState    String       @default("EXTERNAL_REQUIRED")
+  scanStatus         String       @default("NOT_CONFIGURED")
+  scanProvider       String?
+  scannedAt          DateTime?
+  integrityStatus    String       @default("PENDING")
+  integrityCheckedAt DateTime?
+  quarantinedAt      DateTime?
   uploadedBy         String
   uploadedByUser     User         @relation(fields: [uploadedBy], references: [id])
   createdAt          DateTime     @default(now())
@@ -1061,6 +1087,7 @@ model FileAsset {
   offerPhotos        OfferPhoto[]
   checkpointEvidence DossierCheckpointEvidence[]
   brandingLogoUses   OrganizationBrandingLogo[]
+  gedVersions        GedDocumentVersion[]
 
   @@index([organizationId, category, status])
   @@index([uploadedBy, createdAt])
@@ -1147,9 +1174,9 @@ model OrganizationBrandingLogo {
   @@index([updatedAt])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Warehouse & Stock Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Warehouse {
   id             String       @id @default(uuid())
@@ -1208,9 +1235,9 @@ model StockMovement {
   @@index([performedBy])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Request & Order Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model VehicleRequest {
   id             String       @id @default(uuid())
@@ -1356,9 +1383,9 @@ model Reservation {
   @@index([reservedBy])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Procurement, Shipping & Customs Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Purchase {
   id                 String            @id @default(uuid())
@@ -1392,6 +1419,7 @@ model Purchase {
 
   payments SupplierPayment[]
   costs    Cost[]
+  gedLinks GedDocumentLink[]
 
   @@unique([organizationId, purchaseNumber])
   @@index([organizationId, status, purchaseDate])
@@ -1460,6 +1488,7 @@ model Shipment {
   shippingCosts ShippingCost[]
   customsFiles  CustomsFile[]
   statusHistory ShipmentStatusHistory[]
+  gedLinks      GedDocumentLink[]
 
   @@unique([organizationId, shipmentNumber])
   @@index([organizationId, status, etd])
@@ -1540,6 +1569,7 @@ model CustomsFile {
   documents     CustomsDocument[]
   costs         Cost[]
   statusHistory CustomsStatusHistory[]
+  gedLinks      GedDocumentLink[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
@@ -1604,6 +1634,8 @@ model DossierDocumentAsset {
   client         Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   fileId         String
   file           FileAsset    @relation(fields: [fileId], references: [id])
+  gedDocumentId  String?      @unique
+  gedDocument    GedDocument? @relation(fields: [gedDocumentId], references: [id], onDelete: SetNull)
   kind           String // "DOSSIER_DOCUMENT" | "PROOF" | "CONTRACT" | "CUSTOMS_DOCUMENT" | "PAYMENT_RECEIPT" | "VEHICLE_PHOTO" | "BUSINESS_DOCUMENT"
   documentType   String? // "id_client", "contrat", "pi_fournisseur", "facture_fournisseur", "preuve_paiement", "rapport_inspection", "bl_draft", "bl_final", "documents_douane", "document_livraison"
   title          String?
@@ -1618,6 +1650,191 @@ model DossierDocumentAsset {
   @@index([fileId])
   @@index([dossierId, documentType])
   @@index([organizationId, clientId, createdAt])
+}
+
+// Central GED metadata. FileAsset remains the sole physical blob authority.
+model GedCategory {
+  id                 String       @id @default(uuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code               String
+  labelFr            String
+  description        String?
+  defaultSensitivity String       @default("INTERNAL")
+  active             Boolean      @default(true)
+  sortOrder          Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  types     GedDocumentType[]
+  documents GedDocument[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active, sortOrder])
+}
+
+model GedDocumentType {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categoryId     String
+  category       GedCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  code           String
+  labelFr        String
+  description    String?
+  active         Boolean      @default(true)
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  documents      GedDocument[]
+  checklistRules DossierChecklistRule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, categoryId, active, sortOrder])
+}
+
+model GedDocument {
+  id               String              @id @default(uuid())
+  organizationId   String
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categoryId       String?
+  category         GedCategory?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  documentTypeId   String?
+  documentType     GedDocumentType?    @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+  title            String
+  description      String?
+  issuingAuthority String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+  validationStatus String              @default("TO_VALIDATE")
+  sensitivity      String              @default("INTERNAL")
+  currentVersionId String?             @unique
+  currentVersion   GedDocumentVersion? @relation("GedCurrentVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  createdBy        String
+  creator          User                @relation("GedDocumentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  archivedAt       DateTime?
+  archivedById     String?
+  archivedBy       User?               @relation("GedDocumentArchiver", fields: [archivedById], references: [id], onDelete: Restrict)
+  archiveReason    String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  versions             GedDocumentVersion[]   @relation("GedVersions")
+  links                GedDocumentLink[]
+  validationHistory    GedValidationHistory[]
+  legacyDossierRecords DossierDocumentAsset[]
+
+  @@index([organizationId, validationStatus, expiryDate])
+  @@index([organizationId, sensitivity, createdAt])
+  @@index([categoryId])
+  @@index([documentTypeId])
+  @@index([archivedById])
+}
+
+model GedDocumentVersion {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String
+  document       GedDocument  @relation("GedVersions", fields: [documentId], references: [id], onDelete: Restrict)
+  fileId         String
+  file           FileAsset    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  versionNumber  Int
+  checksum       String
+  changeReason   String?
+  uploadedBy     String
+  uploader       User         @relation("GedVersionUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  currentFor GedDocument? @relation("GedCurrentVersion")
+
+  @@unique([documentId, versionNumber])
+  @@index([organizationId, createdAt])
+  @@index([fileId])
+}
+
+model GedValidationHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String
+  document       GedDocument  @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  fromStatus     String?
+  toStatus       String
+  reason         String?
+  actorId        String
+  actor          User         @relation("GedValidationActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, documentId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model DossierChecklistRule {
+  id                String          @id @default(uuid())
+  organizationId    String
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentTypeId    String
+  documentType      GedDocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+  dossierType       String?
+  workflowStatus    String?
+  required          Boolean         @default(true)
+  blocking          Boolean         @default(false)
+  expiryWarningDays Int             @default(30)
+  active            Boolean         @default(true)
+  createdBy         String
+  creator           User            @relation("ChecklistRuleCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([organizationId, documentTypeId, dossierType, workflowStatus], map: "DossierChecklistRule_scope_key")
+  @@index([organizationId, active, dossierType, workflowStatus], map: "DossierChecklistRule_scope_lookup_idx")
+}
+
+// Explicit optional foreign keys retain database referential integrity. A migration
+// CHECK constraint enforces exactly one target for every active or archived link.
+model GedDocumentLink {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String
+  document       GedDocument  @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  clientId       String?
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  dossierId      String?
+  dossier        Dossier?     @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  vehicleId      String?
+  vehicle        Vehicle?     @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  supplierId     String?
+  supplier       Partner?     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  chinaOfferId   String?
+  chinaOffer     ChinaOffer?  @relation(fields: [chinaOfferId], references: [id], onDelete: Restrict)
+  purchaseId     String?
+  purchase       Purchase?    @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  shipmentId     String?
+  shipment       Shipment?    @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  customsFileId  String?
+  customsFile    CustomsFile? @relation(fields: [customsFileId], references: [id], onDelete: Restrict)
+  paymentId      String?
+  payment        Payment?     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  createdBy      String
+  creator        User         @relation("GedLinkCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+  archivedAt     DateTime?
+  prospect       Prospect?    @relation(fields: [prospectId], references: [id])
+  prospectId     String?
+
+  @@index([organizationId, documentId, archivedAt])
+  @@index([clientId])
+  @@index([dossierId])
+  @@index([vehicleId])
+  @@index([supplierId])
+  @@index([chinaOfferId])
+  @@index([purchaseId])
+  @@index([shipmentId])
+  @@index([customsFileId])
+  @@index([paymentId])
 }
 
 model IntegrationConfig {
@@ -1657,9 +1874,9 @@ model DossierNote {
   @@index([organizationId, dossierId, createdAt])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Finance Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Invoice {
   id             String       @id @default(uuid())
@@ -1801,6 +2018,7 @@ model Payment {
 
   allocations PaymentAllocation[]
   deposit     CustomerDeposit?
+  gedLinks    GedDocumentLink[]
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, status, paymentDate])
@@ -1924,9 +2142,9 @@ model Cost {
   @@index([customsFileId])
 }
 
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Support & Operations Models
-// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Task {
   id                String                @id @default(uuid())
