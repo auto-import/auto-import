@@ -244,4 +244,44 @@ Exact next action: create the verified Phase 5 Git checkpoint, then perform Phas
 
 ## Phase 6 — Integration and hardening
 
-Status: not started.
+Status: locally implemented; minimum verification completed. Exhaustive full-suite, representative-data, Docker-runtime and authenticated E2E verification is explicitly deferred until tomorrow.
+
+Completed requirements:
+
+- Cross-module authorities are consistent: normalized CRM contact identity, GED physical/logical documents, canonical suppliers/offers, source-linked Finance transactions and separate shared Shipment/per-vehicle Customs records.
+- New granular permissions are part of shared runtime contracts and migration grants; tenant checks and audit payload redaction are enforced in the Phase services rather than frontend-only controls.
+- Added a credential-safe authenticated read-only smoke script spanning GED, suppliers, offers, contracts, finance, treasury, shipments and customs. It requires an explicit sentinel, enforces HTTPS outside localhost and prints only a redacted PASS summary.
+- Added a release-artifact safety checker covering all five V2 migrations and fourteen operational/runtime scripts. It rejects destructive migration statements and missing production Docker artifacts.
+- Backend production runtime now contains every V2 read-only preflight/reconciliation script and both Phase 6 smoke/check scripts; the migrate target already retains committed Prisma migrations and the frontend standalone build includes shared contracts.
+- Consolidated Linux/Docker Compose backup, preflight, migration, health, reconciliation, smoke, application rollback and restore-into-new-database runbook.
+- Exact local exhaustive-verification continuation plan for tomorrow, including fresh disposable migration, representative fixtures, concurrency/E2E, image inspection and cleanup.
+
+Verification evidence:
+
+- Release-artifact checker: PASS (5 V2 migrations, 14 runtime scripts).
+- Prisma validation: passed.
+- Consolidated focused backend gate: initially 13/14 suites passed and exposed one legacy test that skipped the new shipment loading stage; fixture corrected, then 14 suites/52 tests passed.
+- Backend build: passed.
+- Consolidated focused frontend gate: 3 files/7 tests passed.
+- Frontend lint: zero errors, 13 known legacy fixture warnings.
+- Frontend production build: passed, all 26 routes generated.
+- Phase 5 already validated the final 19-migration chain on fresh PostgreSQL 17; Phase 6 contains no schema migration.
+- `git diff --check` and clean checkpoint verification are the remaining boundary steps below.
+
+Failures fixed:
+
+- Phase 3 optional legacy customer-price TypeScript regression.
+- Phase 4 confirmed-payment fixture missing its required currency.
+- Phase 5/6 legacy shipment tests that attempted to bypass the controlled loading stage.
+- Phase 2 migration `GROUP BY` error (recorded in Phase 2).
+
+Explicitly deferred until tomorrow:
+
+- Complete backend/frontend suites and read-only full lint baseline capture.
+- Browser/authenticated E2E for every new action and sensitive permission boundary.
+- Production Docker image builds/runtime health and artifact inspection.
+- Representative pre-V2 supplier/offer/GED/finance/logistics migration and reconciliation.
+- True-concurrency integration for offer assignment, finance confirmation and customs arrival replay.
+- Malware scanner/encrypted storage infrastructure validation (external prerequisite).
+
+Exact continuation: follow `docs/erp-v2-exhaustive-verification-tomorrow.md`. Operator deployment, after all gates and reconciliation approvals, follows `docs/erp-v2-release-runbook.md`.

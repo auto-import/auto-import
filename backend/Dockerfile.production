@@ -36,6 +36,17 @@ COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase1-authentic
 COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-storage-preflight.mjs ./backend/scripts/erp-v2-phase2-storage-preflight.mjs
 COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-ged-preflight-readonly.sql ./backend/scripts/erp-v2-phase2-ged-preflight-readonly.sql
 COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase2-ged-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase2-ged-reconciliation-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-preflight-readonly.sql ./backend/scripts/erp-v2-preflight-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase1-crm-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase1-crm-reconciliation-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase1-migration-verify-readonly.sql ./backend/scripts/erp-v2-phase1-migration-verify-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase3-suppliers-offers-preflight-readonly.sql ./backend/scripts/erp-v2-phase3-suppliers-offers-preflight-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase3-suppliers-offers-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase3-suppliers-offers-reconciliation-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase4-finance-preflight-readonly.sql ./backend/scripts/erp-v2-phase4-finance-preflight-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase4-finance-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase4-finance-reconciliation-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase5-logistics-preflight-readonly.sql ./backend/scripts/erp-v2-phase5-logistics-preflight-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-phase5-logistics-reconciliation-readonly.sql ./backend/scripts/erp-v2-phase5-logistics-reconciliation-readonly.sql
+COPY --from=build --chown=node:node /app/backend/scripts/erp-v2-authenticated-readonly-smoke.mjs ./backend/scripts/erp-v2-authenticated-readonly-smoke.mjs
+COPY --from=build --chown=node:node /app/backend/scripts/check-erp-v2-release-artifacts.mjs ./backend/scripts/check-erp-v2-release-artifacts.mjs
 COPY --from=build --chown=node:node /app/contracts ./contracts
 WORKDIR /app/backend
 USER node

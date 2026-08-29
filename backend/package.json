@@ -20,6 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:e2e:phase1-release-gate": "jest --config ./test/jest-e2e.json --runInBand test/erp-v2-phase1-release-gate.e2e-spec.ts",
     "smoke:phase1": "node scripts/erp-v2-phase1-authenticated-smoke.mjs",
+    "smoke:erp-v2:readonly": "node scripts/erp-v2-authenticated-readonly-smoke.mjs",
+    "check:erp-v2-release": "node scripts/check-erp-v2-release-artifacts.mjs",
     "check:migration:phase1": "node scripts/check-erp-v2-phase1-migration-safety.mjs",
     "test:migration:phase2-fileasset": "node scripts/test-phase2-fileasset-migration.mjs",
     "test:phase3:isolation": "node scripts/test-phase3-isolation.mjs",

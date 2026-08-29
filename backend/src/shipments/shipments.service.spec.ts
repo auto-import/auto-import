@@ -45,8 +45,8 @@ describe('ShipmentsService', () => {
         shipment: {
           update: jest.fn().mockResolvedValue({
             id: 'shp-1',
-            status: 'inTransit',
-            actualDepartureDate: new Date(),
+            status: 'booked',
+            actualDepartureDate: null,
           }),
         },
       };
@@ -54,10 +54,10 @@ describe('ShipmentsService', () => {
     });
 
     const result = await service.transition('shp-1', 'org-1', 'user-1', {
-      status: 'inTransit',
-      comment: 'Vessel departed',
+      status: 'booked',
+      comment: 'Shipment booked',
     });
 
-    expect(result.status).toBe('inTransit');
+    expect(result.status).toBe('booked');
   });
 });
