@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateShipmentDto,
+  CreateCustomsFromShipmentDto,
   FilterShipmentsDto,
   TransitionShipmentDto,
   UpdateShipmentDto,
@@ -50,12 +51,27 @@ export class ShipmentsController {
   }
 
   @Post(':id/transition')
-  @RequirePermission(Permission.SHIPMENTS_WRITE)
+  @RequirePermission(Permission.SHIPMENTS_TRANSITION)
   transition(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: TransitionShipmentDto,
   ) {
     return this.shipments.transition(id, user.organizationId, user.id, dto);
+  }
+
+  @Post(':id/create-customs-files')
+  @RequirePermission(Permission.CUSTOMS_AUTOMATE)
+  createCustomsFiles(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateCustomsFromShipmentDto,
+  ) {
+    return this.shipments.createCustomsFromShipment(
+      id,
+      user.organizationId,
+      user.id,
+      dto.responsibleUserId,
+    );
   }
 }

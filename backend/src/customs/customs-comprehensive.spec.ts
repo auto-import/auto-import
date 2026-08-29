@@ -22,6 +22,10 @@ describe('Phase 2 Customs Comprehensive Tests', () => {
     dossier: {
       findFirst: jest.fn(),
     },
+    shipmentVehicle: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn() },
+    task: { upsert: jest.fn() },
+    notification: { createMany: jest.fn() },
     commerceSequence: {
       upsert: jest.fn().mockResolvedValue({ value: 10 }),
     },
@@ -52,11 +56,12 @@ describe('Phase 2 Customs Comprehensive Tests', () => {
     expect(file.customsAmount?.toString()).toBe('1750000');
   });
 
-  it('should transition to cleared and stamp clearedAt timestamp', async () => {
+  it('should enforce the sequential V2 customs workflow', async () => {
     mockPrisma.customsFile.findFirst.mockResolvedValue({
       id: 'cust-1',
       organizationId: 'org-1',
       status: 'inInspection',
+      v2Status: 'INSPECTION',
       clearedAt: null,
       releasedAt: null,
       closedAt: null,
@@ -64,25 +69,25 @@ describe('Phase 2 Customs Comprehensive Tests', () => {
 
     mockPrisma.customsFile.update.mockResolvedValue({
       id: 'cust-1',
-      status: 'cleared',
-      clearedAt: new Date(),
+      status: 'inInspection',
+      v2Status: 'DUTIES_TAXES',
     });
 
-    const cleared = await customsService.transition(
+    const transitioned = await customsService.transition(
       'cust-1',
       'org-1',
       'user-1',
       {
-        status: 'cleared',
-        comment: 'Inspection complete and taxes cleared',
+        status: 'DUTIES_TAXES',
+        comment: 'Inspection complete; duties and taxes due',
       },
     );
 
-    expect(cleared.status).toBe('cleared');
+    expect(transitioned.v2Status).toBe('DUTIES_TAXES');
     expect(mockPrisma.customsStatusHistory.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        fromStatus: 'inInspection',
-        toStatus: 'cleared',
+        fromStatus: 'INSPECTION',
+        toStatus: 'DUTIES_TAXES',
       }),
     });
   });

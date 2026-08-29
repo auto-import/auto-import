@@ -197,7 +197,50 @@ Exact next action: create the verified Phase 4 Git checkpoint, then implement Ph
 
 ## Phase 5 — Shipping, Customs, Transit and Delivery
 
-Status: not started.
+Status: implemented; minimum verification completed. Production-shaped reconciliation and exhaustive authenticated automation tests are deferred until tomorrow.
+
+Completed requirements:
+
+- Maritime `Shipment` remains the shared container/B/L/vessel authority with multiple vehicles and a centralized sequential workflow (`pending -> booked -> loading -> inTransit -> arrived`; cancellation only before transit).
+- `CustomsFile` remains separate and now carries a V2 per-vehicle/Dossier identity, responsible user, copied container/B/L/arrival-port context, DUM/reference, release/port-exit dates and reconciliation marker.
+- Central customs/transit workflow: `TO_PREPARE -> AWAITING_ARRIVAL -> ARRIVED_AT_PORT -> FILE_TRANSMITTED -> CLEARANCE_IN_PROGRESS -> INSPECTION -> DUTIES_TAXES -> RELEASE -> PORT_EXIT -> CLOSED` with actor/timestamp history and invalid-transition rejection.
+- Additive partial uniqueness applies only to reconciled/V2 customs rows, so ambiguous historical duplicates cannot fail deployment. Service-level pre-check and P2002 recovery return the canonical file under concurrent creation.
+- `Create Customs Files` from a shipment copies existing vehicle/shipment/dossier data, creates one file for each unambiguous vehicle, returns ambiguous dossier candidates without merging, and is idempotent.
+- Arrival transition invokes the same automation, assigns the Dossier operations/sales user, and creates deduplicated tasks/notifications. `PORT_EXIT` creates an idempotent delivery-handoff task/notification without skipping the established Dossier workflow.
+- Tenant-owned vehicle/Dossier/shipment/responsible-user validation. Legacy incomplete customs records remain visible and retain their legacy workflow actions while being flagged for V2 reconciliation.
+- Granular shipment transition, customs transition and customs automation permissions; updated French logistics UI includes staged shipment controls, create-from-shipment, VIN/container/port/responsible columns and V2 workflow actions.
+
+Migration:
+
+- `backend/prisma/migrations/20260829050000_erp_v2_phase5_shipping_customs/migration.sql`
+- Additive nullable workflow/snapshot/responsibility columns, safe known-value backfill, reconciliation markers, partial unique/indexes and permissions. No existing shipment/customs row is deleted or forcibly merged.
+- Read-only reports: `backend/scripts/erp-v2-phase5-logistics-{preflight,reconciliation}-readonly.sql`.
+
+Verification evidence:
+
+- Prisma format, validation and client generation: passed.
+- Focused shipment/customs suites: 2 suites, 7 tests passed, including multi-vehicle create-from-shipment idempotency, transitions and tenant isolation.
+- A focused legacy test initially attempted the now-invalid `booked -> inTransit` jump; it was corrected to exercise `loading -> inTransit`, and the suite passed.
+- Backend build: passed after final legacy-compatibility changes.
+- Frontend production build: passed with `/expeditions` generated.
+- Fresh disposable PostgreSQL 17 migration: all 19 migrations applied; migration status up to date.
+- Fresh post-migration reconciliation: all five ambiguity/responsibility/snapshot/duplicate/arrival metrics were zero.
+- Labeled tmpfs disposable database container removed after verification.
+
+Affected areas:
+
+- Prisma schema, Phase 5 migration and reports.
+- Shipment/customs DTOs, controllers, services and focused tests.
+- Shared permissions.
+- Frontend logistics API and Expeditions/Customs workspace.
+
+Known deferred checks/gates:
+
+- Production-shaped duplicate/missing-link reconciliation and responsible-user assignment for legacy customs files.
+- Real concurrent arrival webhook/transition replay with multiple vehicles and ambiguous Dossier candidates.
+- Authenticated task/notification/delivery-handoff permission tests, finance projection for real customs/shipping costs and complete Docker/full-suite verification.
+
+Exact next action: create the verified Phase 5 Git checkpoint, then perform Phase 6 cross-module hardening, consolidated reports/runbook/smoke coverage and final buildable-state verification without deployment.
 
 ## Phase 6 — Integration and hardening
 

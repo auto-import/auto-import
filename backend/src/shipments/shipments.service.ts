@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, type CustomsFile } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import {
@@ -8,6 +12,15 @@ import {
   TransitionShipmentDto,
   UpdateShipmentDto,
 } from './dto/shipments.dto';
+
+const SHIPMENT_TRANSITIONS: Record<string, readonly string[]> = {
+  pending: ['booked', 'cancelled'],
+  booked: ['loading', 'cancelled'],
+  loading: ['inTransit', 'cancelled'],
+  inTransit: ['arrived'],
+  arrived: [],
+  cancelled: [],
+};
 
 @Injectable()
 export class ShipmentsService {
@@ -160,6 +173,13 @@ export class ShipmentsService {
       where: { id, organizationId },
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
+    if (shipment.status === dto.status) return this.findOne(id, organizationId);
+    if (!SHIPMENT_TRANSITIONS[shipment.status]?.includes(dto.status)) {
+      throw new ConflictException({
+        code: 'SHIPMENT_INVALID_TRANSITION',
+        message: `${shipment.status} cannot transition to ${dto.status}`,
+      });
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.shipmentStatusHistory.create({
@@ -199,8 +219,194 @@ export class ShipmentsService {
         },
       });
 
+      if (dto.status === 'arrived') {
+        await this.createCustomsFilesInTransaction(
+          tx,
+          id,
+          organizationId,
+          userId,
+        );
+      }
+
       return updated;
     });
+  }
+
+  async createCustomsFromShipment(
+    shipmentId: string,
+    organizationId: string,
+    userId: string,
+    responsibleUserId?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) =>
+      this.createCustomsFilesInTransaction(
+        tx,
+        shipmentId,
+        organizationId,
+        userId,
+        responsibleUserId,
+      ),
+    );
+  }
+
+  private async createCustomsFilesInTransaction(
+    tx: Prisma.TransactionClient,
+    shipmentId: string,
+    organizationId: string,
+    actorId: string,
+    requestedResponsible?: string,
+  ) {
+    const shipment = await tx.shipment.findFirst({
+      where: { id: shipmentId, organizationId },
+      include: {
+        vehicles: {
+          include: {
+            vehicle: {
+              include: {
+                dossierVehicles: {
+                  include: { dossier: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    if (requestedResponsible) {
+      const responsible = await tx.user.findFirst({
+        where: { id: requestedResponsible, organizationId, status: 'active' },
+        select: { id: true },
+      });
+      if (!responsible)
+        throw new NotFoundException('Responsible user not found');
+    }
+    const created: CustomsFile[] = [];
+    const ambiguous: Array<{ vehicleId: string; dossierIds: string[] }> = [];
+    for (const shipmentVehicle of shipment.vehicles) {
+      const candidates = shipmentVehicle.vehicle.dossierVehicles
+        .map((link) => link.dossier)
+        .filter((dossier) => !['closed', 'cancelled'].includes(dossier.status));
+      if (candidates.length !== 1) {
+        ambiguous.push({
+          vehicleId: shipmentVehicle.vehicleId,
+          dossierIds: candidates.map((dossier) => dossier.id),
+        });
+        continue;
+      }
+      const dossier = candidates[0];
+      const existing = await tx.customsFile.findFirst({
+        where: {
+          organizationId,
+          shipmentId,
+          vehicleId: shipmentVehicle.vehicleId,
+          dossierId: dossier.id,
+        },
+      });
+      if (existing) {
+        created.push(existing);
+        continue;
+      }
+      const year = new Date().getUTCFullYear();
+      const sequence = await tx.commerceSequence.upsert({
+        where: {
+          organizationId_key: { organizationId, key: `customs:${year}` },
+        },
+        create: { organizationId, key: `customs:${year}`, value: 1 },
+        update: { value: { increment: 1 } },
+      });
+      const responsibleUserId =
+        requestedResponsible ?? dossier.opsUserId ?? dossier.salesUserId;
+      try {
+        const file = await tx.customsFile.create({
+          data: {
+            organizationId,
+            reference: `CUST-${year}-${String(sequence.value).padStart(5, '0')}`,
+            shipmentId,
+            vehicleId: shipmentVehicle.vehicleId,
+            dossierId: dossier.id,
+            responsibleUserId,
+            status: 'open',
+            v2Status:
+              shipment.status === 'arrived'
+                ? 'ARRIVED_AT_PORT'
+                : 'AWAITING_ARRIVAL',
+            containerSnapshot: shipment.containerNumber,
+            blSnapshot: shipment.blNumber,
+            arrivalPortSnapshot: shipment.arrivalPort,
+            statusHistory: {
+              create: {
+                toStatus:
+                  shipment.status === 'arrived'
+                    ? 'ARRIVED_AT_PORT'
+                    : 'AWAITING_ARRIVAL',
+                changedBy: actorId,
+                comment: 'Created idempotently from maritime shipment',
+              },
+            },
+          },
+        });
+        await tx.task.upsert({
+          where: {
+            organizationId_automationKey: {
+              organizationId,
+              automationKey: `customs-arrival:${file.id}`,
+            },
+          },
+          create: {
+            organizationId,
+            assignedTo: responsibleUserId,
+            createdBy: actorId,
+            title: `Préparer le dossier douanier ${file.reference}`,
+            type: 'customs_arrival',
+            status: 'todo',
+            dossierId: dossier.id,
+            relatedType: 'customsFile',
+            relatedId: file.id,
+            automationKey: `customs-arrival:${file.id}`,
+          },
+          update: {},
+        });
+        await tx.notification.createMany({
+          data: [
+            {
+              organizationId,
+              userId: responsibleUserId,
+              type: 'CUSTOMS_FILE_READY',
+              category: 'customs',
+              severity: 'warning',
+              title: `Dossier douanier ${file.reference}`,
+              relatedType: 'customsFile',
+              relatedId: file.id,
+              entityUrl: '/expeditions',
+              dedupeKey: `customs-ready:${file.id}:${responsibleUserId}`,
+            },
+          ],
+          skipDuplicates: true,
+        });
+        created.push(file);
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          const canonical = await tx.customsFile.findFirst({
+            where: {
+              organizationId,
+              vehicleId: shipmentVehicle.vehicleId,
+              dossierId: dossier.id,
+              v2Status: { not: null },
+            },
+          });
+          if (canonical) {
+            created.push(canonical);
+            continue;
+          }
+        }
+        throw error;
+      }
+    }
+    return { created, ambiguous };
   }
 
   async findAll(organizationId: string, filter: FilterShipmentsDto) {

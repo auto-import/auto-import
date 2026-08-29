@@ -1,48 +1,51 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { Topbar, StatusBadge, DataTable } from '@/components';
+import { useState, useEffect, useCallback } from "react";
+import { Topbar, StatusBadge, DataTable } from "@/components";
 import {
   fetchShipments,
   createShipment,
   transitionShipment,
+  createCustomsFromShipment,
   fetchCustomsFiles,
   transitionCustomsFile,
   type ApiShipment,
   type ApiCustomsFile,
-} from '@/lib/logistics-api';
-import { formatDate, formatMontant } from '@/lib/constants';
-import type { Column } from '@/types';
-import { Search, Ship, Plus, RefreshCw } from 'lucide-react';
+} from "@/lib/logistics-api";
+import { formatDate, formatMontant } from "@/lib/constants";
+import type { Column } from "@/types";
+import { Search, Ship, Plus, RefreshCw } from "lucide-react";
 
 export default function ExpeditionsPage() {
-  const [activeTab, setActiveTab] = useState<'shipments' | 'customs'>('shipments');
+  const [activeTab, setActiveTab] = useState<"shipments" | "customs">(
+    "shipments",
+  );
 
   // Shipments state
   const [shipments, setShipments] = useState<ApiShipment[]>([]);
   const [shipmentLoading, setShipmentLoading] = useState(true);
-  const [shipmentSearch, setShipmentSearch] = useState('');
-  const [shipmentStatus, setShipmentStatus] = useState<string>('tous');
+  const [shipmentSearch, setShipmentSearch] = useState("");
+  const [shipmentStatus, setShipmentStatus] = useState<string>("tous");
   const [shipmentPage, setShipmentPage] = useState(1);
   const [shipmentTotal, setShipmentTotal] = useState(0);
 
   // Customs state
   const [customsFiles, setCustomsFiles] = useState<ApiCustomsFile[]>([]);
   const [customsLoading, setCustomsLoading] = useState(true);
-  const [customsSearch, setCustomsSearch] = useState('');
-  const [customsStatus, setCustomsStatus] = useState<string>('tous');
+  const [customsSearch, setCustomsSearch] = useState("");
+  const [customsStatus, setCustomsStatus] = useState<string>("tous");
   const [customsPage, setCustomsPage] = useState(1);
   const [customsTotal, setCustomsTotal] = useState(0);
 
   // Create Shipment Modal state
   const [showShipmentModal, setShowShipmentModal] = useState(false);
-  const [newContainer, setNewContainer] = useState('');
-  const [newVessel, setNewVessel] = useState('');
-  const [newBl, setNewBl] = useState('');
-  const [newDepPort, setNewDepPort] = useState('Shanghai (CNSHA)');
-  const [newArrPort, setNewArrPort] = useState('Djen Djen (DZDJE)');
-  const [newEtd, setNewEtd] = useState('');
-  const [newEta, setNewEta] = useState('');
+  const [newContainer, setNewContainer] = useState("");
+  const [newVessel, setNewVessel] = useState("");
+  const [newBl, setNewBl] = useState("");
+  const [newDepPort, setNewDepPort] = useState("Shanghai (CNSHA)");
+  const [newArrPort, setNewArrPort] = useState("Djen Djen (DZDJE)");
+  const [newEtd, setNewEtd] = useState("");
+  const [newEta, setNewEta] = useState("");
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -53,7 +56,7 @@ export default function ExpeditionsPage() {
         page: shipmentPage,
         limit: 15,
         search: shipmentSearch || undefined,
-        status: shipmentStatus !== 'tous' ? shipmentStatus : undefined,
+        status: shipmentStatus !== "tous" ? shipmentStatus : undefined,
       });
       setShipments(res.items || []);
       setShipmentTotal(res.pagination?.totalItems || 0);
@@ -71,7 +74,7 @@ export default function ExpeditionsPage() {
         page: customsPage,
         limit: 15,
         search: customsSearch || undefined,
-        status: customsStatus !== 'tous' ? customsStatus : undefined,
+        status: customsStatus !== "tous" ? customsStatus : undefined,
       });
       setCustomsFiles(res.items || []);
       setCustomsTotal(res.pagination?.totalItems || 0);
@@ -84,7 +87,7 @@ export default function ExpeditionsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (activeTab === 'shipments') {
+      if (activeTab === "shipments") {
         void loadShipments();
       } else {
         void loadCustoms();
@@ -99,7 +102,10 @@ export default function ExpeditionsPage() {
       await transitionShipment(id, nextStatus);
       await loadShipments();
     } catch (err) {
-      alert((err instanceof Error ? err.message : '') || 'Erreur de transition d’expédition');
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur de transition d’expédition",
+      );
     } finally {
       setActionLoading(null);
     }
@@ -111,7 +117,30 @@ export default function ExpeditionsPage() {
       await transitionCustomsFile(id, nextStatus);
       await loadCustoms();
     } catch (err) {
-      alert((err instanceof Error ? err.message : '') || 'Erreur de transition douane');
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur de transition douane",
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateCustoms = async (id: string) => {
+    setActionLoading(id);
+    try {
+      const result = await createCustomsFromShipment(id);
+      if (result.ambiguous.length) {
+        alert(
+          `${result.ambiguous.length} véhicule(s) nécessitent un rapprochement manuel de dossier.`,
+        );
+      }
+      await Promise.all([loadShipments(), loadCustoms()]);
+    } catch (err) {
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Création douanière impossible",
+      );
     } finally {
       setActionLoading(null);
     }
@@ -130,30 +159,37 @@ export default function ExpeditionsPage() {
         eta: newEta || undefined,
       });
       setShowShipmentModal(false);
-      setNewContainer('');
-      setNewVessel('');
-      setNewBl('');
+      setNewContainer("");
+      setNewVessel("");
+      setNewBl("");
       await loadShipments();
     } catch (err) {
-      alert((err instanceof Error ? err.message : '') || 'Erreur de création d’expédition');
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur de création d’expédition",
+      );
     }
   };
 
   const getShipmentBadge = (status: string) => {
     switch (status) {
-      case 'inTransit':
-        return <StatusBadge variant="blue" label="En mer / Transit" size="sm" />;
-      case 'arrived':
-        return <StatusBadge variant="yellow" label="Arrivé au port" size="sm" />;
-      case 'delivered':
+      case "inTransit":
+        return (
+          <StatusBadge variant="blue" label="En mer / Transit" size="sm" />
+        );
+      case "arrived":
+        return (
+          <StatusBadge variant="yellow" label="Arrivé au port" size="sm" />
+        );
+      case "delivered":
         return <StatusBadge variant="green" label="Livré" size="sm" />;
-      case 'cancelled':
+      case "cancelled":
         return <StatusBadge variant="red" label="Annulé" size="sm" />;
-      case 'loading':
+      case "loading":
         return <StatusBadge variant="purple" label="Chargement" size="sm" />;
-      case 'booked':
+      case "booked":
         return <StatusBadge variant="blue" label="Réservé" size="sm" />;
-      case 'pending':
+      case "pending":
       default:
         return <StatusBadge variant="gray" label="En attente" size="sm" />;
     }
@@ -161,28 +197,60 @@ export default function ExpeditionsPage() {
 
   const getCustomsBadge = (status: string) => {
     switch (status) {
-      case 'cleared':
+      case "cleared":
         return <StatusBadge variant="green" label="Dédouané" size="sm" />;
-      case 'released':
-        return <StatusBadge variant="green" label="Mainlevée délivrée" size="sm" />;
-      case 'inInspection':
-        return <StatusBadge variant="yellow" label="Inspection / Scanner" size="sm" />;
-      case 'documentsRequired':
+      case "released":
+        return (
+          <StatusBadge variant="green" label="Mainlevée délivrée" size="sm" />
+        );
+      case "inInspection":
+        return (
+          <StatusBadge
+            variant="yellow"
+            label="Inspection / Scanner"
+            size="sm"
+          />
+        );
+      case "documentsRequired":
         return <StatusBadge variant="red" label="Documents requis" size="sm" />;
-      case 'rejected':
+      case "rejected":
         return <StatusBadge variant="red" label="Rejeté" size="sm" />;
-      case 'closed':
+      case "closed":
         return <StatusBadge variant="gray" label="Clôturé" size="sm" />;
-      case 'open':
+      case "open":
       default:
         return <StatusBadge variant="blue" label="Dossier ouvert" size="sm" />;
     }
   };
 
+  const v2CustomsLabels: Record<string, string> = {
+    TO_PREPARE: "À préparer",
+    AWAITING_ARRIVAL: "En attente arrivée",
+    ARRIVED_AT_PORT: "Arrivé au port",
+    FILE_TRANSMITTED: "Dossier transmis",
+    CLEARANCE_IN_PROGRESS: "Dédouanement en cours",
+    INSPECTION: "Inspection",
+    DUTIES_TAXES: "Droits / Taxes",
+    RELEASE: "Mainlevée",
+    PORT_EXIT: "Sortie du port",
+    CLOSED: "Clôturé",
+  };
+  const v2Next: Record<string, string> = {
+    TO_PREPARE: "AWAITING_ARRIVAL",
+    AWAITING_ARRIVAL: "ARRIVED_AT_PORT",
+    ARRIVED_AT_PORT: "FILE_TRANSMITTED",
+    FILE_TRANSMITTED: "CLEARANCE_IN_PROGRESS",
+    CLEARANCE_IN_PROGRESS: "INSPECTION",
+    INSPECTION: "DUTIES_TAXES",
+    DUTIES_TAXES: "RELEASE",
+    RELEASE: "PORT_EXIT",
+    PORT_EXIT: "CLOSED",
+  };
+
   const SHIPMENT_COLUMNS: Column<ApiShipment>[] = [
     {
-      key: 'containerNumber',
-      header: 'Conteneur & Expédition',
+      key: "containerNumber",
+      header: "Conteneur & Expédition",
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary">
@@ -190,7 +258,7 @@ export default function ExpeditionsPage() {
           </div>
           <div>
             <span className="font-mono font-bold text-foreground">
-              {row.containerNumber || 'Conteneur N/A'}
+              {row.containerNumber || "Conteneur N/A"}
             </span>
             <p className="text-xs text-muted font-mono">{row.shipmentNumber}</p>
           </div>
@@ -198,81 +266,116 @@ export default function ExpeditionsPage() {
       ),
     },
     {
-      key: 'vesselName',
-      header: 'Navire & B/L',
+      key: "vesselName",
+      header: "Navire & B/L",
       render: (row) => (
         <div>
-          <span className="font-medium text-foreground">{row.vesselName || 'Navire N/A'}</span>
-          {row.blNumber && <p className="text-xs text-muted font-mono">BL: {row.blNumber}</p>}
+          <span className="font-medium text-foreground">
+            {row.vesselName || "Navire N/A"}
+          </span>
+          {row.blNumber && (
+            <p className="text-xs text-muted font-mono">BL: {row.blNumber}</p>
+          )}
         </div>
       ),
     },
     {
-      key: 'route',
-      header: 'Trajet maritime',
+      key: "route",
+      header: "Trajet maritime",
       render: (row) => (
         <div className="text-xs space-y-0.5">
-          <p className="text-muted">De : <span className="text-foreground font-medium">{row.departurePort || 'Chine'}</span></p>
-          <p className="text-muted">Vers : <span className="text-foreground font-medium">{row.arrivalPort || 'Algérie'}</span></p>
+          <p className="text-muted">
+            De :{" "}
+            <span className="text-foreground font-medium">
+              {row.departurePort || "Chine"}
+            </span>
+          </p>
+          <p className="text-muted">
+            Vers :{" "}
+            <span className="text-foreground font-medium">
+              {row.arrivalPort || "Algérie"}
+            </span>
+          </p>
         </div>
       ),
     },
     {
-      key: 'dates',
-      header: 'ETD / ETA',
+      key: "dates",
+      header: "ETD / ETA",
       render: (row) => (
         <div className="text-xs space-y-0.5">
-          <p className="text-muted">ETD : {row.etd ? formatDate(row.etd) : '—'}</p>
-          <p className="text-muted font-medium text-foreground">ETA : {row.eta ? formatDate(row.eta) : '—'}</p>
+          <p className="text-muted">
+            ETD : {row.etd ? formatDate(row.etd) : "—"}
+          </p>
+          <p className="text-muted font-medium text-foreground">
+            ETA : {row.eta ? formatDate(row.eta) : "—"}
+          </p>
         </div>
       ),
     },
     {
-      key: 'vehicles',
-      header: 'Véhicules',
+      key: "vehicles",
+      header: "Véhicules",
       render: (row) => (
         <span className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface border text-xs font-semibold">
-          {row.vehicles?.length || 0} véhicule{row.vehicles && row.vehicles.length > 1 ? 's' : ''}
+          {row.vehicles?.length || 0} véhicule
+          {row.vehicles && row.vehicles.length > 1 ? "s" : ""}
         </span>
       ),
     },
     {
-      key: 'status',
-      header: 'Statut',
+      key: "status",
+      header: "Statut",
       render: (row) => getShipmentBadge(row.status),
     },
     {
-      key: 'actions',
-      header: 'Actions',
+      key: "actions",
+      header: "Actions",
       render: (row) => (
         <div className="flex items-center gap-2">
-          {row.status === 'pending' && (
+          {row.status === "pending" && (
             <button
-              onClick={() => handleTransitionShipment(row.id, 'booked')}
+              onClick={() => handleTransitionShipment(row.id, "booked")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-primary text-primary-foreground"
             >
               Réserver
             </button>
           )}
-          {row.status === 'booked' && (
+          {row.status === "booked" && (
             <button
-              onClick={() => handleTransitionShipment(row.id, 'inTransit')}
+              onClick={() => handleTransitionShipment(row.id, "loading")}
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-blue-600 text-white"
+            >
+              Chargement
+            </button>
+          )}
+          {row.status === "loading" && (
+            <button
+              onClick={() => handleTransitionShipment(row.id, "inTransit")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-blue-600 text-white"
             >
               Départ en mer
             </button>
           )}
-          {row.status === 'inTransit' && (
+          {row.status === "inTransit" && (
             <button
-              onClick={() => handleTransitionShipment(row.id, 'arrived')}
+              onClick={() => handleTransitionShipment(row.id, "arrived")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-status-yellow-bg text-status-yellow-text font-medium"
             >
               Arrivé au port
             </button>
           )}
+          <button
+            onClick={() => handleCreateCustoms(row.id)}
+            disabled={actionLoading === row.id || !row.vehicles?.length}
+            className="px-2 py-1 text-xs rounded-button border disabled:opacity-40"
+          >
+            Créer dossiers douane
+          </button>
         </div>
       ),
     },
@@ -280,86 +383,145 @@ export default function ExpeditionsPage() {
 
   const CUSTOMS_COLUMNS: Column<ApiCustomsFile>[] = [
     {
-      key: 'reference',
-      header: 'Réf. Douane',
+      key: "reference",
+      header: "Réf. Douane",
       render: (row) => (
         <div>
-          <span className="font-mono font-bold text-foreground">{row.reference}</span>
+          <span className="font-mono font-bold text-foreground">
+            {row.reference}
+          </span>
           {row.declarationNumber && (
-            <p className="text-xs text-muted font-mono">DUM: {row.declarationNumber}</p>
+            <p className="text-xs text-muted font-mono">
+              DUM: {row.declarationNumber}
+            </p>
           )}
         </div>
       ),
     },
     {
-      key: 'dossier',
-      header: 'Dossier lié',
+      key: "vehicle",
+      header: "VIN / Conteneur",
+      render: (row) => (
+        <div className="text-xs">
+          <b className="font-mono">{row.vehicle?.vin || "VIN manquant"}</b>
+          <p>{row.containerSnapshot || row.shipment?.shipmentNumber || "—"}</p>
+          <p className="text-muted">
+            {row.arrivalPortSnapshot || "Port non renseigné"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "responsible",
+      header: "Responsable",
+      render: (row) =>
+        row.responsibleUser
+          ? `${row.responsibleUser.firstName} ${row.responsibleUser.lastName}`
+          : "À assigner",
+    },
+    {
+      key: "dossier",
+      header: "Dossier lié",
       render: (row) => (
         <span className="text-status-blue-text font-mono text-xs">
-          {row.dossier?.reference || '—'}
+          {row.dossier?.reference || "—"}
         </span>
       ),
     },
     {
-      key: 'broker',
-      header: 'Transitaire / Courtier',
+      key: "broker",
+      header: "Transitaire / Courtier",
       render: (row) => (
-        <span className="text-sm font-medium">{row.brokerPartner?.name || 'Transitaire assigné'}</span>
+        <span className="text-sm font-medium">
+          {row.brokerPartner?.name || "Transitaire assigné"}
+        </span>
       ),
     },
     {
-      key: 'amounts',
-      header: 'Droits & Taxes',
+      key: "amounts",
+      header: "Droits & Taxes",
       render: (row) => (
         <div className="text-xs">
           <span className="font-bold text-foreground">
-            {formatMontant(Number(row.customsAmount || 0))} {row.currency || 'DZD'}
+            {formatMontant(Number(row.customsAmount || 0))}{" "}
+            {row.currency || "DZD"}
           </span>
-          {Number(row.dutyAmount) > 0 && <p className="text-muted">Droits: {formatMontant(Number(row.dutyAmount))}</p>}
+          {Number(row.dutyAmount) > 0 && (
+            <p className="text-muted">
+              Droits: {formatMontant(Number(row.dutyAmount))}
+            </p>
+          )}
         </div>
       ),
     },
     {
-      key: 'openedAt',
-      header: 'Ouverture / Dédouanement',
+      key: "openedAt",
+      header: "Ouverture / Dédouanement",
       render: (row) => (
         <div className="text-xs">
           <p className="text-muted">Ouvert: {formatDate(row.openedAt)}</p>
-          {row.clearedAt && <p className="text-status-green-text font-medium">Dédouané: {formatDate(row.clearedAt)}</p>}
+          {row.clearedAt && (
+            <p className="text-status-green-text font-medium">
+              Dédouané: {formatDate(row.clearedAt)}
+            </p>
+          )}
         </div>
       ),
     },
     {
-      key: 'status',
-      header: 'Statut',
-      render: (row) => getCustomsBadge(row.status),
+      key: "status",
+      header: "Statut",
+      render: (row) =>
+        row.v2Status ? (
+          <StatusBadge
+            variant={row.v2Status === "CLOSED" ? "gray" : "blue"}
+            label={v2CustomsLabels[row.v2Status] || row.v2Status}
+            size="sm"
+          />
+        ) : (
+          <div>
+            {getCustomsBadge(row.status)}
+            <p className="mt-1 text-[10px] text-red-700">À rapprocher V2</p>
+          </div>
+        ),
     },
     {
-      key: 'actions',
-      header: 'Actions',
+      key: "actions",
+      header: "Actions",
       render: (row) => (
         <div className="flex items-center gap-2">
-          {row.status === 'open' && (
+          {row.v2Status && v2Next[row.v2Status] && (
             <button
-              onClick={() => handleTransitionCustoms(row.id, 'inInspection')}
+              onClick={() =>
+                handleTransitionCustoms(row.id, v2Next[row.v2Status!])
+              }
+              disabled={actionLoading === row.id}
+              className="px-2 py-1 text-xs rounded-button bg-primary text-primary-foreground"
+            >
+              Étape suivante
+            </button>
+          )}
+          {row.status === "open" && (
+            <button
+              onClick={() => handleTransitionCustoms(row.id, "inInspection")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-status-yellow-bg text-status-yellow-text"
             >
               Inspection
             </button>
           )}
-          {(row.status === 'open' || row.status === 'inInspection') && (
+          {(row.status === "open" || row.status === "inInspection") && (
             <button
-              onClick={() => handleTransitionCustoms(row.id, 'cleared')}
+              onClick={() => handleTransitionCustoms(row.id, "cleared")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-status-green-bg text-status-green-text"
             >
               Dédouaner
             </button>
           )}
-          {row.status === 'cleared' && (
+          {row.status === "cleared" && (
             <button
-              onClick={() => handleTransitionCustoms(row.id, 'released')}
+              onClick={() => handleTransitionCustoms(row.id, "released")}
               disabled={actionLoading === row.id}
               className="px-2 py-1 text-xs rounded-button bg-primary text-primary-foreground"
             >
@@ -382,28 +544,28 @@ export default function ExpeditionsPage() {
         {/* Navigation Tabs */}
         <div className="flex border-b border-border gap-6">
           <button
-            onClick={() => setActiveTab('shipments')}
+            onClick={() => setActiveTab("shipments")}
             className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
-              activeTab === 'shipments'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted hover:text-foreground'
+              activeTab === "shipments"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
             }`}
           >
             Expéditions maritimes ({shipmentTotal})
           </button>
           <button
-            onClick={() => setActiveTab('customs')}
+            onClick={() => setActiveTab("customs")}
             className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
-              activeTab === 'customs'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted hover:text-foreground'
+              activeTab === "customs"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
             }`}
           >
             Dossiers Douane & Transit ({customsTotal})
           </button>
         </div>
 
-        {activeTab === 'shipments' ? (
+        {activeTab === "shipments" ? (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-4 flex-1">
@@ -452,7 +614,9 @@ export default function ExpeditionsPage() {
                   className="p-2 border border-border rounded-button text-muted hover:text-foreground"
                   title="Actualiser"
                 >
-                  <RefreshCw className={`w-4 h-4 ${shipmentLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`w-4 h-4 ${shipmentLoading ? "animate-spin" : ""}`}
+                  />
                 </button>
               </div>
             </div>
@@ -500,7 +664,9 @@ export default function ExpeditionsPage() {
                 className="p-2 border border-border rounded-button text-muted hover:text-foreground"
                 title="Actualiser"
               >
-                <RefreshCw className={`w-4 h-4 ${customsLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`w-4 h-4 ${customsLoading ? "animate-spin" : ""}`}
+                />
               </button>
             </div>
 
@@ -515,10 +681,14 @@ export default function ExpeditionsPage() {
       {showShipmentModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="card max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-lg text-foreground">Créer une expédition maritime</h3>
+            <h3 className="font-bold text-lg text-foreground">
+              Créer une expédition maritime
+            </h3>
             <form onSubmit={handleCreateShipment} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-muted uppercase mb-1">Numéro de Conteneur</label>
+                <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                  Numéro de Conteneur
+                </label>
                 <input
                   type="text"
                   required
@@ -531,7 +701,9 @@ export default function ExpeditionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Nom du Navire</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Nom du Navire
+                  </label>
                   <input
                     type="text"
                     value={newVessel}
@@ -541,7 +713,9 @@ export default function ExpeditionsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Numéro B/L</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Numéro B/L
+                  </label>
                   <input
                     type="text"
                     value={newBl}
@@ -554,7 +728,9 @@ export default function ExpeditionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Port de Départ</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Port de Départ
+                  </label>
                   <input
                     type="text"
                     value={newDepPort}
@@ -563,7 +739,9 @@ export default function ExpeditionsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Port d’Arrivée</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Port d’Arrivée
+                  </label>
                   <input
                     type="text"
                     value={newArrPort}
@@ -575,7 +753,9 @@ export default function ExpeditionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">ETD (Départ estimé)</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    ETD (Départ estimé)
+                  </label>
                   <input
                     type="date"
                     value={newEtd}
@@ -584,7 +764,9 @@ export default function ExpeditionsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">ETA (Arrivée estimée)</label>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    ETA (Arrivée estimée)
+                  </label>
                   <input
                     type="date"
                     value={newEta}

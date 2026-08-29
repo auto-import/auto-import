@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsIn,
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
@@ -23,6 +24,10 @@ export class CreateCustomsFileDto {
   @IsOptional()
   @IsString()
   brokerPartnerId?: string;
+
+  @IsOptional()
+  @IsString()
+  responsibleUserId?: string;
 
   @IsOptional()
   @IsString()
@@ -93,6 +98,25 @@ export class UpdateCustomsFileDto {
 }
 
 export class TransitionCustomsFileDto {
+  @IsIn([
+    'TO_PREPARE',
+    'AWAITING_ARRIVAL',
+    'ARRIVED_AT_PORT',
+    'FILE_TRANSMITTED',
+    'CLEARANCE_IN_PROGRESS',
+    'INSPECTION',
+    'DUTIES_TAXES',
+    'RELEASE',
+    'PORT_EXIT',
+    'CLOSED',
+    'open',
+    'inInspection',
+    'documentsRequired',
+    'cleared',
+    'released',
+    'rejected',
+    'closed',
+  ])
   @IsString()
   status: string; // 'open' | 'inInspection' | 'documentsRequired' | 'cleared' | 'released' | 'rejected' | 'closed'
 

@@ -19,6 +19,10 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     shipmentVehicle: {
       create: jest.fn(),
     },
+    customsFile: { findFirst: jest.fn(), create: jest.fn() },
+    user: { findFirst: jest.fn() },
+    task: { upsert: jest.fn() },
+    notification: { createMany: jest.fn() },
     vehicle: {
       findFirst: jest.fn(),
     },
@@ -51,7 +55,7 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     mockPrisma.shipment.findFirst.mockResolvedValue({
       id: 'shp-1',
       organizationId: 'org-1',
-      status: 'booked',
+      status: 'loading',
       actualDepartureDate: null,
       actualArrivalDate: null,
     });
@@ -75,7 +79,7 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     expect(mockPrisma.shipmentStatusHistory.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         shipmentId: 'shp-1',
-        fromStatus: 'booked',
+        fromStatus: 'loading',
         toStatus: 'inTransit',
         changedBy: 'user-1',
         comment: 'Departed from port of departure',
@@ -92,5 +96,56 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
         status: 'arrived',
       }),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('creates one customs file per unambiguous shipment vehicle and is idempotent', async () => {
+    mockPrisma.shipment.findFirst.mockResolvedValue({
+      id: 'shp-1',
+      organizationId: 'org-1',
+      status: 'arrived',
+      containerNumber: 'CONT-1',
+      blNumber: 'BL-1',
+      arrivalPort: 'Alger',
+      vehicles: [
+        {
+          vehicleId: 'vehicle-1',
+          vehicle: {
+            dossierVehicles: [
+              {
+                dossier: {
+                  id: 'dossier-1',
+                  status: 'arrivedAtPort',
+                  salesUserId: 'user-1',
+                  opsUserId: null,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    mockPrisma.customsFile.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'customs-1', vehicleId: 'vehicle-1' });
+    mockPrisma.customsFile.create.mockResolvedValue({
+      id: 'customs-1',
+      vehicleId: 'vehicle-1',
+      dossierId: 'dossier-1',
+    });
+
+    const first = await shipmentsService.createCustomsFromShipment(
+      'shp-1',
+      'org-1',
+      'user-1',
+    );
+    const second = await shipmentsService.createCustomsFromShipment(
+      'shp-1',
+      'org-1',
+      'user-1',
+    );
+
+    expect(first.created).toHaveLength(1);
+    expect(second.created).toHaveLength(1);
+    expect(mockPrisma.customsFile.create).toHaveBeenCalledTimes(1);
   });
 });

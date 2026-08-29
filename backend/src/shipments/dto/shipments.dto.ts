@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsIn,
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
@@ -97,12 +98,19 @@ export class UpdateShipmentDto {
 }
 
 export class TransitionShipmentDto {
+  @IsIn(['pending', 'booked', 'loading', 'inTransit', 'arrived', 'cancelled'])
   @IsString()
   status: string; // 'pending' | 'booked' | 'loading' | 'inTransit' | 'arrived' | 'delivered' | 'cancelled'
 
   @IsOptional()
   @IsString()
   comment?: string;
+}
+
+export class CreateCustomsFromShipmentDto {
+  @IsOptional()
+  @IsString()
+  responsibleUserId?: string;
 }
 
 export class FilterShipmentsDto extends PaginationDto {

@@ -50,7 +50,7 @@ export class CustomsController {
   }
 
   @Post(':id/transition')
-  @RequirePermission(Permission.CUSTOMS_WRITE)
+  @RequirePermission(Permission.CUSTOMS_TRANSITION)
   transition(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,

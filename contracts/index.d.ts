@@ -382,8 +382,11 @@ export const Permission: {
   readonly CONTRACTS_SIGN: "contracts:sign";
   readonly SHIPMENTS_READ: "shipments:read";
   readonly SHIPMENTS_WRITE: "shipments:write";
+  readonly SHIPMENTS_TRANSITION: "shipments:transition";
   readonly CUSTOMS_READ: "customs:read";
   readonly CUSTOMS_WRITE: "customs:write";
+  readonly CUSTOMS_TRANSITION: "customs:transition";
+  readonly CUSTOMS_AUTOMATE: "customs:automate";
   readonly DOCUMENTS_READ: "documents:read";
   readonly DOCUMENTS_WRITE: "documents:write";
   readonly GED_METADATA_LIST: "gedMetadata:list";
