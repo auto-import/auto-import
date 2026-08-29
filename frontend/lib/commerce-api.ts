@@ -9,6 +9,55 @@ import type { ApiInvoice, ApiPayment, ApiPaymentPlan } from "@/lib/finance-api";
 import type { ApiCustomsFile, ApiShipment } from "@/lib/logistics-api";
 import type { ApiDossierDocument } from "@/lib/documents-api";
 
+export interface ApiPartnerContact {
+  id: string;
+  name: string;
+  role?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  preferred?: boolean;
+}
+
+export interface ApiPartnerIncident {
+  id: string;
+  title: string;
+  description?: string | null;
+  severity: string;
+  type: string;
+  status: string;
+  occurredAt: string;
+}
+
+export interface ApiPartnerPurchase {
+  id: string;
+  purchasePrice?: number | string | null;
+  currency?: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface ApiPartnerPayment {
+  id: string;
+  amount: number | string;
+  currency?: string | null;
+  paymentDate?: string | null;
+  status: string;
+}
+
+export interface ApiPartnerGedLink {
+  id: string;
+  documentId: string;
+}
+
+export interface ApiPartnerDossierLink {
+  id: string;
+  createdAt: string;
+  dossier?: {
+    reference?: string | null;
+    status?: string | null;
+  } | null;
+}
+
 export interface ApiPartner {
   id: string;
   name: string;
@@ -36,12 +85,13 @@ export interface ApiPartner {
   scoreQuality?: number | null;
   scoreDelivery?: number | null;
   scoreCommunication?: number | null;
-  contacts?: Array<Record<string, unknown>>;
-  incidents?: Array<Record<string, unknown>>;
-  dossierLinks?: Array<Record<string, unknown>>;
-  purchases?: Array<Record<string, unknown>>;
-  supplierPayments?: Array<Record<string, unknown>>;
-  gedLinks?: Array<Record<string, unknown>>;
+  contacts?: ApiPartnerContact[];
+  incidents?: ApiPartnerIncident[];
+  dossierLinks?: ApiPartnerDossierLink[];
+  purchases?: ApiPartnerPurchase[];
+  supplierPayments?: ApiPartnerPayment[];
+  gedLinks?: ApiPartnerGedLink[];
+  chinaOffers?: ApiOffer[];
   kpis?: {
     activeOffers: number;
     totalPurchases: number;
@@ -138,8 +188,8 @@ export interface ApiOffer {
   purchasePrice?: string | number | null;
   supplierPrice?: string | number | null;
   supplierReference?: string | null;
-  cifPrice: string | number;
-  ddpPrice: string | number;
+  cifPrice?: string | number | null;
+  ddpPrice?: string | number | null;
   incoterm?: string | null;
   location?: string | null;
   leadTimeDays?: number | null;
@@ -282,6 +332,23 @@ export const commerceApi = {
       apiRequest<ApiPartner>(`/partners/${id}/status`, {
         method: "POST",
         body: JSON.stringify({ status, reason }),
+      }),
+    addContact: (id: string, data: Record<string, unknown>) =>
+      apiRequest<unknown>(`/partners/${id}/contacts`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    addIncident: (id: string, data: Record<string, unknown>) =>
+      apiRequest<unknown>(`/partners/${id}/incidents`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    getBankAccounts: (id: string) =>
+      apiRequest<unknown[]>(`/partners/${id}/bank-accounts`),
+    createBankAccount: (id: string, data: Record<string, unknown>) =>
+      apiRequest<unknown>(`/partners/${id}/bank-accounts`, {
+        method: "POST",
+        body: JSON.stringify(data),
       }),
   },
   vehicles: {
@@ -447,6 +514,26 @@ export const commerceApi = {
         }>;
         evidence: ApiDossierEvidence[];
       }>(`/documents/dossiers/${id}/evidence`),
+    checklist: (id: string) =>
+      apiRequest<{
+        dossierId: string;
+        progress: number;
+        blocking: boolean;
+        items: Array<{
+          ruleId: string;
+          documentType: { id: string; code: string; labelFr: string };
+          required: boolean;
+          blocking: boolean;
+          state:
+            | "UPLOADED"
+            | "REJECTED"
+            | "EXPIRED"
+            | "EXPIRING_SOON"
+            | "AWAITING_VALIDATION"
+            | "MISSING";
+          documentIds: string[];
+        }>;
+      }>(`/ged/dossiers/${id}/checklist`),
     uploadEvidence: (
       id: string,
       data: {

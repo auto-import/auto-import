@@ -184,4 +184,92 @@ describe('ProspectsService concurrency guarantees', () => {
       idempotentReplay: true,
     });
   });
+
+  it('reassigns GED document links atomically from prospect to client during conversion', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      prospectConversion: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'conv-1' }),
+      },
+      prospect: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'lead-doc-1',
+          organizationId: 'org-a',
+          crmStatus: 'DEPOSIT',
+          firstName: 'Alice',
+          lastName: 'Doc',
+          phone: '+213551112233',
+          countryId: 'dz',
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      contactPoint: {
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+      },
+      client: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'client-doc-1',
+          organizationId: 'org-a',
+          firstName: 'Alice',
+          lastName: 'Doc',
+          phone: '+213551112233',
+        }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'client-doc-1',
+          organizationId: 'org-a',
+          firstName: 'Alice',
+          lastName: 'Doc',
+          phone: '+213551112233',
+        }),
+      },
+      task: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      vehicleRequest: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      callSession: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      whatsappConversation: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      appointment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      crmNote: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      gedDocumentLink: {
+        updateMany: jest.fn().mockResolvedValue({ count: 3 }),
+      },
+      prospectStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (t: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const contacts = {
+      normalizePhoneForCountry: jest.fn().mockResolvedValue('+213551112233'),
+      matchNormalizedPhoneInTransaction: jest.fn().mockResolvedValue({
+        normalizedValue: '+213551112233',
+        match: null,
+      }),
+    };
+    const references = {
+      assertReference: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ProspectsService(
+      prisma as unknown as PrismaService,
+      contacts as unknown as ContactResolutionService,
+      references as unknown as CrmReferenceService,
+    );
+
+    const result = await service.convertToClient(
+      'lead-doc-1',
+      {},
+      'user-1',
+      'org-a',
+    );
+
+    expect(result.id).toBe('client-doc-1');
+    expect(tx.gedDocumentLink.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-a', prospectId: 'lead-doc-1' },
+      data: { prospectId: null, clientId: 'client-doc-1' },
+    });
+  });
 });
+

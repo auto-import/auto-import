@@ -13,6 +13,7 @@ import {
   Check,
   ChevronRight,
   Circle,
+  FileCheck,
   FileText,
   Mail,
   MapPin,
@@ -709,58 +710,225 @@ function Logistics({ dossier }: { dossier: ApiDossier }) {
 function Documents({ dossier }: { dossier: ApiDossier }) {
   const documents = dossier.sections?.documents ?? [];
   const [downloadError, setDownloadError] = useState("");
+  const [checklist, setChecklist] = useState<{
+    progress: number;
+    blocking: boolean;
+    items: Array<{
+      ruleId: string;
+      documentType: { id: string; code: string; labelFr: string };
+      required: boolean;
+      blocking: boolean;
+      state: string;
+      documentIds: string[];
+    }>;
+  } | null>(null);
+  const [loadingChecklist, setLoadingChecklist] = useState(false);
+
+  const loadChecklist = useCallback(async () => {
+    setLoadingChecklist(true);
+    try {
+      const data = await commerceApi.dossiers.checklist(dossier.id);
+      setChecklist(data);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingChecklist(false);
+    }
+  }, [dossier.id]);
+
+  useEffect(() => {
+    void loadChecklist();
+  }, [loadChecklist]);
+
+  const stateBadges: Record<
+    string,
+    { label: string; bg: string; text: string; icon: string }
+  > = {
+    UPLOADED: {
+      label: "Conforme",
+      bg: "bg-emerald-50 border-emerald-200",
+      text: "text-emerald-700",
+      icon: "✓",
+    },
+    EXPIRING_SOON: {
+      label: "Expire bientôt",
+      bg: "bg-amber-50 border-amber-200",
+      text: "text-amber-700",
+      icon: "!",
+    },
+    EXPIRED: {
+      label: "Expiré",
+      bg: "bg-red-50 border-red-200",
+      text: "text-red-700",
+      icon: "✗",
+    },
+    MISSING: {
+      label: "Manquant",
+      bg: "bg-neutral-50 border-neutral-200",
+      text: "text-neutral-600",
+      icon: "—",
+    },
+    AWAITING_VALIDATION: {
+      label: "En validation",
+      bg: "bg-blue-50 border-blue-200",
+      text: "text-blue-700",
+      icon: "◷",
+    },
+    REJECTED: {
+      label: "Rejeté",
+      bg: "bg-red-50 border-red-200",
+      text: "text-red-700",
+      icon: "✗",
+    },
+  };
+
   return (
-    <div>
-      <h2 className="font-bold">Documents du dossier</h2>
-      <p className="mt-1 text-sm text-muted">
-        Pièces persistées dans le stockage privé de l’organisation.
-      </p>
-      {downloadError && (
-        <p role="alert" className="mt-3 text-sm text-red-700">
-          {downloadError}
-        </p>
-      )}
-      {documents.length ? (
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {documents.map((document) => (
-            <article
-              key={document.id}
-              className="flex items-center gap-3 rounded-xl border border-neutral-200 p-4"
-            >
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100">
-                <FileText className="h-5 w-5" />
+    <div className="space-y-6">
+      {/* GED Checklist Section */}
+      <section className="rounded-xl border border-neutral-200 p-5 bg-white space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold flex items-center gap-2">
+              <FileCheck className="h-5 w-5 text-primary" />
+              Checklist GED & Conformité Dossier
+            </h2>
+            <p className="text-xs text-muted mt-0.5">
+              Suivi automatisé des pièces obligatoires et règles de passage workflow.
+            </p>
+          </div>
+          {checklist && (
+            <div className="flex items-center gap-3">
+              {checklist.blocking && (
+                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800 animate-pulse">
+                  ⚠ Bloquant pour transition
+                </span>
+              )}
+              <span className="text-sm font-bold text-neutral-900">
+                {checklist.progress}% complété
               </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {document.title || document.file?.originalName}
-                </p>
-                <p className="text-xs uppercase tracking-wide text-muted">
-                  {document.documentType || document.kind} · {document.status}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold"
-                onClick={() =>
-                  void downloadDocument(document.id).catch((cause: unknown) =>
-                    setDownloadError(
-                      cause instanceof Error
-                        ? cause.message
-                        : "Téléchargement impossible",
-                    ),
-                  )
-                }
-              >
-                Télécharger
-              </button>
-            </article>
-          ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <p className="mt-5 rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-muted">
-          Aucun document déposé.
+
+        {checklist && (
+          <div className="w-full bg-neutral-100 rounded-full h-2.5 overflow-hidden">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-500 ${
+                checklist.progress === 100
+                  ? "bg-emerald-500"
+                  : checklist.blocking
+                    ? "bg-amber-500"
+                    : "bg-primary"
+              }`}
+              style={{ width: `${checklist.progress}%` }}
+            />
+          </div>
+        )}
+
+        {checklist && checklist.items.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-2">
+            {checklist.items.map((item) => {
+              const badge = stateBadges[item.state] ?? stateBadges.MISSING;
+              return (
+                <div
+                  key={item.ruleId}
+                  className={`rounded-lg border p-3 flex flex-col justify-between space-y-2 ${badge.bg}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-neutral-900">
+                        {item.documentType.labelFr}
+                      </p>
+                      <p className="text-[10px] text-muted">
+                        Code: {item.documentType.code}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${badge.text}`}
+                    >
+                      {badge.icon} {badge.label}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-neutral-200/60">
+                    <span className="text-muted">
+                      {item.blocking ? (
+                        <b className="text-red-700">Bloquant</b>
+                      ) : item.required ? (
+                        "Requis"
+                      ) : (
+                        "Optionnel"
+                      )}
+                    </span>
+                    {item.documentIds && item.documentIds.length > 0 && (
+                      <span className="text-neutral-600 font-medium">
+                        {item.documentIds.length} pièce(s)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : !loadingChecklist ? (
+          <p className="text-xs text-muted">Aucune règle de checklist spécifique active pour ce type de dossier.</p>
+        ) : null}
+      </section>
+
+      {/* Uploaded Documents List */}
+      <div>
+        <h2 className="font-bold">Documents physiques déposés</h2>
+        <p className="mt-1 text-sm text-muted">
+          Pièces persistées et chiffrées dans le stockage privé de l’organisation.
         </p>
-      )}
+        {downloadError && (
+          <p role="alert" className="mt-3 text-sm text-red-700">
+            {downloadError}
+          </p>
+        )}
+        {documents.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {documents.map((document) => (
+              <article
+                key={document.id}
+                className="flex items-center gap-3 rounded-xl border border-neutral-200 p-4 bg-white"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100">
+                  <FileText className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">
+                    {document.title || document.file?.originalName}
+                  </p>
+                  <p className="text-xs uppercase tracking-wide text-muted">
+                    {document.documentType || document.kind} · {document.status}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-neutral-200 px-3 py-2 text-xs font-semibold hover:bg-surface"
+                  onClick={() =>
+                    void downloadDocument(document.id).catch((cause: unknown) =>
+                      setDownloadError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Téléchargement impossible",
+                      ),
+                    )
+                  }
+                >
+                  Télécharger
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-4 rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-muted">
+            Aucun document physique déposé pour l&apos;instant.
+          </p>
+        )}
+      </div>
+
       <DossierEvidencePanel dossier={dossier} />
     </div>
   );

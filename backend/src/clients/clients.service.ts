@@ -393,6 +393,21 @@ export class ClientsService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        gedLinks: {
+          where: { organizationId, archivedAt: null },
+          include: {
+            document: {
+              select: {
+                id: true,
+                title: true,
+                sensitivity: true,
+                validationStatus: true,
+                createdAt: true,
+                documentType: { select: { code: true, labelFr: true } },
+              },
+            },
+          },
+        },
         country: true,
         nationalityCountry: true,
         conversions: {
@@ -464,7 +479,34 @@ export class ClientsService {
       delete publicClient.stats;
     }
     if (!can(Permission.ORDERS_READ)) delete publicClient.orders;
-    if (!can(Permission.DOCUMENTS_READ)) delete publicClient.documents;
+    if (!can(Permission.DOCUMENTS_READ)) {
+      delete publicClient.documents;
+      delete publicClient.gedLinks;
+    } else if (publicClient.gedLinks && Array.isArray(publicClient.gedLinks)) {
+      const canGedMetadata = can(Permission.GED_SENSITIVE_METADATA);
+      publicClient.gedLinks = (
+        publicClient.gedLinks as Array<Record<string, unknown>>
+      ).map((link) => {
+        const doc = link.document as
+          | { id?: string; title?: string; sensitivity?: string }
+          | undefined;
+        const restricted = doc?.sensitivity?.startsWith('RESTRICTED_');
+        if (restricted && !canGedMetadata) {
+          return {
+            id: link.id,
+            documentId: link.documentId,
+            restricted: true,
+            document: {
+              id: doc?.id,
+              title: 'Document confidentiel',
+              sensitivity: doc?.sensitivity,
+              restricted: true,
+            },
+          };
+        }
+        return link;
+      });
+    }
     if (!can(Permission.TASKS_READ)) delete publicClient.tasks;
     const [payments, history] = await Promise.all([
       can(Permission.PAYMENTS_READ)

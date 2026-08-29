@@ -176,8 +176,8 @@ export default function OffersChinaPolished() {
           leadTimeDays: form.leadTimeDays
             ? Number(form.leadTimeDays)
             : undefined,
-          cifPrice: Number(form.cifPrice),
-          ddpPrice: Number(form.ddpPrice),
+          cifPrice: form.cifPrice ? Number(form.cifPrice) : undefined,
+          ddpPrice: form.ddpPrice ? Number(form.ddpPrice) : undefined,
           availableQuantity: Number(form.availableQuantity),
           specification: {},
           validFrom: new Date(form.validFrom).toISOString(),
@@ -221,45 +221,42 @@ export default function OffersChinaPolished() {
             </section>
           ))}
         </div>
-        <section className="card flex flex-wrap items-center gap-4">
-          <label className="relative min-w-64 flex-1">
-            <Search className="absolute left-3 top-3 h-5 w-5 text-muted" />
-            <span className="sr-only">Rechercher</span>
-            <input
-              className={`${inputClass} pl-10`}
-              placeholder="Rechercher…"
-              value={filters.search}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  search: event.target.value,
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="relative min-w-64 flex-1">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
+              <input
+                className={`${inputClass} pl-9`}
+                placeholder="Rechercher par référence, marque, modèle…"
+                value={filters.search}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    search: e.target.value,
+                    page: 1,
+                  }))
+                }
+              />
+            </label>
+            <select
+              aria-label="Statut"
+              className={inputClass}
+              value={filters.status}
+              onChange={(e) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  status: e.target.value,
                   page: 1,
                 }))
               }
-            />
-          </label>
-          <select
-            aria-label="Statut"
-            className={inputClass}
-            value={filters.status}
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                status: event.target.value,
-                page: 1,
-              }))
-            }
-          >
-            <option value="">Tous les statuts</option>
-            {["available", "reserved", "sold", "expired", "upcoming"].map(
-              (value) => (
-                <option key={value} value={value}>
-                  {OFFER_STATUS_LABELS_API[value as ApiOfferStatus] ??
-                    (value === "upcoming" ? "À venir" : value)}
-                </option>
-              ),
-            )}
-          </select>
+            >
+              <option value="">Tous les statuts</option>
+              <option value="draft">Brouillon</option>
+              <option value="available">Disponible</option>
+              <option value="reserved">Réservé</option>
+              <option value="sold">Vendu</option>
+              <option value="expired">Expiré</option>
+            </select>
           <select
             aria-label="Condition"
             className={inputClass}
@@ -276,13 +273,14 @@ export default function OffersChinaPolished() {
             <option value="new">Neuf</option>
             <option value="used">Occasion</option>
           </select>
-          {canWrite && (
-            <button className={buttonClass} onClick={() => setShowForm(true)}>
-              <Plus className="mr-2 inline h-4 w-4" />
-              Nouvelle offre
-            </button>
-          )}
-        </section>
+            {canWrite && (
+              <button className={buttonClass} onClick={() => setShowForm(true)}>
+                <Plus className="mr-2 inline h-4 w-4" />
+                Nouvelle offre
+              </button>
+            )}
+          </div>
+        </div>
         {error && <ErrorState message={error} retry={() => void load()} />}
         {loading ? (
           <LoadingState />
@@ -447,9 +445,9 @@ export default function OffersChinaPolished() {
                 leadTimeDays: "Délai (jours)",
                 paymentConditions: "Conditions de paiement",
                 vin: "VIN optionnel",
-                purchasePrice: "Prix achat",
-                cifPrice: "Estimation CIF historique *",
-                ddpPrice: "Estimation DDP historique *",
+                purchasePrice: "Prix achat (référence)",
+                cifPrice: "Estimation CIF (optionnel)",
+                ddpPrice: "Estimation DDP (optionnel)",
                 validFrom: "Valide du *",
                 validUntil: "Valide jusqu’au *",
                 availableQuantity: "Quantité *",
@@ -484,8 +482,6 @@ export default function OffersChinaPolished() {
                         "brand",
                         "model",
                         "supplierPrice",
-                        "cifPrice",
-                        "ddpPrice",
                         "validFrom",
                         "validUntil",
                         "availableQuantity",

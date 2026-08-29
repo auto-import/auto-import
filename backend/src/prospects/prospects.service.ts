@@ -731,6 +731,10 @@ export class ProspectsService {
               where: { organizationId, prospectId: id },
               data: { prospectId: null, clientId: client.id },
             });
+            await tx.gedDocumentLink.updateMany({
+              where: { organizationId, prospectId: id },
+              data: { prospectId: null, clientId: client.id },
+            });
             await tx.prospectStatusHistory.create({
               data: {
                 organizationId,

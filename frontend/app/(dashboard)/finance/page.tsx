@@ -28,14 +28,36 @@ import {
   RefreshCw,
   ArrowUpRight,
   ArrowDownRight,
+  Receipt,
+  Landmark,
+  CircleDollarSign,
+  Layers,
+  Search,
 } from "lucide-react";
 
+type FinanceTab =
+  | "overview"
+  | "transactions"
+  | "treasury"
+  | "supplier"
+  | "costs"
+  | "rates";
+
 export default function FinanceDashboardPage() {
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "supplier" | "costs" | "rates"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<FinanceTab>("overview");
   const [overview, setOverview] =
     useState<OrganizationFinancialOverview | null>(null);
+
+  // Transactions state
+  const [transactions, setTransactions] = useState<ApiFinanceTransaction[]>([]);
+  const [txSearch, setTxSearch] = useState("");
+  const [txLoading, setTxLoading] = useState(false);
+
+  // Treasury Accounts state
+  const [treasuryAccounts, setTreasuryAccounts] = useState<
+    ApiTreasuryAccount[]
+  >([]);
+  const [treasuryLoading, setTreasuryLoading] = useState(false);
 
   // Supplier payments
   const [supplierPayments, setSupplierPayments] = useState<
@@ -45,22 +67,19 @@ export default function FinanceDashboardPage() {
 
   // Costs
   const [costs, setCosts] = useState<ApiCost[]>([]);
+  const [costLoading, setCostLoading] = useState(false);
 
   // Exchange rates
   const [exchangeRates, setExchangeRates] = useState<ApiExchangeRate[]>([]);
-  const [transactions, setTransactions] = useState<ApiFinanceTransaction[]>([]);
-  const [treasuryAccounts, setTreasuryAccounts] = useState<
-    ApiTreasuryAccount[]
-  >([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
 
-  // New Cost Form Modal state
+  // Modals
   const [showCostModal, setShowCostModal] = useState(false);
   const [newCostType, setNewCostType] = useState("SHIPPING");
   const [newCostAmount, setNewCostAmount] = useState("");
   const [newCostCurrency, setNewCostCurrency] = useState("DZD");
   const [newCostDesc, setNewCostDesc] = useState("");
 
-  // New Exchange Rate Modal state
   const [showRateModal, setShowRateModal] = useState(false);
   const newRateBase = "DZD";
   const [newRateQuote, setNewRateQuote] = useState("USD");
@@ -77,10 +96,34 @@ export default function FinanceDashboardPage() {
     }
   }, []);
 
+  const loadTransactions = useCallback(async () => {
+    setTxLoading(true);
+    try {
+      const res = await fetchFinanceTransactions();
+      setTransactions(res || []);
+    } catch {
+      // ignore
+    } finally {
+      setTxLoading(false);
+    }
+  }, []);
+
+  const loadTreasury = useCallback(async () => {
+    setTreasuryLoading(true);
+    try {
+      const res = await fetchTreasuryAccounts();
+      setTreasuryAccounts(res || []);
+    } catch {
+      // ignore
+    } finally {
+      setTreasuryLoading(false);
+    }
+  }, []);
+
   const loadSupplierPayments = useCallback(async () => {
     setSupplierLoading(true);
     try {
-      const res = await fetchSupplierPayments({ page: 1, limit: 20 });
+      const res = await fetchSupplierPayments({ page: 1, limit: 50 });
       setSupplierPayments(res.items || []);
     } catch {
       // ignore
@@ -90,45 +133,68 @@ export default function FinanceDashboardPage() {
   }, []);
 
   const loadCosts = useCallback(async () => {
+    setCostLoading(true);
     try {
-      const res = await fetchCosts({ page: 1, limit: 20 });
+      const res = await fetchCosts({ page: 1, limit: 50 });
       setCosts(res.items || []);
     } catch {
       // ignore
+    } finally {
+      setCostLoading(false);
     }
   }, []);
 
   const loadRates = useCallback(async () => {
+    setRatesLoading(true);
     try {
-      const res = await fetchExchangeRates({ page: 1, limit: 20 });
+      const res = await fetchExchangeRates({ page: 1, limit: 50 });
       setExchangeRates(res.items || []);
     } catch {
       // ignore
+    } finally {
+      setRatesLoading(false);
     }
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadOverview();
+      void loadTransactions();
+      void loadTreasury();
       void loadSupplierPayments();
       void loadCosts();
       void loadRates();
-      void fetchFinanceTransactions()
-        .then(setTransactions)
-        .catch(() => undefined);
-      void fetchTreasuryAccounts()
-        .then(setTreasuryAccounts)
-        .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadOverview, loadSupplierPayments, loadCosts, loadRates]);
+  }, [
+    loadOverview,
+    loadTransactions,
+    loadTreasury,
+    loadSupplierPayments,
+    loadCosts,
+    loadRates,
+  ]);
 
   useEffect(() => {
-    const refresh = () => void loadOverview();
+    const refresh = () => {
+      void loadOverview();
+      void loadTransactions();
+      void loadTreasury();
+      void loadSupplierPayments();
+      void loadCosts();
+      void loadRates();
+    };
     window.addEventListener("auto-import:notification", refresh);
     return () =>
       window.removeEventListener("auto-import:notification", refresh);
-  }, [loadOverview]);
+  }, [
+    loadOverview,
+    loadTransactions,
+    loadTreasury,
+    loadSupplierPayments,
+    loadCosts,
+    loadRates,
+  ]);
 
   const handleConfirmSupplier = async (id: string) => {
     setActionLoading(id);
@@ -188,6 +254,135 @@ export default function FinanceDashboardPage() {
       );
     }
   };
+
+  const filteredTransactions = transactions.filter((t) => {
+    if (!txSearch) return true;
+    const term = txSearch.toLowerCase();
+    return (
+      t.type?.toLowerCase().includes(term) ||
+      t.sourceModule?.toLowerCase().includes(term) ||
+      t.currency?.toLowerCase().includes(term)
+    );
+  });
+
+  const TRANSACTION_COLUMNS: Column<ApiFinanceTransaction>[] = [
+    {
+      key: "type",
+      header: "Type & Module Source",
+      render: (row) => (
+        <div>
+          <span className="font-semibold text-foreground">{row.type}</span>
+          <p className="text-xs text-muted">{row.sourceModule}</p>
+        </div>
+      ),
+    },
+    {
+      key: "direction",
+      header: "Sens",
+      render: (row) => (
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+            row.direction === "CREDIT"
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {row.direction === "CREDIT" ? "+ CRÉDIT" : "− DÉBIT"}
+        </span>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Montant Original",
+      render: (row) => (
+        <span
+          className={`font-semibold ${
+            row.direction === "CREDIT"
+              ? "text-status-green-text"
+              : "text-status-yellow-text"
+          }`}
+        >
+          {row.direction === "CREDIT" ? "+" : "−"}
+          {formatMontant(Number(row.originalAmount))} {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "baseAmount",
+      header: "Contre-valeur Base",
+      render: (row) => (
+        <span className="font-mono text-sm text-foreground">
+          {formatMontant(Number(row.amountDzd || row.originalAmount))}{" "}
+          DZD
+        </span>
+      ),
+    },
+    {
+      key: "occurredAt",
+      header: "Date d'écriture",
+      render: (row) => formatDate(row.occurredAt),
+    },
+    {
+      key: "status",
+      header: "Statut",
+      render: (row) => (
+        <StatusBadge
+          variant={row.status === "POSTED" ? "green" : "gray"}
+          label={row.status === "POSTED" ? "Comptabilisé" : "Extourné"}
+          size="sm"
+        />
+      ),
+    },
+  ];
+
+  const TREASURY_COLUMNS: Column<ApiTreasuryAccount>[] = [
+    {
+      key: "code",
+      header: "Code Compte",
+      render: (row) => (
+        <span className="font-mono font-bold text-foreground">{row.code}</span>
+      ),
+    },
+    {
+      key: "name",
+      header: "Intitulé du Compte",
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <Landmark className="h-4 w-4 text-muted" />
+          <span className="font-medium">{row.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: "currency",
+      header: "Devise",
+      render: (row) => (
+        <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs font-bold">
+          {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "balance",
+      header: "Solde Actuel",
+      render: (row) => (
+        <span className="text-base font-bold text-foreground">
+          {formatMontant(Number(row.balance))} {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Statut",
+      render: (row) => (
+        <StatusBadge
+          variant={row.status === "ACTIVE" ? "green" : "gray"}
+          label={row.status === "ACTIVE" ? "Actif" : row.status}
+          size="sm"
+        />
+      ),
+    },
+  ];
 
   const SUPPLIER_COLUMNS: Column<ApiSupplierPayment>[] = [
     {
@@ -321,7 +516,7 @@ export default function FinanceDashboardPage() {
     },
     {
       key: "rate",
-      header: "Taux direct (Decimal)",
+      header: "Taux direct",
       render: (row) => <span className="font-mono text-sm">{row.rate}</span>,
     },
     {
@@ -329,7 +524,7 @@ export default function FinanceDashboardPage() {
       header: "Source",
       render: (row) => (
         <span className="text-xs uppercase text-muted">
-          {row.source || "Banque"}
+          {row.source || "Banque Centrale"}
         </span>
       ),
     },
@@ -343,63 +538,11 @@ export default function FinanceDashboardPage() {
   return (
     <>
       <Topbar
-        title="Finance & Rentabilité Opérationnelle"
-        subtitle="Contrôle de gestion, règlements fournisseurs, charges et cours de change"
+        title="Finance & Contrôle de Gestion"
+        subtitle="Journal des écritures, trésorerie, rentabilité, débours et cours de change"
       />
 
       <div className="p-8 space-y-6">
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="card p-5">
-            <h2 className="font-bold">Transactions financières canoniques</h2>
-            <p className="text-sm text-muted">
-              {transactions.length} mouvements source-liés; les écritures
-              validées sont corrigées uniquement par extourne.
-            </p>
-            <div className="mt-3 max-h-52 divide-y overflow-auto text-sm">
-              {transactions.slice(0, 20).map((transaction) => (
-                <div key={transaction.id} className="flex justify-between py-2">
-                  <span>
-                    {transaction.type} · {transaction.sourceModule}
-                  </span>
-                  <b
-                    className={
-                      transaction.direction === "CREDIT"
-                        ? "text-status-green-text"
-                        : "text-status-yellow-text"
-                    }
-                  >
-                    {transaction.direction === "CREDIT" ? "+" : "−"}
-                    {formatMontant(Number(transaction.originalAmount))}{" "}
-                    {transaction.currency}
-                  </b>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="card p-5">
-            <h2 className="font-bold">Comptes & Trésorerie</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {treasuryAccounts.map((account) => (
-                <div
-                  key={account.id}
-                  className="rounded-card border p-3 text-sm"
-                >
-                  <b>
-                    {account.code} · {account.name}
-                  </b>
-                  <p className="text-xl font-bold">
-                    {formatMontant(Number(account.balance))} {account.currency}
-                  </p>
-                </div>
-              ))}
-              {!treasuryAccounts.length && (
-                <p className="text-sm text-muted">
-                  Aucun compte de trésorerie configuré.
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
         {/* Metric Cards */}
         {overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -431,7 +574,7 @@ export default function FinanceDashboardPage() {
                   {overview.baseCurrency}
                 </p>
                 <p className="text-xs text-muted mt-1">
-                  Achats, transit, douane & fret
+                  Achats, fret, douane & logistique
                 </p>
               </div>
               <div className="w-10 h-10 rounded-full bg-status-yellow-bg flex items-center justify-center text-status-yellow-text">
@@ -460,9 +603,9 @@ export default function FinanceDashboardPage() {
             <div className="card p-5 border-l-4 border-l-purple-500 flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-muted uppercase">
-                  Créances à percevoir
+                  Créances Ouvertes
                 </p>
-                <p className="text-2xl font-bold text-foreground mt-1">
+                <p className="text-2xl font-bold text-purple-600 mt-1">
                   {formatMontant(Number(overview.totalOutstanding))}{" "}
                   {overview.baseCurrency}
                 </p>
@@ -477,63 +620,205 @@ export default function FinanceDashboardPage() {
           </div>
         )}
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-border gap-6">
+        {/* Navigation Tabs (6 tabs) */}
+        <div className="flex border-b border-border gap-6 overflow-x-auto">
           <button
             onClick={() => setActiveTab("overview")}
-            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
               activeTab === "overview"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            Vue d’ensemble & Coûts
+            <TrendingUp className="w-4 h-4" />
+            Vue d’ensemble & Synthèse
+          </button>
+          <button
+            onClick={() => setActiveTab("transactions")}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
+              activeTab === "transactions"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Journal des Écritures ({transactions.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("treasury")}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
+              activeTab === "treasury"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            <Landmark className="w-4 h-4" />
+            Comptes & Trésorerie ({treasuryAccounts.length})
           </button>
           <button
             onClick={() => setActiveTab("supplier")}
-            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
               activeTab === "supplier"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            Paiements Fournisseurs ({supplierPayments.length})
+            <CreditCard className="w-4 h-4" />
+            Règlements Fournisseurs ({supplierPayments.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("costs")}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
+              activeTab === "costs"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            <Receipt className="w-4 h-4" />
+            Charges & Débours ({costs.length})
           </button>
           <button
             onClick={() => setActiveTab("rates")}
-            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${
               activeTab === "rates"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            Taux de Change & Devises ({exchangeRates.length})
+            <CircleDollarSign className="w-4 h-4" />
+            Cours de Change ({exchangeRates.length})
           </button>
         </div>
 
-        {/* Tab 1: Overview & Operational Costs */}
+        {/* TAB 1: OVERVIEW */}
         {activeTab === "overview" && (
+          <div className="space-y-6">
+            <section className="grid gap-5 lg:grid-cols-2">
+              <div className="card p-5 space-y-3">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-primary" />
+                  Dernières écritures financières
+                </h3>
+                <p className="text-xs text-muted">
+                  Mouvements source-liés; écritures validées uniquement modifiables par extourne.
+                </p>
+                <div className="max-h-60 divide-y overflow-auto text-sm">
+                  {transactions.slice(0, 10).map((transaction) => (
+                    <div key={transaction.id} className="flex justify-between py-2.5">
+                      <div>
+                        <span className="font-semibold">{transaction.type}</span>
+                        <p className="text-xs text-muted">{transaction.sourceModule}</p>
+                      </div>
+                      <b
+                        className={
+                          transaction.direction === "CREDIT"
+                            ? "text-status-green-text"
+                            : "text-status-yellow-text"
+                        }
+                      >
+                        {transaction.direction === "CREDIT" ? "+" : "−"}
+                        {formatMontant(Number(transaction.originalAmount))}{" "}
+                        {transaction.currency}
+                      </b>
+                    </div>
+                  ))}
+                  {!transactions.length && (
+                    <p className="text-sm text-muted py-4 text-center">
+                      Aucune transaction enregistrée.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="card p-5 space-y-3">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <Landmark className="h-5 w-5 text-primary" />
+                  Soldes de Trésorerie
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                  {treasuryAccounts.map((account) => (
+                    <div key={account.id} className="rounded-card border p-3">
+                      <p className="text-xs text-muted">
+                        {account.code} · {account.name}
+                      </p>
+                      <p className="text-xl font-bold mt-1">
+                        {formatMontant(Number(account.balance))} {account.currency}
+                      </p>
+                    </div>
+                  ))}
+                  {!treasuryAccounts.length && (
+                    <p className="text-sm text-muted py-4 text-center sm:col-span-2">
+                      Aucun compte de trésorerie configuré.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* TAB 2: TRANSACTIONS */}
+        {activeTab === "transactions" && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-base text-foreground">
-                Dépenses & Coûts d’exploitation enregistrés
-              </h3>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="relative min-w-64 flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Filtrer les écritures par type, module, devise..."
+                  value={txSearch}
+                  onChange={(e) => setTxSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-input bg-background"
+                />
+              </div>
               <button
-                onClick={() => setShowCostModal(true)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => loadTransactions()}
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                title="Actualiser"
               >
-                <Plus className="w-4 h-4" />
-                Enregistrer une charge / coût
+                <RefreshCw
+                  className={`w-4 h-4 ${txLoading ? "animate-spin" : ""}`}
+                />
               </button>
             </div>
 
             <div className="card p-0 overflow-hidden">
-              <DataTable columns={COST_COLUMNS} data={costs} />
+              <DataTable
+                columns={TRANSACTION_COLUMNS}
+                data={filteredTransactions}
+              />
             </div>
           </div>
         )}
 
-        {/* Tab 2: Supplier Payments */}
+        {/* TAB 3: TREASURY ACCOUNTS */}
+        {activeTab === "treasury" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-foreground">
+                Comptes Bancaires & Caisses de Trésorerie
+              </h3>
+              <button
+                onClick={() => loadTreasury()}
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                title="Actualiser"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${treasuryLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+            </div>
+
+            <div className="card p-0 overflow-hidden">
+              <DataTable
+                columns={TREASURY_COLUMNS}
+                data={treasuryAccounts}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: SUPPLIER PAYMENTS */}
         {activeTab === "supplier" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -557,7 +842,29 @@ export default function FinanceDashboardPage() {
           </div>
         )}
 
-        {/* Tab 3: Exchange Rates */}
+        {/* TAB 5: OPERATIONAL COSTS */}
+        {activeTab === "costs" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-foreground">
+                Charges d&apos;exploitation & Débours
+              </h3>
+              <button
+                onClick={() => setShowCostModal(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus className="w-4 h-4" />
+                Enregistrer une charge
+              </button>
+            </div>
+
+            <div className="card p-0 overflow-hidden">
+              <DataTable columns={COST_COLUMNS} data={costs} />
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: EXCHANGE RATES */}
         {activeTab === "rates" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">

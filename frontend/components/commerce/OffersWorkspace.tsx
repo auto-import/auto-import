@@ -33,6 +33,7 @@ const emptyForm = {
   fuelType: "",
   transmission: "",
   color: "",
+  supplierPrice: "",
   purchasePrice: "",
   cifPrice: "",
   ddpPrice: "",
@@ -108,9 +109,13 @@ export default function OffersWorkspace() {
             fuelType: String(offer.specification.fuelType ?? ""),
             transmission: String(offer.specification.transmission ?? ""),
             color: String(offer.specification.color ?? ""),
+            supplierPrice:
+              offer.supplierPrice?.toString() ??
+              offer.purchasePrice?.toString() ??
+              "",
             purchasePrice: offer.purchasePrice?.toString() ?? "",
-            cifPrice: offer.cifPrice.toString(),
-            ddpPrice: offer.ddpPrice.toString(),
+            cifPrice: offer.cifPrice?.toString() ?? "",
+            ddpPrice: offer.ddpPrice?.toString() ?? "",
             currency: offer.currency,
             validFrom: offer.validFrom.slice(0, 10),
             validUntil: offer.validUntil.slice(0, 10),
@@ -125,6 +130,11 @@ export default function OffersWorkspace() {
     event.preventDefault();
     setSaving(true);
     setError("");
+    const supplierPriceVal = form.supplierPrice
+      ? Number(form.supplierPrice)
+      : form.purchasePrice
+        ? Number(form.purchasePrice)
+        : 0;
     const payload = {
       supplierId: form.supplierId,
       brand: form.brand,
@@ -139,11 +149,10 @@ export default function OffersWorkspace() {
         transmission: form.transmission,
         color: form.color,
       },
-      purchasePrice: form.purchasePrice
-        ? Number(form.purchasePrice)
-        : undefined,
-      cifPrice: Number(form.cifPrice),
-      ddpPrice: Number(form.ddpPrice),
+      supplierPrice: supplierPriceVal,
+      purchasePrice: supplierPriceVal,
+      cifPrice: form.cifPrice ? Number(form.cifPrice) : undefined,
+      ddpPrice: form.ddpPrice ? Number(form.ddpPrice) : undefined,
       currency: form.currency,
       validFrom: new Date(form.validFrom).toISOString(),
       validUntil: new Date(form.validUntil).toISOString(),
@@ -313,6 +322,7 @@ export default function OffersWorkspace() {
                   "fuelType",
                   "transmission",
                   "color",
+                  "supplierPrice",
                   "purchasePrice",
                   "cifPrice",
                   "ddpPrice",
@@ -333,9 +343,10 @@ export default function OffersWorkspace() {
                         fuelType: "Carburant",
                         transmission: "Transmission",
                         color: "Couleur",
-                        purchasePrice: "Prix achat",
-                        cifPrice: "Prix CIF *",
-                        ddpPrice: "Prix DDP *",
+                        supplierPrice: "Prix fournisseur / achat *",
+                        purchasePrice: "Prix achat (référence)",
+                        cifPrice: "Prix CIF (optionnel)",
+                        ddpPrice: "Prix DDP (optionnel)",
                         availableQuantity: "Quantité *",
                         estimatedDelayDays: "Délai estimé (jours)",
                       }[key]
@@ -345,8 +356,7 @@ export default function OffersWorkspace() {
                     required={[
                       "brand",
                       "model",
-                      "cifPrice",
-                      "ddpPrice",
+                      "supplierPrice",
                       "availableQuantity",
                     ].includes(key)}
                     type={

@@ -680,7 +680,7 @@ export const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: "Véhicules", href: "/vehicules", icon: "Car" },
   { label: "Achats / Suppliers", href: "/fournisseurs", icon: "Handshake" },
   { label: "Logistics / Shipments", href: "/expeditions", icon: "Ship" },
-  { label: "Douane & Livraison", href: "/facturation", icon: "Receipt" },
+  { label: "Contrats & Encaissements", href: "/facturation", icon: "Receipt" },
   { label: "Finance", href: "/finance", icon: "DollarSign" },
   { label: "Documents", href: "/documents", icon: "FileText" },
   { label: "Tasks", href: "/tasks", icon: "CheckSquare" },

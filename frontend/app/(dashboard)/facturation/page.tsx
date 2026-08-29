@@ -24,14 +24,24 @@ import {
   RefreshCw,
   DollarSign,
   FileText,
+  FileSignature,
+  CreditCard,
+  Building2,
+  Calendar,
+  Layers,
 } from "lucide-react";
 
+type FacturationTab = "contracts" | "payments" | "invoices";
+
 export default function FacturationPage() {
-  const [activeTab, setActiveTab] = useState<"invoices" | "payments">(
-    "invoices",
-  );
+  const [activeTab, setActiveTab] = useState<FacturationTab>("contracts");
   const [overview, setOverview] =
     useState<OrganizationFinancialOverview | null>(null);
+
+  // Contracts state
+  const [contracts, setContracts] = useState<ApiContract[]>([]);
+  const [contractLoading, setContractLoading] = useState(true);
+  const [contractSearch, setContractSearch] = useState("");
 
   // Invoices state
   const [invoices, setInvoices] = useState<ApiInvoice[]>([]);
@@ -50,7 +60,6 @@ export default function FacturationPage() {
   const [paymentTotal, setPaymentTotal] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [contracts, setContracts] = useState<ApiContract[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Load Overview
@@ -60,6 +69,23 @@ export default function FacturationPage() {
       setOverview(data);
     } catch {
       // ignore
+    }
+  }, []);
+
+  // Load Contracts
+  const loadContracts = useCallback(async () => {
+    setContractLoading(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetchContracts();
+      setContracts(res || []);
+    } catch (err) {
+      setErrorMsg(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur lors du chargement des contrats",
+      );
+    } finally {
+      setContractLoading(false);
     }
   }, []);
 
@@ -102,7 +128,7 @@ export default function FacturationPage() {
     } catch (err) {
       setErrorMsg(
         (err instanceof Error ? err.message : "") ||
-          "Erreur lors du chargement des paiements",
+          "Erreur lors du chargement des encaissements",
       );
     } finally {
       setPaymentLoading(false);
@@ -110,34 +136,28 @@ export default function FacturationPage() {
   }, [paymentPage, paymentSearch, paymentStatus]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadOverview(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadOverview]);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (activeTab === "invoices") {
-        void loadInvoices();
-      } else {
-        void loadPayments();
-      }
+      void loadOverview();
+      void loadContracts();
+      void loadInvoices();
+      void loadPayments();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [activeTab, loadInvoices, loadPayments]);
+  }, [loadOverview, loadContracts, loadInvoices, loadPayments]);
 
   useEffect(() => {
     const refresh = () => {
       void loadOverview();
-      void fetchContracts()
-        .then(setContracts)
-        .catch(() => undefined);
-      if (activeTab === "payments") void loadPayments();
+      void loadContracts();
+      void loadInvoices();
+      void loadPayments();
     };
     window.addEventListener("auto-import:notification", refresh);
     return () =>
       window.removeEventListener("auto-import:notification", refresh);
-  }, [activeTab, loadOverview, loadPayments]);
+  }, [loadOverview, loadContracts, loadInvoices, loadPayments]);
 
+  // Handle invoice actions
   const handleIssueInvoice = async (id: string) => {
     setActionLoading(id);
     try {
@@ -147,7 +167,7 @@ export default function FacturationPage() {
     } catch (err) {
       alert(
         (err instanceof Error ? err.message : "") ||
-          "Erreur lors de l’émission",
+          "Erreur lors de l’émission de la facture",
       );
     } finally {
       setActionLoading(null);
@@ -155,17 +175,16 @@ export default function FacturationPage() {
   };
 
   const handleVoidInvoice = async (id: string) => {
-    const reason = prompt("Motif de l’annulation de la facture :");
-    if (!reason) return;
+    if (!confirm("Êtes-vous sûr de vouloir annuler cette facture ?")) return;
     setActionLoading(id);
     try {
-      await voidInvoice(id, reason);
+      await voidInvoice(id, "Annulation par l'utilisateur");
       await loadInvoices();
       await loadOverview();
     } catch (err) {
       alert(
         (err instanceof Error ? err.message : "") ||
-          "Erreur lors de l’annulation",
+          "Erreur lors de l’annulation de la facture",
       );
     } finally {
       setActionLoading(null);
@@ -181,51 +200,104 @@ export default function FacturationPage() {
     } catch (err) {
       alert(
         (err instanceof Error ? err.message : "") ||
-          "Erreur lors de la confirmation",
+          "Erreur lors de la confirmation du paiement",
       );
     } finally {
       setActionLoading(null);
     }
   };
 
-  const getInvoiceStatusBadge = (status: string) => {
-    switch (status) {
-      case "PAID":
-        return <StatusBadge variant="green" label="Payée" size="sm" />;
-      case "PARTIALLY_PAID":
-        return (
-          <StatusBadge variant="yellow" label="Partiellement payée" size="sm" />
-        );
-      case "ISSUED":
-        return <StatusBadge variant="blue" label="Émise" size="sm" />;
-      case "OVERDUE":
-        return <StatusBadge variant="red" label="En retard" size="sm" />;
-      case "VOIDED":
-        return <StatusBadge variant="gray" label="Annulée" size="sm" />;
-      case "DRAFT":
-      default:
-        return <StatusBadge variant="purple" label="Brouillon" size="sm" />;
-    }
-  };
+  const filteredContracts = contracts.filter((c) => {
+    if (!contractSearch) return true;
+    const term = contractSearch.toLowerCase();
+    return (
+      c.contractNumber?.toLowerCase().includes(term) ||
+      c.client?.firstName?.toLowerCase().includes(term) ||
+      c.client?.lastName?.toLowerCase().includes(term) ||
+      c.dossier?.reference?.toLowerCase().includes(term)
+    );
+  });
 
-  const getPaymentStatusBadge = (status: string) => {
-    switch (status) {
-      case "CONFIRMED":
-        return <StatusBadge variant="green" label="Confirmé" size="sm" />;
-      case "REVERSED":
-        return <StatusBadge variant="gray" label="Extourné" size="sm" />;
-      case "FAILED":
-        return <StatusBadge variant="red" label="Échoué" size="sm" />;
-      case "PENDING":
-      default:
-        return <StatusBadge variant="yellow" label="En attente" size="sm" />;
-    }
-  };
+  const CONTRACT_COLUMNS: Column<ApiContract>[] = [
+    {
+      key: "contractNumber",
+      header: "N° Contrat",
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <FileSignature className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-foreground">
+            {row.contractNumber}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "client",
+      header: "Client",
+      render: (row) => (
+        <div>
+          <span className="font-medium text-foreground">
+            {row.client
+              ? `${row.client.firstName} ${row.client.lastName}`
+              : "Client non spécifié"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "dossier",
+      header: "Dossier lié",
+      render: (row) => (
+        <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs font-mono">
+          {row.dossier?.reference || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "totalAmount",
+      header: "Montant total",
+      render: (row) => (
+        <span className="font-bold text-foreground">
+          {formatMontant(Number(row.totalAmount))} {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "signedAt",
+      header: "Signé le",
+      render: (row) => (row.signedAt ? formatDate(row.signedAt) : "En attente"),
+    },
+    {
+      key: "status",
+      header: "Statut",
+      render: (row) => (
+        <StatusBadge
+          variant={
+            row.status === "SIGNED" || row.status === "ACTIVE"
+              ? "green"
+              : row.status === "DRAFT"
+                ? "gray"
+                : "yellow"
+          }
+          label={
+            row.status === "SIGNED"
+              ? "Signé"
+              : row.status === "ACTIVE"
+                ? "Actif"
+                : row.status === "DRAFT"
+                  ? "Brouillon"
+                  : row.status
+          }
+          size="sm"
+        />
+      ),
+    },
+  ];
 
   const INVOICE_COLUMNS: Column<ApiInvoice>[] = [
     {
       key: "invoiceNumber",
-      header: "Numéro",
+      header: "N° Facture",
       render: (row) => (
         <span className="font-semibold text-foreground">
           {row.invoiceNumber}
@@ -240,35 +312,10 @@ export default function FacturationPage() {
           <span className="font-medium text-foreground">
             {row.client
               ? `${row.client.firstName} ${row.client.lastName}`
-              : "Client N/A"}
+              : "Client"}
           </span>
-          {row.client?.email && (
-            <p className="text-xs text-muted">{row.client.email}</p>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "dossier",
-      header: "Dossier",
-      render: (row) => (
-        <span className="text-status-blue-text font-mono text-xs">
-          {row.dossier?.reference || "—"}
-        </span>
-      ),
-    },
-    {
-      key: "total",
-      header: "Montant TTC",
-      render: (row) => (
-        <div>
-          <span className="font-semibold">
-            {formatMontant(Number(row.total))} {row.currency}
-          </span>
-          {Number(row.paidAmount) > 0 && (
-            <p className="text-xs text-status-green-text">
-              Payé: {formatMontant(Number(row.paidAmount))}
-            </p>
+          {row.dossier && (
+            <p className="text-xs text-muted">Dossier: {row.dossier.reference}</p>
           )}
         </div>
       ),
@@ -276,12 +323,57 @@ export default function FacturationPage() {
     {
       key: "issueDate",
       header: "Date d’émission",
-      render: (row) => formatDate(row.issueDate || row.createdAt),
+      render: (row) => (row.issueDate ? formatDate(row.issueDate) : "—"),
+    },
+    {
+      key: "dueDate",
+      header: "Échéance",
+      render: (row) => (row.dueDate ? formatDate(row.dueDate) : "—"),
+    },
+    {
+      key: "total",
+      header: "Montant TTC",
+      render: (row) => (
+        <span className="font-semibold text-foreground">
+          {formatMontant(Number(row.total))} {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "paidAmount",
+      header: "Payé",
+      render: (row) => (
+        <span className="font-medium text-status-green-text">
+          {formatMontant(Number(row.paidAmount))} {row.currency}
+        </span>
+      ),
     },
     {
       key: "status",
       header: "Statut",
-      render: (row) => getInvoiceStatusBadge(row.status),
+      render: (row) => (
+        <StatusBadge
+          variant={
+            row.status === "PAID"
+              ? "green"
+              : row.status === "ISSUED"
+                ? "blue"
+                : row.status === "VOIDED"
+                  ? "red"
+                  : "gray"
+          }
+          label={
+            row.status === "PAID"
+              ? "Soldée"
+              : row.status === "ISSUED"
+                ? "Émise"
+                : row.status === "VOIDED"
+                  ? "Annulée"
+                  : "Brouillon"
+          }
+          size="sm"
+        />
+      ),
     },
     {
       key: "actions",
@@ -297,11 +389,11 @@ export default function FacturationPage() {
               Émettre
             </button>
           )}
-          {row.status !== "VOIDED" && (
+          {row.status === "ISSUED" && (
             <button
               onClick={() => handleVoidInvoice(row.id)}
               disabled={actionLoading === row.id}
-              className="px-2 py-1 text-xs font-medium rounded-button border border-border text-muted hover:text-danger hover:border-danger disabled:opacity-50"
+              className="px-2.5 py-1 text-xs font-medium rounded-button border border-border text-muted hover:text-foreground disabled:opacity-50"
             >
               Annuler
             </button>
@@ -314,80 +406,88 @@ export default function FacturationPage() {
   const PAYMENT_COLUMNS: Column<ApiPayment>[] = [
     {
       key: "reference",
-      header: "Référence / Date",
+      header: "Réf. Encaissement",
       render: (row) => (
-        <div>
-          <span className="font-semibold font-mono text-xs text-foreground">
-            {row.reference || `PAY-${row.id.slice(0, 8)}`}
-          </span>
-          <p className="text-xs text-muted">
-            {formatDate(row.paymentDate || row.createdAt)}
-          </p>
-        </div>
+        <span className="font-semibold text-foreground">
+          {row.reference || row.id.slice(0, 8)}
+        </span>
       ),
     },
     {
       key: "client",
-      header: "Client",
-      render: (row) => (
-        <span className="font-medium text-foreground">
-          {row.client
-            ? `${row.client.firstName} ${row.client.lastName}`
-            : "Client N/A"}
-        </span>
-      ),
-    },
-    {
-      key: "dossier",
-      header: "Dossier",
-      render: (row) => (
-        <span className="text-status-blue-text font-mono text-xs">
-          {row.dossier?.reference || "—"}
-        </span>
-      ),
-    },
-    {
-      key: "amount",
-      header: "Montant encaissé",
+      header: "Client & Dossier",
       render: (row) => (
         <div>
-          <span className="font-semibold text-status-green-text">
-            +{formatMontant(Number(row.amount))} {row.currency}
+          <span className="font-medium text-foreground">
+            {row.client
+              ? `${row.client.firstName} ${row.client.lastName}`
+              : "Client"}
           </span>
-          {Number(row.unallocatedAmount) > 0 && (
-            <p className="text-xs text-muted">
-              Acompte/Dispo: {formatMontant(Number(row.unallocatedAmount))}
-            </p>
+          {row.dossier && (
+            <p className="text-xs text-muted">Dossier: {row.dossier.reference}</p>
           )}
         </div>
       ),
     },
     {
       key: "paymentMethod",
-      header: "Mode",
+      header: "Mode de règlement",
       render: (row) => (
-        <span className="text-xs uppercase font-medium">
+        <span className="text-xs font-medium uppercase text-muted">
           {row.paymentMethod || "Virement"}
         </span>
       ),
     },
     {
+      key: "amount",
+      header: "Montant",
+      render: (row) => (
+        <span className="font-semibold text-status-green-text">
+          {formatMontant(Number(row.amount))} {row.currency}
+        </span>
+      ),
+    },
+    {
+      key: "paymentDate",
+      header: "Date de versement",
+      render: (row) =>
+        row.paymentDate ? formatDate(row.paymentDate) : formatDate(row.createdAt),
+    },
+    {
       key: "status",
       header: "Statut",
-      render: (row) => getPaymentStatusBadge(row.status),
+      render: (row) => (
+        <StatusBadge
+          variant={
+            row.status === "CONFIRMED"
+              ? "green"
+              : row.status === "PENDING"
+                ? "yellow"
+                : "red"
+          }
+          label={
+            row.status === "CONFIRMED"
+              ? "Encaissé"
+              : row.status === "PENDING"
+                ? "En attente"
+                : "Rejeté"
+          }
+          size="sm"
+        />
+      ),
     },
     {
       key: "actions",
       header: "Actions",
       render: (row) => (
-        <div className="flex items-center gap-2">
+        <div>
           {row.status === "PENDING" && (
             <button
               onClick={() => handleConfirmPayment(row.id)}
               disabled={actionLoading === row.id}
-              className="px-2.5 py-1 text-xs font-medium rounded-button bg-status-green-bg text-status-green-text hover:bg-status-green-bg/80 disabled:opacity-50"
+              className="px-2.5 py-1 text-xs font-medium rounded-button bg-status-green-text text-white hover:bg-status-green-text/90 disabled:opacity-50"
             >
-              Confirmer
+              Valider encaissement
             </button>
           )}
         </div>
@@ -399,238 +499,177 @@ export default function FacturationPage() {
     <>
       <Topbar
         title="Contrats & Encaissements Clients"
-        subtitle="Contrats signés, acomptes, paiements multiples et solde; facture B2B optionnelle"
+        subtitle="Engagements contractuels, échéanciers, facturation et règlements clients"
       />
 
       <div className="p-8 space-y-6">
-        <section className="card p-5">
-          <h2 className="font-bold">Contrats clients ({contracts.length})</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {contracts.slice(0, 12).map((contract) => (
-              <article
-                key={contract.id}
-                className="rounded-card border p-3 text-sm"
-              >
-                <b>{contract.contractNumber}</b>
-                <p>
-                  {contract.client.firstName} {contract.client.lastName} ·{" "}
-                  {contract.dossier.reference}
-                </p>
-                <p className="text-muted">
-                  Encaissé {formatMontant(Number(contract.totalPaid))} /{" "}
-                  {formatMontant(Number(contract.totalAmount))}{" "}
-                  {contract.currency}
-                </p>
-                <p>
-                  Reste:{" "}
-                  <b>
-                    {formatMontant(Number(contract.remainingBalance))}{" "}
-                    {contract.currency}
-                  </b>{" "}
-                  · {contract.collectionStatus}
-                </p>
-              </article>
-            ))}
-            {!contracts.length && (
-              <p className="text-sm text-muted">
-                Aucun contrat V2. Les factures historiques restent disponibles
-                ci-dessous.
-              </p>
-            )}
-          </div>
-        </section>
-        {/* KPI Cards Header */}
+        {/* Metric Cards */}
         {overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="card p-5 border-l-4 border-l-primary flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted uppercase">
-                  Total Facturé
-                </p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {formatMontant(Number(overview.totalInvoiced))}{" "}
-                  {overview.baseCurrency}
-                </p>
-                <p className="text-xs text-muted mt-1">
-                  {overview.invoiceCount} factures émises
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <FileText className="w-5 h-5" />
-              </div>
+            <div className="card p-5 border-l-4 border-l-status-green-text">
+              <p className="text-xs font-medium text-muted uppercase">
+                Total Encaissé
+              </p>
+              <p className="text-2xl font-bold text-status-green-text mt-1">
+                {formatMontant(Number(overview.totalCollected))}{" "}
+                {overview.baseCurrency}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                {overview.paymentCount} encaissement(s) confirmé(s)
+              </p>
             </div>
 
-            <div className="card p-5 border-l-4 border-l-status-green-text flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted uppercase">
-                  Total Encaissé
-                </p>
-                <p className="text-2xl font-bold text-status-green-text mt-1">
-                  {formatMontant(Number(overview.totalCollected))}{" "}
-                  {overview.baseCurrency}
-                </p>
-                <p className="text-xs text-muted mt-1">
-                  {overview.paymentCount} règlements validés
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-status-green-bg flex items-center justify-center text-status-green-text">
-                <CheckCircle className="w-5 h-5" />
-              </div>
+            <div className="card p-5 border-l-4 border-l-primary">
+              <p className="text-xs font-medium text-muted uppercase">
+                Total Facturé
+              </p>
+              <p className="text-2xl font-bold text-primary mt-1">
+                {formatMontant(Number(overview.totalInvoiced))}{" "}
+                {overview.baseCurrency}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                {overview.invoiceCount} facture(s) émise(s)
+              </p>
             </div>
 
-            <div className="card p-5 border-l-4 border-l-status-yellow-text flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted uppercase">
-                  En attente / Reste dû
-                </p>
-                <p className="text-2xl font-bold text-status-yellow-text mt-1">
-                  {formatMontant(Number(overview.totalOutstanding))}{" "}
-                  {overview.baseCurrency}
-                </p>
-                <p className="text-xs text-muted mt-1">Créances clients</p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-status-yellow-bg flex items-center justify-center text-status-yellow-text">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
+            <div className="card p-5 border-l-4 border-l-status-yellow-text">
+              <p className="text-xs font-medium text-muted uppercase">
+                Créances Clients Ouvertes
+              </p>
+              <p className="text-2xl font-bold text-status-yellow-text mt-1">
+                {formatMontant(Number(overview.totalOutstanding))}{" "}
+                {overview.baseCurrency}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                En attente de règlement
+              </p>
             </div>
 
-            <div className="card p-5 border-l-4 border-l-purple-500 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted uppercase">
-                  Marge brute globale
-                </p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {formatMontant(Number(overview.grossProfit))}{" "}
-                  {overview.baseCurrency}
-                </p>
-                <p className="text-xs text-muted mt-1">
-                  Revenus - Charges réelles
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600">
-                <DollarSign className="w-5 h-5" />
-              </div>
+            <div className="card p-5 border-l-4 border-l-purple-500">
+              <p className="text-xs font-medium text-muted uppercase">
+                Contrats Actifs
+              </p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">
+                {contracts.length}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                Engagements clients enregistrés
+              </p>
             </div>
           </div>
         )}
 
-        {/* Tab switcher */}
+        {/* Error Alert */}
+        {errorMsg && (
+          <div className="p-4 bg-status-red-bg text-status-red-text border border-status-red-border rounded-card flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <p className="text-sm font-medium">{errorMsg}</p>
+          </div>
+        )}
+
+        {/* Navigation Tabs */}
         <div className="flex border-b border-border gap-6">
           <button
-            onClick={() => setActiveTab("invoices")}
-            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
-              activeTab === "invoices"
+            onClick={() => setActiveTab("contracts")}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === "contracts"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            Factures clients ({invoiceTotal})
+            <FileSignature className="w-4 h-4" />
+            Contrats Clients ({contracts.length})
           </button>
           <button
             onClick={() => setActiveTab("payments")}
-            className={`pb-3 font-semibold text-sm transition-colors border-b-2 ${
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 ${
               activeTab === "payments"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            Encaissements & Paiements ({paymentTotal})
+            <CreditCard className="w-4 h-4" />
+            Encaissements & Paiements ({paymentTotal || payments.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("invoices")}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === "invoices"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Factures ({invoiceTotal || invoices.length})
           </button>
         </div>
 
-        {errorMsg && (
-          <div className="p-4 rounded-input bg-danger/10 text-danger border border-danger/20 text-sm">
-            {errorMsg}
-          </div>
-        )}
-
-        {activeTab === "invoices" ? (
+        {/* TAB 1: CONTRACTS */}
+        {activeTab === "contracts" && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4 flex-1">
-                <div className="relative flex-1 min-w-[240px] max-w-md">
-                  <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-                  <input
-                    type="text"
-                    value={invoiceSearch}
-                    onChange={(e) => {
-                      setInvoiceSearch(e.target.value);
-                      setInvoicePage(1);
-                    }}
-                    placeholder="Rechercher par numéro de facture, client..."
-                    className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
-                  />
-                </div>
-
-                <select
-                  value={invoiceStatus}
-                  onChange={(e) => {
-                    setInvoiceStatus(e.target.value);
-                    setInvoicePage(1);
-                  }}
-                  className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
-                >
-                  <option value="tous">Tous les statuts</option>
-                  <option value="DRAFT">Brouillon</option>
-                  <option value="ISSUED">Émise</option>
-                  <option value="PARTIALLY_PAID">Partiellement payée</option>
-                  <option value="PAID">Payée</option>
-                  <option value="OVERDUE">En retard</option>
-                  <option value="VOIDED">Annulée</option>
-                </select>
+              <div className="relative min-w-64 flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Rechercher un contrat, client, dossier..."
+                  value={contractSearch}
+                  onChange={(e) => setContractSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-input bg-background"
+                />
               </div>
-
               <button
-                onClick={() => loadInvoices()}
-                className="p-2.5 border border-border rounded-button hover:bg-accent text-muted hover:text-foreground"
+                onClick={() => loadContracts()}
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
                 title="Actualiser"
               >
                 <RefreshCw
-                  className={`w-4 h-4 ${invoiceLoading ? "animate-spin" : ""}`}
+                  className={`w-4 h-4 ${contractLoading ? "animate-spin" : ""}`}
                 />
               </button>
             </div>
 
             <div className="card p-0 overflow-hidden">
-              <DataTable columns={INVOICE_COLUMNS} data={invoices} />
+              <DataTable columns={CONTRACT_COLUMNS} data={filteredContracts} />
             </div>
           </div>
-        ) : (
+        )}
+
+        {/* TAB 2: PAYMENTS */}
+        {activeTab === "payments" && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4 flex-1">
-                <div className="relative flex-1 min-w-[240px] max-w-md">
-                  <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+              <div className="flex flex-wrap items-center gap-3 flex-1">
+                <div className="relative min-w-64 flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-muted" />
                   <input
                     type="text"
+                    placeholder="Rechercher par référence, client..."
                     value={paymentSearch}
                     onChange={(e) => {
                       setPaymentSearch(e.target.value);
                       setPaymentPage(1);
                     }}
-                    placeholder="Rechercher par référence, client..."
-                    className="w-full ps-10 pe-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                    className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-input bg-background"
                   />
                 </div>
-
                 <select
                   value={paymentStatus}
                   onChange={(e) => {
                     setPaymentStatus(e.target.value);
                     setPaymentPage(1);
                   }}
-                  className="px-4 py-2.5 text-sm border border-border rounded-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/10"
+                  className="px-3 py-2 text-sm border border-border rounded-input bg-background"
                 >
                   <option value="tous">Tous les statuts</option>
+                  <option value="CONFIRMED">Encaissé</option>
                   <option value="PENDING">En attente</option>
-                  <option value="CONFIRMED">Confirmé</option>
-                  <option value="REVERSED">Extourné</option>
+                  <option value="REJECTED">Rejeté</option>
                 </select>
               </div>
-
               <button
                 onClick={() => loadPayments()}
-                className="p-2.5 border border-border rounded-button hover:bg-accent text-muted hover:text-foreground"
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
                 title="Actualiser"
               >
                 <RefreshCw
@@ -641,6 +680,56 @@ export default function FacturationPage() {
 
             <div className="card p-0 overflow-hidden">
               <DataTable columns={PAYMENT_COLUMNS} data={payments} />
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: INVOICES */}
+        {activeTab === "invoices" && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3 flex-1">
+                <div className="relative min-w-64 flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-muted" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher par numéro, client..."
+                    value={invoiceSearch}
+                    onChange={(e) => {
+                      setInvoiceSearch(e.target.value);
+                      setInvoicePage(1);
+                    }}
+                    className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </div>
+                <select
+                  value={invoiceStatus}
+                  onChange={(e) => {
+                    setInvoiceStatus(e.target.value);
+                    setInvoicePage(1);
+                  }}
+                  className="px-3 py-2 text-sm border border-border rounded-input bg-background"
+                >
+                  <option value="tous">Tous les statuts</option>
+                  <option value="DRAFT">Brouillon</option>
+                  <option value="ISSUED">Émise</option>
+                  <option value="PAID">Soldée</option>
+                  <option value="VOIDED">Annulée</option>
+                </select>
+              </div>
+              <button
+                onClick={() => loadInvoices()}
+                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                title="Actualiser"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${invoiceLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+            </div>
+
+            <div className="card p-0 overflow-hidden">
+              <DataTable columns={INVOICE_COLUMNS} data={invoices} />
             </div>
           </div>
         )}

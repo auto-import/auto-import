@@ -992,8 +992,8 @@ model ChinaOffer {
   specification      Json
   purchasePrice      Decimal?            @db.Decimal(12, 2)
   supplierPrice      Decimal?            @db.Decimal(12, 2)
-  cifPrice           Decimal             @db.Decimal(12, 2)
-  ddpPrice           Decimal             @db.Decimal(12, 2)
+  cifPrice           Decimal?            @db.Decimal(12, 2)
+  ddpPrice           Decimal?            @db.Decimal(12, 2)
   currency           String
   supplierReference  String?
   incoterm           String?
