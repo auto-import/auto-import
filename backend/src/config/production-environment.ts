@@ -42,12 +42,12 @@ export function validateProductionEnvironment(
   validateUrl(
     environment.PUBLIC_API_BASE_URL,
     'PUBLIC_API_BASE_URL',
-    ['https:'],
+    ['http:', 'https:'],
     errors,
   );
   for (const origin of (environment.CORS_ORIGIN ?? '').split(',')) {
     if (!origin.trim()) continue;
-    validateUrl(origin.trim(), 'CORS_ORIGIN', ['https:'], errors, true);
+    validateUrl(origin.trim(), 'CORS_ORIGIN', ['http:', 'https:'], errors, true);
   }
   if ((environment.CORS_ORIGIN ?? '').includes('*')) {
     errors.push('CORS_ORIGIN must not contain wildcards');
