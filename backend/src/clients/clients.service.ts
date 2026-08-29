@@ -23,6 +23,12 @@ import {
   DocumentsService,
   type UploadedBufferFile,
 } from '../documents/documents.service';
+import { CrmReferenceService } from '../crm/crm-reference.service';
+import {
+  CrmReferenceKind,
+  Permission,
+  type Permission as PermissionValue,
+} from '@auto-import/contracts';
 
 type IdentityStorageKey =
   | 'ninEncrypted'
@@ -46,6 +52,7 @@ export class ClientsService {
     private prisma: PrismaService,
     @Optional() private readonly contacts?: ContactResolutionService,
     private readonly documents?: DocumentsService,
+    @Optional() private readonly references?: CrmReferenceService,
   ) {}
 
   async createWithPassport(
@@ -55,7 +62,12 @@ export class ClientsService {
     passportScan: UploadedBufferFile,
   ) {
     if (!this.documents) throw new Error('Documents service unavailable');
-    const client = await this.create(dto, organizationId, userId);
+    const client = await this.create(dto, organizationId, userId, true);
+    if ('created' in client && client.created === false) {
+      throw new ConflictException(
+        'Passport upload cannot target an existing matched client',
+      );
+    }
     try {
       const document = await this.documents.uploadDossierDocument(
         organizationId,
@@ -70,12 +82,79 @@ export class ClientsService {
       );
       return { client, document };
     } catch (error) {
-      await this.prisma.client.delete({ where: { id: client.id } });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.client.update({
+          where: { id: client.id },
+          data: {
+            status: 'archived',
+            archivedAt: new Date(),
+            archivedById: userId,
+            archiveReason: 'Passport upload failed during creation',
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            action: 'CLIENT_CREATION_ARCHIVED_AFTER_DOCUMENT_FAILURE',
+            entityType: 'Client',
+            entityId: client.id,
+          },
+        });
+      });
       throw error;
     }
   }
 
-  async create(dto: CreateClientDto, organizationId: string, userId: string) {
+  async create(
+    dto: CreateClientDto,
+    organizationId: string,
+    userId: string,
+    canWriteIdentity = false,
+  ) {
+    if (!this.contacts || !this.references)
+      throw new Error('CRM services unavailable');
+    this.assertIdentityPermission(dto, canWriteIdentity);
+    const matched = dto.phone
+      ? await this.prisma.$transaction(async (tx) => {
+          const normalizedValue = await this.contacts!.normalizePhoneForCountry(
+            tx,
+            organizationId,
+            dto.phone!,
+            dto.countryId,
+          );
+          return this.contacts!.matchNormalizedPhoneInTransaction(
+            tx,
+            organizationId,
+            normalizedValue,
+          );
+        })
+      : null;
+    if (matched?.match?.matchState === 'AMBIGUOUS') {
+      throw new ConflictException({
+        code: 'AMBIGUOUS_PHONE_MATCH',
+        message: 'Reconcile phone ownership before creating a client',
+      });
+    }
+    if (matched?.match?.clientId) {
+      const existing = await this.prisma.client.findFirst({
+        where: { id: matched.match.clientId, organizationId },
+      });
+      if (existing)
+        return this.maskClient({
+          ...existing,
+          created: false,
+          matchState: 'MATCHED',
+        });
+    }
+    if (matched?.match?.prospectId) {
+      throw new ConflictException({
+        code: 'PHONE_MATCHES_EXISTING_LEAD',
+        message:
+          'Convert the existing lead instead of creating a duplicate client',
+        matchedRecord: { prospectId: matched.match.prospectId },
+      });
+    }
     const assignedTo = dto.assignedTo ?? userId;
     const {
       nin,
@@ -84,20 +163,61 @@ export class ClientsService {
       passportExpiry,
       ...clientData
     } = dto;
-    this.assertNinRequirement(dto.nationality, Boolean(nin?.trim()));
     const identity = this.protectIdentity(organizationId, nin, passportNumber);
     const client = await this.prisma.$transaction(
       async (tx) => {
         const assignee = await tx.user.findFirst({
-          where: { id: assignedTo, organizationId, status: 'active' },
+          where: {
+            id: assignedTo,
+            organizationId,
+            status: 'active',
+            userRoles: {
+              some: {
+                role: {
+                  rolePermissions: {
+                    some: {
+                      permission: {
+                        OR: [
+                          { resource: 'clients', action: 'write' },
+                          { resource: 'prospects', action: 'write' },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           select: { id: true },
         });
         if (!assignee) throw new NotFoundException('Assignee not found');
+        await this.references!.assertReference(
+          tx,
+          organizationId,
+          clientData.countryId,
+          CrmReferenceKind.COUNTRY,
+        );
+        const nationalityReference = await this.references!.assertReference(
+          tx,
+          organizationId,
+          clientData.nationalityCountryId,
+          CrmReferenceKind.COUNTRY,
+        );
+        const phoneNormalized = clientData.phone
+          ? await this.contacts!.normalizePhoneForCountry(
+              tx,
+              organizationId,
+              clientData.phone,
+              clientData.countryId,
+            )
+          : null;
         const client = await tx.client.create({
           data: {
             ...clientData,
             ...identity,
             passportNumber: null,
+            phoneNormalized,
+            nationality: clientData.nationality ?? nationalityReference?.code,
             identityIssueDate: identityIssueDate
               ? new Date(identityIssueDate)
               : undefined,
@@ -115,13 +235,28 @@ export class ClientsService {
             client.id,
             clientData.phone,
             clientData.email,
+            phoneNormalized,
           );
         }
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            action: 'CLIENT_CREATED',
+            entityType: 'Client',
+            entityId: client.id,
+            newValues: {
+              identityFieldsConfigured: Object.keys(identity).filter((key) =>
+                key.endsWith('Encrypted'),
+              ),
+            },
+          },
+        });
         return client;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-    return this.maskClient(client);
+    return this.maskClient({ ...client, created: true, matchState: 'CREATED' });
   }
 
   async findAll(
@@ -132,7 +267,7 @@ export class ClientsService {
   ) {
     const skip = (page - 1) * limit;
 
-    const where: Prisma.ClientWhereInput = { organizationId };
+    const where: Prisma.ClientWhereInput = { organizationId, archivedAt: null };
     if (filters?.search) {
       const search = filters.search.trim();
       const identityHashes: Prisma.ClientWhereInput[] = [];
@@ -168,12 +303,7 @@ export class ClientsService {
         take: limit,
         include: {
           prospect: {
-            include: {
-              activities: {
-                orderBy: { activityDate: 'desc' },
-                take: 3,
-              },
-            },
+            select: { id: true, crmStatus: true, convertedAt: true },
           },
           dossiers: {
             where: { organizationId },
@@ -215,9 +345,13 @@ export class ClientsService {
     );
   }
 
-  async findOne(id: string, organizationId?: string) {
+  async findOne(
+    id: string,
+    organizationId: string,
+    permissions: readonly PermissionValue[] = [],
+  ) {
     const client = await this.prisma.client.findFirst({
-      where: { id, ...(organizationId && { organizationId }) },
+      where: { id, organizationId },
       include: {
         prospect: {
           include: {
@@ -227,7 +361,7 @@ export class ClientsService {
           },
         },
         dossiers: {
-          where: organizationId ? { organizationId } : undefined,
+          where: { organizationId },
           include: {
             dossierVehicles: {
               include: { vehicle: true },
@@ -237,7 +371,7 @@ export class ClientsService {
           orderBy: { createdAt: 'desc' },
         },
         orders: {
-          where: organizationId ? { organizationId } : undefined,
+          where: { organizationId },
           include: {
             items: true,
             invoices: true,
@@ -258,6 +392,23 @@ export class ClientsService {
             createdAt: true,
           },
           orderBy: { createdAt: 'desc' },
+        },
+        country: true,
+        nationalityCountry: true,
+        conversions: {
+          include: {
+            prospect: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                crmStatus: true,
+                createdAt: true,
+              },
+            },
+            actor: { select: { id: true, firstName: true, lastName: true } },
+          },
+          orderBy: { convertedAt: 'desc' },
         },
       },
     });
@@ -294,21 +445,104 @@ export class ClientsService {
       ).length,
     };
 
-    return this.maskClient({ ...client, dossiers: formattedDossiers, stats });
+    const publicClient = this.maskClient({
+      ...client,
+      dossiers: formattedDossiers,
+      stats,
+    }) as Record<string, unknown>;
+    const can = (permission: PermissionValue) =>
+      permissions.includes(permission);
+    if (
+      !can(Permission.CRM_TIMELINE_READ) &&
+      publicClient.prospect &&
+      typeof publicClient.prospect === 'object'
+    ) {
+      delete (publicClient.prospect as Record<string, unknown>).activities;
+    }
+    if (!can(Permission.DOSSIERS_READ)) {
+      delete publicClient.dossiers;
+      delete publicClient.stats;
+    }
+    if (!can(Permission.ORDERS_READ)) delete publicClient.orders;
+    if (!can(Permission.DOCUMENTS_READ)) delete publicClient.documents;
+    if (!can(Permission.TASKS_READ)) delete publicClient.tasks;
+    const [payments, history] = await Promise.all([
+      can(Permission.PAYMENTS_READ)
+        ? this.prisma.payment.findMany({
+            where: { organizationId, clientId: id },
+            select: {
+              id: true,
+              amount: true,
+              currency: true,
+              paymentMethod: true,
+              reference: true,
+              status: true,
+              paymentDate: true,
+              confirmedAt: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      can(Permission.AUDIT_READ)
+        ? this.prisma.auditLog.findMany({
+            where: { organizationId, entityType: 'Client', entityId: id },
+            select: {
+              id: true,
+              action: true,
+              createdAt: true,
+              oldValues: true,
+              newValues: true,
+              user: { select: { id: true, firstName: true, lastName: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+          })
+        : Promise.resolve([]),
+    ]);
+    publicClient.payments = payments;
+    publicClient.history = history;
+    publicClient.access = {
+      interactions: can(Permission.CRM_TIMELINE_READ),
+      dossiers: can(Permission.DOSSIERS_READ),
+      documents: can(Permission.DOCUMENTS_READ),
+      payments: can(Permission.PAYMENTS_READ),
+      vehicles: can(Permission.VEHICLES_READ),
+      tasks: can(Permission.TASKS_READ),
+      history: can(Permission.AUDIT_READ),
+      identityReveal: can(Permission.CLIENTS_IDENTITY_REVEAL),
+      identityWrite: can(Permission.CLIENTS_IDENTITY_WRITE),
+    };
+    return publicClient;
   }
 
   async update(
     id: string,
     organizationId: string,
     updateClientDto: UpdateClientDto,
+    actorId?: string,
+    canWriteIdentity = false,
   ) {
-    const existing = await this.findOne(id, organizationId);
-    this.assertNinRequirement(
-      updateClientDto.nationality ?? existing.nationality,
-      updateClientDto.nin !== undefined
-        ? Boolean(updateClientDto.nin.trim())
-        : existing.identityConfigured.nin,
-    );
+    if (!this.contacts || !this.references)
+      throw new Error('CRM services unavailable');
+    this.assertIdentityPermission(updateClientDto, canWriteIdentity);
+    const existing = await this.findOne(id, organizationId, [
+      Permission.CRM_TIMELINE_READ,
+      Permission.DOSSIERS_READ,
+      Permission.ORDERS_READ,
+      Permission.DOCUMENTS_READ,
+      Permission.TASKS_READ,
+    ]);
+    // NIN is optional at initial creation in V2. If a caller explicitly sends
+    // an Algerian NIN update, an empty value is still rejected as an accidental
+    // destructive identity clear.
+    if (updateClientDto.nin !== undefined) {
+      const nationality = updateClientDto.nationality ?? existing.nationality;
+      this.assertNinRequirement(
+        typeof nationality === 'string' ? nationality : null,
+        Boolean(updateClientDto.nin.trim()),
+      );
+    }
 
     const client = await this.prisma.$transaction(async (tx) => {
       if (updateClientDto.assignedTo) {
@@ -322,6 +556,18 @@ export class ClientsService {
         });
         if (!assignee) throw new NotFoundException('Assignee not found');
       }
+      await this.references!.assertReference(
+        tx,
+        organizationId,
+        updateClientDto.countryId,
+        CrmReferenceKind.COUNTRY,
+      );
+      const nationalityReference = await this.references!.assertReference(
+        tx,
+        organizationId,
+        updateClientDto.nationalityCountryId,
+        CrmReferenceKind.COUNTRY,
+      );
       const {
         nin,
         passportNumber,
@@ -334,11 +580,27 @@ export class ClientsService {
         nin,
         passportNumber,
       );
+      const phoneNormalized =
+        safeUpdate.phone === undefined
+          ? undefined
+          : safeUpdate.phone
+            ? await this.contacts!.normalizePhoneForCountry(
+                tx,
+                organizationId,
+                safeUpdate.phone,
+                safeUpdate.countryId ??
+                  (existing.countryId as string | null | undefined),
+              )
+            : null;
       const updated = await tx.client.update({
         where: { id },
         data: {
           ...safeUpdate,
           ...identity,
+          ...(phoneNormalized !== undefined ? { phoneNormalized } : {}),
+          ...(updateClientDto.nationalityCountryId
+            ? { nationality: nationalityReference?.code }
+            : {}),
           ...(passportNumber !== undefined ? { passportNumber: null } : {}),
           ...(identityIssueDate !== undefined
             ? { identityIssueDate: new Date(identityIssueDate) }
@@ -360,9 +622,25 @@ export class ClientsService {
             id,
             updateClientDto.phone,
             updateClientDto.email,
+            phoneNormalized,
           );
         }
       }
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'CLIENT_UPDATED',
+          entityType: 'Client',
+          entityId: id,
+          newValues: {
+            changedFields: Object.keys(updateClientDto)
+              .filter((key) => !['nin', 'passportNumber'].includes(key))
+              .sort(),
+            identityChanged: nin !== undefined || passportNumber !== undefined,
+          },
+        },
+      });
       return updated;
     });
 
@@ -511,24 +789,53 @@ export class ClientsService {
     };
   }
 
-  async remove(id: string, organizationId: string) {
-    const client = await this.findOne(id, organizationId);
-
-    if (
-      (client?.dossiers?.length ?? 0) > 0 ||
-      (client?.orders?.length ?? 0) > 0
-    ) {
-      throw new ConflictException(
-        'Cannot delete client with existing dossiers or orders',
-      );
-    }
-
-    await this.prisma.client.delete({
-      where: { id },
+  async remove(
+    id: string,
+    organizationId: string,
+    actorId: string,
+    reason: string,
+  ) {
+    const client = await this.prisma.client.findFirst({
+      where: { id, organizationId },
     });
-
-    this.logger.log(`Client deleted: ${id}`);
-    return { message: 'Client deleted successfully' };
+    if (!client) throw new NotFoundException('Client not found');
+    if (client.archivedAt)
+      return {
+        message: 'Client already archived',
+        archivedAt: client.archivedAt,
+      };
+    const archivedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.client.update({
+        where: { id },
+        data: {
+          status: 'archived',
+          archivedAt,
+          archivedById: actorId,
+          archiveReason: reason,
+        },
+      });
+      await tx.task.updateMany({
+        where: {
+          organizationId,
+          clientId: id,
+          status: { notIn: ['completed', 'cancelled'] },
+        },
+        data: { status: 'cancelled' },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'CLIENT_ARCHIVED',
+          entityType: 'Client',
+          entityId: id,
+          newValues: { reasonProvided: Boolean(reason) },
+        },
+      });
+    });
+    this.logger.log(`Client archived: ${id}`);
+    return { message: 'Client archived successfully', archivedAt };
   }
 
   async getDossiers(clientId: string, organizationId: string) {
@@ -576,5 +883,26 @@ export class ClientsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  private assertIdentityPermission(
+    dto: Pick<
+      CreateClientDto,
+      'nin' | 'passportNumber' | 'identityIssueDate' | 'passportExpiry'
+    >,
+    canWriteIdentity: boolean,
+  ) {
+    const requested = Boolean(
+      dto.nin ||
+      dto.passportNumber ||
+      dto.identityIssueDate ||
+      dto.passportExpiry,
+    );
+    if (requested && !canWriteIdentity) {
+      throw new ForbiddenException({
+        code: 'CLIENT_IDENTITY_WRITE_FORBIDDEN',
+        message: 'Restricted identity permission is required',
+      });
+    }
   }
 }

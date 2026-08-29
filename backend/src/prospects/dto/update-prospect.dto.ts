@@ -1,6 +1,14 @@
-import { IsString, IsOptional, IsEmail, IsUUID, IsEnum } from 'class-validator';
-import { ProspectStatus } from '@auto-import/contracts';
+import { Type } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsEmail,
+  IsUUID,
+  IsEnum,
+  ValidateNested,
+} from 'class-validator';
 import { LeadQualification } from '@prisma/client';
+import { LeadVehicleRequirementDto } from './create-prospect.dto';
 
 export class UpdateProspectDto {
   @IsOptional()
@@ -23,13 +31,10 @@ export class UpdateProspectDto {
   @IsString()
   wilaya?: string;
 
-  @IsOptional()
-  @IsString()
-  source?: string;
-
-  @IsOptional()
-  @IsEnum(ProspectStatus)
-  status?: ProspectStatus;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsUUID() countryId?: string;
+  @IsOptional() @IsUUID() entryChannelId?: string;
+  @IsOptional() @IsUUID() marketingSourceId?: string;
 
   @IsOptional()
   @IsString()
@@ -46,4 +51,11 @@ export class UpdateProspectDto {
   @IsOptional()
   @IsString()
   nextActionAt?: string;
+
+  @IsOptional() @IsString() nextAction?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeadVehicleRequirementDto)
+  requirement?: LeadVehicleRequirementDto;
 }

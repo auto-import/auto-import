@@ -35,28 +35,49 @@ export class CrmTimelineService {
           })
         : await this.prisma.client.findFirst({
             where: { id: ownerId, organizationId },
-            select: { id: true, prospectId: true },
+            select: { id: true },
           });
     if (!owner) throw new NotFoundException('CRM contact not found');
 
-    const prospectId =
+    const conversions =
       ownerType === 'prospect'
-        ? ownerId
-        : 'prospectId' in owner
-          ? owner.prospectId
-          : null;
-    const clientId = ownerType === 'client' ? ownerId : null;
+        ? await this.prisma.prospectConversion.findMany({
+            where: { organizationId, prospectId: ownerId },
+            select: { prospectId: true, clientId: true },
+          })
+        : await this.prisma.prospectConversion.findMany({
+            where: { organizationId, clientId: ownerId },
+            select: { prospectId: true, clientId: true },
+          });
+    const prospectIds = [
+      ...new Set([
+        ...(ownerType === 'prospect' ? [ownerId] : []),
+        ...conversions.map(({ prospectId }) => prospectId),
+      ]),
+    ];
+    const clientIds = [
+      ...new Set([
+        ...(ownerType === 'client' ? [ownerId] : []),
+        ...conversions.map(({ clientId }) => clientId),
+      ]),
+    ];
+    const ownerWhere = {
+      OR: [
+        ...(prospectIds.length ? [{ prospectId: { in: prospectIds } }] : []),
+        ...(clientIds.length ? [{ clientId: { in: clientIds } }] : []),
+      ],
+    };
 
-    const activitiesPromise = prospectId
+    const activitiesPromise = prospectIds.length
       ? this.prisma.prospectActivity.findMany({
-          where: { prospectId },
+          where: { prospectId: { in: prospectIds } },
           orderBy: [{ activityDate: 'desc' }, { id: 'desc' }],
           take: limit + 1,
         })
       : Promise.resolve<ProspectActivity[]>([]);
-    const statusesPromise = prospectId
+    const statusesPromise = prospectIds.length
       ? this.prisma.prospectStatusHistory.findMany({
-          where: { organizationId, prospectId },
+          where: { organizationId, prospectId: { in: prospectIds } },
           orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
           take: limit + 1,
         })
@@ -68,7 +89,7 @@ export class CrmTimelineService {
         this.prisma.callSession.findMany({
           where: {
             organizationId,
-            ...(clientId ? { clientId } : { prospectId: ownerId }),
+            ...ownerWhere,
           },
           include: {
             assignments: {
@@ -84,7 +105,7 @@ export class CrmTimelineService {
         this.prisma.whatsappMessage.findMany({
           where: {
             organizationId,
-            conversation: clientId ? { clientId } : { prospectId: ownerId },
+            conversation: ownerWhere,
           },
           orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
           take: limit + 1,
@@ -92,7 +113,7 @@ export class CrmTimelineService {
         this.prisma.task.findMany({
           where: {
             organizationId,
-            ...(clientId ? { clientId } : { prospectId: ownerId }),
+            ...ownerWhere,
           },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: limit + 1,
@@ -100,7 +121,7 @@ export class CrmTimelineService {
         this.prisma.appointment.findMany({
           where: {
             organizationId,
-            ...(clientId ? { clientId } : { prospectId: ownerId }),
+            ...ownerWhere,
           },
           orderBy: [{ scheduledStart: 'desc' }, { id: 'desc' }],
           take: limit + 1,
@@ -108,7 +129,7 @@ export class CrmTimelineService {
         this.prisma.crmNote.findMany({
           where: {
             organizationId,
-            ...(clientId ? { clientId } : { prospectId: ownerId }),
+            ...ownerWhere,
           },
           include: {
             author: { select: { firstName: true, lastName: true } },

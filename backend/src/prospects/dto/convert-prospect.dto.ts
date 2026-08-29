@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsUUID } from 'class-validator';
 
 export class ConvertProspectDto {
   @IsOptional()
@@ -19,17 +19,13 @@ export class ConvertProspectDto {
 
   @IsOptional()
   @IsString()
-  passportNumber?: string;
-
-  @IsOptional()
-  @IsDateString()
-  passportExpiry?: string;
-
-  @IsOptional()
-  @IsString()
-  nationality?: string;
-
-  @IsOptional()
-  @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsUUID()
+  countryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  nationalityCountryId?: string;
 }

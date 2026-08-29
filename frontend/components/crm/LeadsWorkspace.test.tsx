@@ -3,17 +3,29 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LeadsWorkspace from "./LeadsWorkspace";
 
-const mocks = vi.hoisted(() => ({ listProspects: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  listProspects: vi.fn(),
+  referenceData: vi.fn(),
+  assignees: vi.fn(),
+}));
 
 vi.mock("@/components/Topbar", () => ({ default: () => <div>Topbar</div> }));
 vi.mock("@/components/crm/LeadDetailDialog", () => ({ default: () => null }));
 vi.mock("@/components/crm/LeadFormDialog", () => ({ default: () => null }));
 vi.mock("@/lib/crm-api", () => ({
-  crmApi: { listProspects: mocks.listProspects },
+  crmApi: {
+    listProspects: mocks.listProspects,
+    referenceData: mocks.referenceData,
+    assignees: mocks.assignees,
+  },
 }));
 
 describe("LeadsWorkspace", () => {
-  beforeEach(() => mocks.listProspects.mockReset());
+  beforeEach(() => {
+    mocks.listProspects.mockReset();
+    mocks.referenceData.mockResolvedValue([]);
+    mocks.assignees.mockResolvedValue([]);
+  });
   afterEach(() => cleanup());
 
   it("renders the API empty state without falling back to mocks", async () => {

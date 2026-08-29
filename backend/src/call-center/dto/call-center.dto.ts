@@ -20,6 +20,10 @@ import {
   CompanyChannelKind,
   LeadQualification,
 } from '@prisma/client';
+import {
+  CrmLeadStatus,
+  type CrmLeadStatus as Status,
+} from '@auto-import/contracts';
 
 export class CreateChannelDto {
   @IsEnum(CompanyChannelKind)
@@ -110,8 +114,8 @@ export class DispositionCallDto {
   qualification?: LeadQualification;
 
   @IsOptional()
-  @IsString()
-  prospectStatus?: string;
+  @IsEnum(CrmLeadStatus)
+  crmStatus?: Status;
 
   @IsOptional()
   @IsString()

@@ -20,6 +20,7 @@ import { CreateClientDto } from './dto/create-client.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { Permission } from '@auto-import/contracts';
 import type { UploadedBufferFile } from '../documents/documents.service';
+import { ArchiveClientDto } from './dto/archive-client.dto';
 
 @Controller('clients')
 export class ClientsController {
@@ -28,11 +29,16 @@ export class ClientsController {
   @Post()
   @RequirePermission(Permission.CLIENTS_WRITE)
   create(@Body() dto: CreateClientDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.create(dto, user.organizationId, user.id);
+    return this.clientsService.create(
+      dto,
+      user.organizationId,
+      user.id,
+      user.permissions.includes(Permission.CLIENTS_IDENTITY_WRITE),
+    );
   }
 
   @Post('with-passport')
-  @RequirePermission(Permission.CLIENTS_WRITE)
+  @RequirePermission(Permission.CLIENTS_IDENTITY_WRITE)
   @UseInterceptors(
     FileInterceptor('passportScan', { limits: { fileSize: 25 * 1024 * 1024 } }),
   )
@@ -66,7 +72,11 @@ export class ClientsController {
   @Get(':id')
   @RequirePermission('clients:read')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.findOne(id, user.organizationId);
+    return this.clientsService.findOne(
+      id,
+      user.organizationId,
+      user.permissions,
+    );
   }
 
   @Get(':id/identity')
@@ -79,13 +89,13 @@ export class ClientsController {
   }
 
   @Get(':id/dossiers')
-  @RequirePermission('clients:read')
+  @RequirePermission(Permission.DOSSIERS_READ)
   getDossiers(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.clientsService.getDossiers(id, user.organizationId);
   }
 
   @Get(':id/orders')
-  @RequirePermission('clients:read')
+  @RequirePermission(Permission.ORDERS_READ)
   getOrders(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.clientsService.getOrders(id, user.organizationId);
   }
@@ -97,12 +107,42 @@ export class ClientsController {
     @Body() updateClientDto: UpdateClientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.clientsService.update(id, user.organizationId, updateClientDto);
+    return this.clientsService.update(
+      id,
+      user.organizationId,
+      updateClientDto,
+      user.id,
+      user.permissions.includes(Permission.CLIENTS_IDENTITY_WRITE),
+    );
+  }
+
+  @Post(':id/archive')
+  @RequirePermission(Permission.CLIENTS_ARCHIVE)
+  archive(
+    @Param('id') id: string,
+    @Body() dto: ArchiveClientDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.remove(
+      id,
+      user.organizationId,
+      user.id,
+      dto.reason ?? 'Archived through CRM action',
+    );
   }
 
   @Delete(':id')
-  @RequirePermission('clients:write')
-  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.remove(id, user.organizationId);
+  @RequirePermission(Permission.CLIENTS_ARCHIVE)
+  remove(
+    @Param('id') id: string,
+    @Body() dto: ArchiveClientDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.remove(
+      id,
+      user.organizationId,
+      user.id,
+      dto.reason ?? 'Archived through legacy DELETE endpoint',
+    );
   }
 }

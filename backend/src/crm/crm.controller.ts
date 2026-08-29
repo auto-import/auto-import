@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   IsIn,
   IsInt,
@@ -15,6 +23,8 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CrmTimelineService } from './crm-timeline.service';
 import { CrmKpiService } from './crm-kpi.service';
+import { CrmReferenceService } from './crm-reference.service';
+import { UpdateCrmReferenceDto } from './dto/crm-reference.dto';
 
 class TimelineQueryDto {
   @IsOptional()
@@ -59,7 +69,24 @@ export class CrmController {
   constructor(
     private readonly timeline: CrmTimelineService,
     private readonly kpis: CrmKpiService,
+    private readonly references: CrmReferenceService,
   ) {}
+
+  @Get('reference-data')
+  @RequirePermission(Permission.CRM_REFERENCE_READ)
+  getReferenceData(@CurrentUser() user: AuthenticatedUser) {
+    return this.references.list(user.organizationId);
+  }
+
+  @Patch('reference-data/:id')
+  @RequirePermission(Permission.CRM_REFERENCE_MANAGE)
+  updateReferenceData(
+    @Param('id') id: string,
+    @Body() dto: UpdateCrmReferenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.references.update(user.organizationId, id, dto, user.id);
+  }
 
   @Get('timeline/:ownerType/:id')
   @RequirePermission(Permission.CRM_TIMELINE_READ)

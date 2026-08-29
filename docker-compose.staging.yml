@@ -1,0 +1,153 @@
+name: auto-import-staging
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auto_import
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d auto_import"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$$REDIS_PASSWORD\"",
+      ]
+    networks: [internal]
+    logging: *default-logging
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.production
+      target: migrate
+    restart: "no"
+    environment: &backend-environment
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY}
+      PII_LOOKUP_HMAC_KEY: ${PII_LOOKUP_HMAC_KEY}
+      INTEGRATION_SECRETS_ENCRYPTION_KEY: ${INTEGRATION_SECRETS_ENCRYPTION_KEY}
+      PRIVATE_STORAGE_ROOT: ${PRIVATE_STORAGE_ROOT:-/app/storage/private}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TELEPHONY_PROVIDER: disabled
+      WHATSAPP_PROVIDER: disabled
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+    logging: *default-logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.production
+      target: runtime
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      PORT: "3000"
+    volumes:
+      - private_documents:${PRIVATE_STORAGE_ROOT:-/app/storage/private}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [internal]
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.production
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api
+        NEXT_PUBLIC_REALTIME_URL: /call-center
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [internal]
+    logging: *default-logging
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - ./deploy/nginx/proxy_params:/etc/nginx/proxy_params:ro
+      - certbot_config:/etc/letsencrypt:ro
+      - certbot_challenges:/var/www/certbot:ro
+    depends_on:
+      frontend: { condition: service_healthy }
+      backend: { condition: service_healthy }
+    networks: [edge, internal]
+    logging: *default-logging
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider --no-check-certificate https://127.0.0.1/connexion || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  certbot:
+    image: certbot/certbot:v3.1.0
+    profiles: [certificates]
+    volumes:
+      - certbot_config:/etc/letsencrypt
+      - certbot_challenges:/var/www/certbot
+    networks: [edge]
+    logging: *default-logging
+
+networks:
+  edge:
+  internal:
+    internal: true
+
+volumes:
+  postgres_data:
+  private_documents:
+  certbot_config:
+  certbot_challenges:

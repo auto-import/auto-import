@@ -3,7 +3,7 @@ import type {
   ApiAgentPresenceStatus,
   ApiCallState,
   ApiLeadQualification,
-  ApiProspectStatus,
+  ApiCrmLeadStatus,
   PaginatedData,
 } from "@/lib/api-contract";
 
@@ -33,17 +33,69 @@ export interface ApiProspect {
   phone?: string | null;
   email?: string | null;
   wilaya?: string | null;
-  source?: string | null;
-  status: ApiProspectStatus;
+  city?: string | null;
+  countryId?: string | null;
+  entryChannelId?: string | null;
+  marketingSourceId?: string | null;
+  entryChannel?: ApiCrmReference | null;
+  marketingSource?: ApiCrmReference | null;
+  country?: ApiCrmReference | null;
+  status: string;
+  crmStatus?: ApiCrmLeadStatus | null;
+  crmOutcome?: string | null;
   qualification: ApiLeadQualification;
   assignedTo?: string | null;
   assignee?: AgentSummary | null;
   notes?: string | null;
   lastInteractionAt?: string | null;
   nextActionAt?: string | null;
+  nextAction?: string | null;
   createdAt: string;
   tasks?: ApiTask[];
   client?: { id: string } | null;
+  vehicleRequests?: LeadVehicleRequirement[];
+  archivedAt?: string | null;
+}
+
+export interface ApiCrmReference {
+  id: string;
+  kind: "ENTRY_CHANNEL" | "MARKETING_SOURCE" | "COUNTRY";
+  code: string;
+  labelFr: string;
+  active: boolean;
+  sortOrder: number;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface LeadVehicleRequirement {
+  id?: string;
+  brand?: string | null;
+  model?: string | null;
+  minYear?: number | null;
+  maxYear?: number | null;
+  budgetMin?: string | number | null;
+  budgetMax?: string | number | null;
+  currency?: string | null;
+  preferredColor?: string | null;
+  requirements?: string | null;
+}
+
+export interface CreateLeadInput {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email?: string;
+  wilaya?: string;
+  city?: string;
+  countryId?: string;
+  entryChannelId: string;
+  marketingSourceId: string;
+  qualification?: ApiLeadQualification;
+  assignedTo?: string;
+  notes?: string;
+  nextAction?: string;
+  nextActionAt?: string;
+  requirement?: Omit<LeadVehicleRequirement, "id">;
 }
 
 export interface ApiClient {
@@ -58,6 +110,10 @@ export interface ApiClient {
   passportNumberMasked?: string | null;
   identityIssueDate?: string | null;
   passportExpiry?: string | null;
+  countryId?: string | null;
+  nationalityCountryId?: string | null;
+  country?: ApiCrmReference | null;
+  nationalityCountry?: ApiCrmReference | null;
   identityConfigured?: { nin: boolean; passport: boolean };
   address?: string | null;
   status: string;
@@ -72,6 +128,12 @@ export interface ApiClient {
     totalOrders: number;
     activeDossiers: number;
   };
+  access?: Record<string, boolean>;
+  dossiers?: Array<Record<string, unknown>>;
+  documents?: Array<Record<string, unknown>>;
+  payments?: Array<Record<string, unknown>>;
+  history?: Array<Record<string, unknown>>;
+  conversions?: Array<Record<string, unknown>>;
 }
 
 export interface TimelineItem {
@@ -195,11 +257,14 @@ export const crmApi = {
   getProspect(id: string) {
     return apiRequest<ApiProspect>(`/prospects/${id}`);
   },
-  createProspect(input: Partial<ApiProspect>) {
-    return apiRequest<ApiProspect>("/prospects", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
+  createProspect(input: CreateLeadInput) {
+    return apiRequest<ApiProspect & { created: boolean; matchState: string }>(
+      "/prospects",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    );
   },
   updateProspect(id: string, input: Partial<ApiProspect>) {
     return apiRequest<ApiProspect>(`/prospects/${id}`, {
@@ -222,6 +287,24 @@ export const crmApi = {
       body: JSON.stringify({}),
     });
   },
+  transitionProspect(id: string, status: ApiCrmLeadStatus, reason?: string) {
+    return apiRequest<ApiProspect>(`/prospects/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+  archiveProspect(id: string, reason: string) {
+    return apiRequest(`/prospects/${id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  },
+  referenceData() {
+    return apiRequest<ApiCrmReference[]>("/crm/reference-data");
+  },
+  assignees() {
+    return apiRequest<AgentSummary[]>("/prospects/assignees");
+  },
   listClients(filters: Record<string, string | number | undefined> = {}) {
     return apiRequest<PaginatedData<ApiClient>>(`/clients${query(filters)}`);
   },
@@ -232,6 +315,12 @@ export const crmApi = {
     return apiRequest<ApiClient>("/clients", {
       method: "POST",
       body: JSON.stringify(input),
+    });
+  },
+  archiveClient(id: string, reason: string) {
+    return apiRequest(`/clients/${id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
     });
   },
   createClientWithPassport(

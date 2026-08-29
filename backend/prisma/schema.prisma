@@ -11,9 +11,9 @@ datasource db {
   provider = "postgresql"
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Identity & Tenancy Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Organization {
   id        String   @id @default(uuid())
@@ -60,6 +60,8 @@ model Organization {
   appointments          Appointment[]
   crmNotes              CrmNote[]
   prospectStatusHistory ProspectStatusHistory[]
+  crmReferenceValues    CrmReferenceValue[]
+  prospectConversions   ProspectConversion[]
   invoices              Invoice[]
   paymentPlans          PaymentPlan[]
   payments              Payment[]
@@ -116,46 +118,49 @@ model User {
 
   userRoles                 UserRole[]
   refreshSessions           RefreshSession[]
-  salesDossiers             Dossier[]               @relation("DossierSalesUser")
-  operationsDossiers        Dossier[]               @relation("DossierOperationsUser")
+  salesDossiers             Dossier[]                   @relation("DossierSalesUser")
+  operationsDossiers        Dossier[]                   @relation("DossierOperationsUser")
   dossierStatusChanges      DossierStatusHistory[]
   prospectActivities        ProspectActivity[]
   assignedProspects         Prospect[]
-  assignedClients           Client[]                @relation("ClientAssignee")
+  assignedClients           Client[]                    @relation("ClientAssignee")
   prospectStatusChanges     ProspectStatusHistory[]
+  prospectConversions       ProspectConversion[]        @relation("ProspectConversionActor")
+  archivedProspects         Prospect[]                  @relation("ProspectArchivedBy")
+  archivedClients           Client[]                    @relation("ClientArchivedBy")
   crmNotes                  CrmNote[]
-  dispatchedCalls           CallSession[]           @relation("CallDispatcher")
-  handledCalls              CallSession[]           @relation("CallHandler")
+  dispatchedCalls           CallSession[]               @relation("CallDispatcher")
+  handledCalls              CallSession[]               @relation("CallHandler")
   callEvents                CallEvent[]
-  dispatchedAssignments     CallAssignment[]        @relation("AssignmentDispatcher")
-  assignmentsFrom           CallAssignment[]        @relation("AssignmentFrom")
-  assignmentsTo             CallAssignment[]        @relation("AssignmentTo")
+  dispatchedAssignments     CallAssignment[]            @relation("AssignmentDispatcher")
+  assignmentsFrom           CallAssignment[]            @relation("AssignmentFrom")
+  assignmentsTo             CallAssignment[]            @relation("AssignmentTo")
   presence                  AgentPresence?
-  assignedConversations     WhatsappConversation[]  @relation("ConversationAssignee")
-  appointments              Appointment[]           @relation("AppointmentAssignee")
+  assignedConversations     WhatsappConversation[]      @relation("ConversationAssignee")
+  appointments              Appointment[]               @relation("AppointmentAssignee")
   uploadedFiles             FileAsset[]
   stockMovements            StockMovement[]
   assignedRequests          VehicleRequest[]
   createdOrders             Order[]
   orderStatusChanges        OrderStatusHistory[]
   reservations              Reservation[]
-  confirmedPurchases        Purchase[]              @relation("PurchaseConfirmer")
+  confirmedPurchases        Purchase[]                  @relation("PurchaseConfirmer")
   uploadedDocuments         BusinessDocument[]
-  assignedTasks             Task[]                  @relation("TaskAssignee")
-  createdTasks              Task[]                  @relation("TaskCreator")
+  assignedTasks             Task[]                      @relation("TaskAssignee")
+  createdTasks              Task[]                      @relation("TaskCreator")
   notifications             Notification[]
   auditLogs                 AuditLog[]
-  confirmedPayments         Payment[]               @relation("PaymentActor")
-  confirmedSupplierPayments SupplierPayment[]       @relation("SupplierPaymentActor")
-  createdExchangeRates      ExchangeRate[]          @relation("ExchangeRateCreator")
-  recordedCosts             Cost[]                  @relation("CostActor")
-  dossierDocuments          DossierDocumentAsset[]  @relation("DossierDocUploader")
-  dossierNotes              DossierNote[]           @relation("DossierNoteAuthor")
-  shipmentStatusChanges     ShipmentStatusHistory[] @relation("ShipmentStatusUser")
-  customsStatusChanges      CustomsStatusHistory[]  @relation("CustomsStatusUser")
+  confirmedPayments         Payment[]                   @relation("PaymentActor")
+  confirmedSupplierPayments SupplierPayment[]           @relation("SupplierPaymentActor")
+  createdExchangeRates      ExchangeRate[]              @relation("ExchangeRateCreator")
+  recordedCosts             Cost[]                      @relation("CostActor")
+  dossierDocuments          DossierDocumentAsset[]      @relation("DossierDocUploader")
+  dossierNotes              DossierNote[]               @relation("DossierNoteAuthor")
+  shipmentStatusChanges     ShipmentStatusHistory[]     @relation("ShipmentStatusUser")
+  customsStatusChanges      CustomsStatusHistory[]      @relation("CustomsStatusUser")
   avatar                    UserAvatar?
-  checkpointEvidence       DossierCheckpointEvidence[] @relation("CheckpointEvidenceUploader")
-  integrationUpdates       IntegrationConfig[]          @relation("IntegrationConfigUpdater")
+  checkpointEvidence        DossierCheckpointEvidence[] @relation("CheckpointEvidenceUploader")
+  integrationUpdates        IntegrationConfig[]         @relation("IntegrationConfigUpdater")
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -223,30 +228,47 @@ model RolePermission {
   @@index([permissionId])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // CRM Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Prospect {
-  id                String            @id @default(uuid())
-  organizationId    String
-  organization      Organization      @relation(fields: [organizationId], references: [id])
-  firstName         String
-  lastName          String
-  phone             String?
-  email             String?
-  wilaya            String?
-  source            String?
-  status            String            @default("new")
-  qualification     LeadQualification @default(UNCLASSIFIED)
-  assignedTo        String?
-  assignee          User?             @relation(fields: [assignedTo], references: [id])
-  notes             String?
-  lastInteractionAt DateTime?
-  nextActionAt      DateTime?
-  convertedAt       DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  id                     String             @id @default(uuid())
+  organizationId         String
+  organization           Organization       @relation(fields: [organizationId], references: [id])
+  firstName              String
+  lastName               String
+  phone                  String?
+  phoneNormalized        String?
+  email                  String?
+  wilaya                 String?
+  city                   String?
+  source                 String?
+  legacySource           String?
+  entryChannelId         String?
+  entryChannel           CrmReferenceValue? @relation("ProspectEntryChannel", fields: [entryChannelId], references: [id])
+  marketingSourceId      String?
+  marketingSource        CrmReferenceValue? @relation("ProspectMarketingSource", fields: [marketingSourceId], references: [id])
+  countryId              String?
+  country                CrmReferenceValue? @relation("ProspectCountry", fields: [countryId], references: [id])
+  status                 String             @default("new")
+  crmStatus              String?
+  crmOutcome             String?
+  reconciliationRequired Boolean            @default(false)
+  qualification          LeadQualification  @default(UNCLASSIFIED)
+  assignedTo             String?
+  assignee               User?              @relation(fields: [assignedTo], references: [id])
+  notes                  String?
+  lastInteractionAt      DateTime?
+  nextActionAt           DateTime?
+  nextAction             String?
+  convertedAt            DateTime?
+  archivedAt             DateTime?
+  archivedById           String?
+  archivedBy             User?              @relation("ProspectArchivedBy", fields: [archivedById], references: [id])
+  archiveReason          String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   activities            ProspectActivity[]
   client                Client?
@@ -260,9 +282,17 @@ model Prospect {
   tasks                 Task[]
   crmNotes              CrmNote[]
   statusHistory         ProspectStatusHistory[]
+  conversions           ProspectConversion[]
 
   @@index([organizationId, status, createdAt])
   @@index([organizationId, assignedTo])
+  @@index([organizationId, crmStatus, createdAt])
+  @@index([organizationId, qualification, createdAt])
+  @@index([organizationId, entryChannelId, createdAt])
+  @@index([organizationId, marketingSourceId, createdAt])
+  @@index([organizationId, nextActionAt])
+  @@index([organizationId, phoneNormalized])
+  @@index([archivedById])
 }
 
 model ProspectActivity {
@@ -282,31 +312,40 @@ model ProspectActivity {
 }
 
 model Client {
-  id                String       @id @default(uuid())
-  organizationId    String
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  prospectId        String?      @unique
-  prospect          Prospect?    @relation(fields: [prospectId], references: [id])
-  firstName         String
-  lastName          String
-  phone             String?
-  email             String?
-  passportNumber    String?
-  passportEncrypted String?
-  passportLookupHash String?
-  ninEncrypted      String?
-  ninLookupHash     String?
-  identityIssueDate DateTime?
-  passportExpiry    DateTime?
-  nationality       String?
-  address           String?
-  status            String       @default("active")
-  assignedTo        String?
-  assignee          User?        @relation("ClientAssignee", fields: [assignedTo], references: [id])
-  lastInteractionAt DateTime?
-  nextActionAt      DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                   String             @id @default(uuid())
+  organizationId       String
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  prospectId           String?            @unique
+  prospect             Prospect?          @relation(fields: [prospectId], references: [id])
+  firstName            String
+  lastName             String
+  phone                String?
+  phoneNormalized      String?
+  email                String?
+  passportNumber       String?
+  passportEncrypted    String?
+  passportLookupHash   String?
+  ninEncrypted         String?
+  ninLookupHash        String?
+  identityIssueDate    DateTime?
+  passportExpiry       DateTime?
+  nationality          String?
+  countryId            String?
+  country              CrmReferenceValue? @relation("ClientCountry", fields: [countryId], references: [id])
+  nationalityCountryId String?
+  nationalityCountry   CrmReferenceValue? @relation("ClientNationality", fields: [nationalityCountryId], references: [id])
+  address              String?
+  status               String             @default("active")
+  assignedTo           String?
+  assignee             User?              @relation("ClientAssignee", fields: [assignedTo], references: [id])
+  lastInteractionAt    DateTime?
+  nextActionAt         DateTime?
+  archivedAt           DateTime?
+  archivedById         String?
+  archivedBy           User?              @relation("ClientArchivedBy", fields: [archivedById], references: [id])
+  archiveReason        String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   dossiers              Dossier[]
   orders                Order[]
@@ -323,12 +362,59 @@ model Client {
   paymentPlans          PaymentPlan[]
   payments              Payment[]
   documents             DossierDocumentAsset[]
+  conversions           ProspectConversion[]
 
+  @@unique([organizationId, ninLookupHash])
+  @@unique([organizationId, passportLookupHash])
   @@index([organizationId, createdAt])
   @@index([organizationId, email])
   @@index([organizationId, assignedTo])
-  @@unique([organizationId, ninLookupHash])
-  @@unique([organizationId, passportLookupHash])
+  @@index([organizationId, phoneNormalized])
+  @@index([organizationId, status, createdAt])
+  @@index([archivedById])
+}
+
+/// Tenant-configurable CRM values. `kind` is intentionally a string so adding
+/// channels, sources and countries does not require a destructive enum change.
+model CrmReferenceValue {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kind           String
+  code           String
+  labelFr        String
+  active         Boolean      @default(true)
+  sortOrder      Int          @default(0)
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  prospectsAsEntryChannel    Prospect[] @relation("ProspectEntryChannel")
+  prospectsAsMarketingSource Prospect[] @relation("ProspectMarketingSource")
+  prospectsAsCountry         Prospect[] @relation("ProspectCountry")
+  clientsAsCountry           Client[]   @relation("ClientCountry")
+  clientsAsNationality       Client[]   @relation("ClientNationality")
+
+  @@unique([organizationId, kind, code])
+  @@index([organizationId, kind, active, sortOrder])
+}
+
+/// Canonical append-only conversion lineage. Client.prospectId remains a
+/// temporary backward-compatible projection for the first conversion only.
+model ProspectConversion {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  prospectId     String       @unique
+  prospect       Prospect     @relation(fields: [prospectId], references: [id], onDelete: Restrict)
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  convertedBy    String?
+  actor          User?        @relation("ProspectConversionActor", fields: [convertedBy], references: [id], onDelete: Restrict)
+  convertedAt    DateTime     @default(now())
+
+  @@index([organizationId, clientId, convertedAt])
+  @@index([convertedBy])
 }
 
 enum LeadQualification {
@@ -806,9 +892,9 @@ model OfferReservation {
   @@index([clientId, createdAt])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Dossier & Vehicle Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 enum DossierType {
   VEHICLE_SALE_CIF
@@ -839,18 +925,18 @@ model Dossier {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  history          DossierStatusHistory[]
-  dossierVehicles  DossierVehicle[]
-  purchases        Purchase[]
-  invoices         Invoice[]
-  paymentPlans     PaymentPlan[]
-  payments         Payment[]
-  customerDeposits CustomerDeposit[]
-  costs            Cost[]
-  documents        DossierDocumentAsset[]
-  notes            DossierNote[]
-  customsFiles     CustomsFile[]
-  tasks            Task[]
+  history            DossierStatusHistory[]
+  dossierVehicles    DossierVehicle[]
+  purchases          Purchase[]
+  invoices           Invoice[]
+  paymentPlans       PaymentPlan[]
+  payments           Payment[]
+  customerDeposits   CustomerDeposit[]
+  costs              Cost[]
+  documents          DossierDocumentAsset[]
+  notes              DossierNote[]
+  customsFiles       CustomsFile[]
+  tasks              Task[]
   checkpointEvidence DossierCheckpointEvidence[]
 
   @@unique([organizationId, reference])
@@ -920,16 +1006,16 @@ model Vehicle {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  specs            VehicleSpec?
-  photos           VehiclePhoto[]
-  dossierVehicles  DossierVehicle[]
-  candidates       VehicleCandidate[]
-  orderItems       OrderItem[]
-  reservations     Reservation[]
-  stockMovements   StockMovement[]
-  purchases        Purchase[]
-  shipmentVehicles ShipmentVehicle[]
-  customsFiles     CustomsFile[]
+  specs              VehicleSpec?
+  photos             VehiclePhoto[]
+  dossierVehicles    DossierVehicle[]
+  candidates         VehicleCandidate[]
+  orderItems         OrderItem[]
+  reservations       Reservation[]
+  stockMovements     StockMovement[]
+  purchases          Purchase[]
+  shipmentVehicles   ShipmentVehicle[]
+  customsFiles       CustomsFile[]
   checkpointEvidence DossierCheckpointEvidence[]
 
   @@index([organizationId, status, createdAt])
@@ -952,27 +1038,27 @@ model VehicleSpec {
 }
 
 model FileAsset {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  storageKey     String
-  originalName   String
-  mimeType       String
-  size           BigInt
-  checksum       String       @default("")
-  category       String?
-  status         String       @default("active")
-  uploadedBy     String
-  uploadedByUser User         @relation(fields: [uploadedBy], references: [id])
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                 String       @id @default(uuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  storageKey         String
+  originalName       String
+  mimeType           String
+  size               BigInt
+  checksum           String       @default("")
+  category           String?
+  status             String       @default("active")
+  uploadedBy         String
+  uploadedByUser     User         @relation(fields: [uploadedBy], references: [id])
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  vehiclePhotos     VehiclePhoto[]
-  customsDocuments  CustomsDocument[]
-  businessDocuments BusinessDocument[]
-  dossierDocuments  DossierDocumentAsset[]
-  avatarUses        UserAvatar[]
-  offerPhotos       OfferPhoto[]
+  vehiclePhotos      VehiclePhoto[]
+  customsDocuments   CustomsDocument[]
+  businessDocuments  BusinessDocument[]
+  dossierDocuments   DossierDocumentAsset[]
+  avatarUses         UserAvatar[]
+  offerPhotos        OfferPhoto[]
   checkpointEvidence DossierCheckpointEvidence[]
   brandingLogoUses   OrganizationBrandingLogo[]
 
@@ -995,16 +1081,16 @@ model VehiclePhoto {
 }
 
 model OfferPhoto {
-  id        String     @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  offerId   String
-  offer     ChinaOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
-  fileId    String
-  file      FileAsset  @relation(fields: [fileId], references: [id], onDelete: Restrict)
-  isPrimary Boolean    @default(false)
-  sortOrder Int        @default(0)
-  createdAt DateTime   @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  offerId        String
+  offer          ChinaOffer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  fileId         String
+  file           FileAsset    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  isPrimary      Boolean      @default(false)
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
 
   @@unique([offerId, sortOrder])
   @@index([organizationId, offerId])
@@ -1061,9 +1147,9 @@ model OrganizationBrandingLogo {
   @@index([updatedAt])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Warehouse & Stock Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Warehouse {
   id             String       @id @default(uuid())
@@ -1122,9 +1208,9 @@ model StockMovement {
   @@index([performedBy])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Request & Order Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model VehicleRequest {
   id             String       @id @default(uuid())
@@ -1270,9 +1356,9 @@ model Reservation {
   @@index([reservedBy])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Procurement, Shipping & Customs Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Purchase {
   id                 String            @id @default(uuid())
@@ -1571,9 +1657,9 @@ model DossierNote {
   @@index([organizationId, dossierId, createdAt])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Finance Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Invoice {
   id             String       @id @default(uuid())
@@ -1838,9 +1924,9 @@ model Cost {
   @@index([customsFileId])
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 // Support & Operations Models
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
 
 model Task {
   id                String                @id @default(uuid())
@@ -1869,10 +1955,12 @@ model Task {
   conversation      WhatsappConversation? @relation(fields: [conversationId], references: [id])
   callbackForCallId String?               @unique
   callbackForCall   CallSession?          @relation("CallbackTask", fields: [callbackForCallId], references: [id])
+  automationKey     String?
   completedAt       DateTime?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
+  @@unique([organizationId, automationKey])
   @@index([organizationId, status, dueDate])
   @@index([assignedTo, status])
   @@index([createdBy])

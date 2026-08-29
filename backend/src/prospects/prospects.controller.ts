@@ -17,6 +17,10 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permission } from '@auto-import/contracts';
 import { FilterProspectDto } from './dto/filter-prospect.dto';
+import {
+  ArchiveProspectDto,
+  TransitionProspectDto,
+} from './dto/transition-prospect.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 @Controller('prospects')
@@ -48,6 +52,12 @@ export class ProspectsController {
       filters.limit,
       filters,
     );
+  }
+
+  @Get('assignees')
+  @RequirePermission(Permission.PROSPECTS_READ)
+  assignees(@CurrentUser() user: AuthenticatedUser) {
+    return this.prospectsService.listAssignees(user.organizationId);
   }
 
   @Get(':id')
@@ -95,7 +105,7 @@ export class ProspectsController {
   }
 
   @Post(':id/convert')
-  @RequirePermission(Permission.PROSPECTS_WRITE)
+  @RequirePermission(Permission.PROSPECTS_CONVERT)
   convertToClient(
     @Param('id') id: string,
     @Body() convertProspectDto: ConvertProspectDto,
@@ -109,9 +119,48 @@ export class ProspectsController {
     );
   }
 
+  @Post(':id/transition')
+  @RequirePermission(Permission.PROSPECTS_TRANSITION)
+  transition(
+    @Param('id') id: string,
+    @Body() dto: TransitionProspectDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.transition(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/archive')
+  @RequirePermission(Permission.PROSPECTS_ARCHIVE)
+  archive(
+    @Param('id') id: string,
+    @Body() dto: ArchiveProspectDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.remove(
+      id,
+      user.organizationId,
+      user.id,
+      dto.reason ?? 'Archived through CRM action',
+    );
+  }
+
   @Delete(':id')
-  @RequirePermission(Permission.PROSPECTS_WRITE)
-  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.prospectsService.remove(id, user.organizationId);
+  @RequirePermission(Permission.PROSPECTS_ARCHIVE)
+  remove(
+    @Param('id') id: string,
+    @Body() dto: ArchiveProspectDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.remove(
+      id,
+      user.organizationId,
+      user.id,
+      dto.reason ?? 'Archived through legacy DELETE endpoint',
+    );
   }
 }

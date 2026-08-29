@@ -27,6 +27,10 @@ import type {
   NormalizedCallEvent,
   NormalizedMessageEvent,
 } from './providers/provider.interfaces';
+import {
+  assertCrmLeadTransition,
+  legacyStatusProjection,
+} from '../crm/crm-lead-workflow';
 import type {
   AppointmentStatusDto,
   AssignCallDto,
@@ -442,25 +446,34 @@ export class CallCenterService {
       if (call.prospectId) {
         const prospect = await tx.prospect.findUniqueOrThrow({
           where: { id: call.prospectId },
-          select: { status: true },
+          select: { crmStatus: true },
         });
+        if (dto.crmStatus)
+          assertCrmLeadTransition(prospect.crmStatus, dto.crmStatus);
         await tx.prospect.update({
           where: { id: call.prospectId },
           data: {
             ...(dto.qualification ? { qualification: dto.qualification } : {}),
-            ...(dto.prospectStatus ? { status: dto.prospectStatus } : {}),
+            ...(dto.crmStatus
+              ? {
+                  crmStatus: dto.crmStatus,
+                  status: legacyStatusProjection(dto.crmStatus),
+                  reconciliationRequired: false,
+                }
+              : {}),
+            nextAction: dto.nextAction,
             nextActionAt,
             lastInteractionAt: call.completedAt ?? new Date(),
           },
         });
-        if (dto.prospectStatus && dto.prospectStatus !== prospect.status) {
+        if (dto.crmStatus && dto.crmStatus !== prospect.crmStatus) {
           await tx.prospectStatusHistory.create({
             data: {
               organizationId,
               prospectId: call.prospectId,
               changedBy: userId,
-              fromStatus: prospect.status,
-              toStatus: dto.prospectStatus,
+              fromStatus: prospect.crmStatus,
+              toStatus: dto.crmStatus,
               reason: `Disposition: ${dto.outcome}`,
             },
           });

@@ -1,4 +1,8 @@
-import { ContactResolutionService } from './contact-resolution.service';
+import { BadRequestException } from '@nestjs/common';
+import {
+  ContactResolutionService,
+  normalizeCanonicalPhone,
+} from './contact-resolution.service';
 
 describe('ContactResolutionService', () => {
   const service = new ContactResolutionService({} as never);
@@ -17,4 +21,20 @@ describe('ContactResolutionService', () => {
       'agent@example.com',
     );
   });
+
+  it('supports a configured international default country', () => {
+    expect(
+      normalizeCanonicalPhone('06 12 34 56 78', {
+        defaultCallingCode: '33',
+        nationalLengths: [9],
+      }),
+    ).toBe('+33612345678');
+  });
+
+  it.each(['123', '+0123456789', '0000'])(
+    'rejects unsafe phone %s',
+    (value) => {
+      expect(() => service.normalizePhone(value)).toThrow(BadRequestException);
+    },
+  );
 });

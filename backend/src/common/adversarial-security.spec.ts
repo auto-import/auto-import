@@ -12,6 +12,8 @@ import { OrdersService } from '../orders/orders.service';
 import { VehicleRequestsService } from '../vehicle-requests/vehicle-requests.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { ProspectsService } from '../prospects/prospects.service';
+import { ContactResolutionService } from '../crm/contact-resolution.service';
+import { CrmReferenceService } from '../crm/crm-reference.service';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
@@ -148,6 +150,10 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         create: jest.fn(),
         deleteMany: jest.fn(),
       },
+      prospectStatusHistory: { create: jest.fn() },
+      auditLog: { create: jest.fn() },
+      task: { updateMany: jest.fn(), upsert: jest.fn() },
+      notification: { upsert: jest.fn() },
       $transaction: jest.fn(async (callback) => {
         if (typeof callback === 'function') {
           return callback(prisma);
@@ -167,6 +173,26 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         ProspectsService,
         UsersService,
         DossierWorkflowService,
+        {
+          provide: ContactResolutionService,
+          useValue: {
+            normalizePhoneForCountry: jest
+              .fn()
+              .mockResolvedValue('+213550000000'),
+            matchNormalizedPhoneInTransaction: jest.fn().mockResolvedValue({
+              normalizedValue: '+213550000000',
+              match: null,
+            }),
+            syncProspectContacts: jest.fn(),
+            syncClientContacts: jest.fn(),
+          },
+        },
+        {
+          provide: CrmReferenceService,
+          useValue: {
+            assertReference: jest.fn().mockResolvedValue({ id: 'reference' }),
+          },
+        },
         {
           provide: DocumentsService,
           useValue: {
@@ -239,7 +265,13 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
       });
 
       await prospectsService.create(
-        { firstName: 'Ali', lastName: 'Ben' },
+        {
+          firstName: 'Ali',
+          lastName: 'Ben',
+          phone: '0550000000',
+          entryChannelId: '0d3dd271-3100-4f88-90b0-925dd72a8531',
+          marketingSourceId: 'cc2f21f3-29bf-48aa-8d21-2b8bf15e87e7',
+        },
         'user-1',
         ORG_A,
       );

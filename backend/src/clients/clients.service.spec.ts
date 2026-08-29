@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClientsService } from './clients.service';
+import { ContactResolutionService } from '../crm/contact-resolution.service';
+import { CrmReferenceService } from '../crm/crm-reference.service';
 
 describe('ClientsService protected identity onboarding', () => {
   const previousEnvironment = { ...process.env };
@@ -14,8 +16,21 @@ describe('ClientsService protected identity onboarding', () => {
       ...query.data,
     }),
   );
-  const client = { create: createClient, delete: jest.fn() };
-  const tx = { user, client };
+  const updateClient = jest.fn((query: { data: Record<string, unknown> }) =>
+    Promise.resolve({ id: 'client-a', ...query.data }),
+  );
+  const client = {
+    create: createClient,
+    update: updateClient,
+    findFirst: jest.fn(),
+  };
+  const createAudit = jest.fn((query: { data: Record<string, unknown> }) => {
+    void query;
+    return Promise.resolve({});
+  });
+  const auditLog = { create: createAudit };
+  const task = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+  const tx = { user, client, auditLog, task };
   const prismaShape = {
     ...tx,
     $transaction: jest.fn(
@@ -23,10 +38,21 @@ describe('ClientsService protected identity onboarding', () => {
     ),
   };
   const documentsShape = { uploadDossierDocument: jest.fn() };
+  const contactsShape = {
+    normalizePhoneForCountry: jest.fn().mockResolvedValue('+213550000000'),
+    matchNormalizedPhoneInTransaction: jest
+      .fn()
+      .mockResolvedValue({ normalizedValue: '+213550000000', match: null }),
+    syncClientContacts: jest.fn(),
+  };
+  const referencesShape = {
+    assertReference: jest.fn().mockResolvedValue(null),
+  };
   const service = new ClientsService(
     prismaShape as unknown as PrismaService,
-    undefined,
+    contactsShape as unknown as ContactResolutionService,
     documentsShape as unknown as DocumentsService,
+    referencesShape as unknown as CrmReferenceService,
   );
 
   beforeEach(() => {
@@ -53,6 +79,7 @@ describe('ClientsService protected identity onboarding', () => {
       },
       'org-a',
       'user-a',
+      true,
     );
     const stored = createClient.mock.calls[0][0].data;
 
@@ -82,6 +109,7 @@ describe('ClientsService protected identity onboarding', () => {
         },
         'org-a',
         'user-a',
+        true,
       ),
     ).rejects.toThrow(BadRequestException);
     expect(client.create).not.toHaveBeenCalled();
@@ -91,7 +119,7 @@ describe('ClientsService protected identity onboarding', () => {
     documentsShape.uploadDossierDocument.mockRejectedValue(
       new Error('disposable storage unavailable'),
     );
-    client.delete.mockResolvedValue({ id: 'client-a' });
+    client.update.mockResolvedValue({ id: 'client-a' });
 
     await expect(
       service.createWithPassport(
@@ -110,25 +138,42 @@ describe('ClientsService protected identity onboarding', () => {
         },
       ),
     ).rejects.toThrow('disposable storage unavailable');
-    expect(client.delete).toHaveBeenCalledWith({ where: { id: 'client-a' } });
+    expect(client.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'client-a' } }),
+    );
   });
 
-  it('requires NIN for Algerian clients but keeps foreign clients possible', async () => {
+  it('keeps NIN and passport optional at initial creation for every country', async () => {
     await expect(
       service.create(
-        { firstName: 'Local', lastName: 'Client', nationality: 'DZA' },
-        'org-a',
-        'user-a',
-      ),
-    ).rejects.toMatchObject({
-      response: { code: 'CLIENT_NIN_REQUIRED_FOR_ALGERIAN' },
-    });
-    await expect(
-      service.create(
-        { firstName: 'Foreign', lastName: 'Client', nationality: 'Tunisie' },
+        {
+          firstName: 'Local',
+          lastName: 'Client',
+          nationalityCountryId: 'country-dz',
+        },
         'org-a',
         'user-a',
       ),
     ).resolves.toMatchObject({ identityConfigured: { nin: false } });
+  });
+
+  it('archives instead of hard-deleting a client', async () => {
+    client.findFirst.mockResolvedValue({ id: 'client-a', archivedAt: null });
+    client.update.mockResolvedValue({ id: 'client-a' });
+    await expect(
+      service.remove(
+        'client-a',
+        'org-a',
+        'user-a',
+        'Duplicate confirmed by operator',
+      ),
+    ).resolves.toMatchObject({ message: 'Client archived successfully' });
+    const clientUpdate = client.update.mock.calls[0]?.[0];
+    expect(clientUpdate.data).toMatchObject({
+      status: 'archived',
+      archivedById: 'user-a',
+    });
+    const auditCreate = auditLog.create.mock.calls[0]?.[0];
+    expect(auditCreate.data).toMatchObject({ action: 'CLIENT_ARCHIVED' });
   });
 });

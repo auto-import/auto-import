@@ -30,6 +30,9 @@ import {
   DueTrigger,
   CostType,
   DocumentKind,
+  CrmLeadStatus,
+  CrmLeadOutcome,
+  CrmReferenceKind,
 } from "@auto-import/contracts";
 import type {
   CustomsStatus as CustomsStatusValue,
@@ -53,6 +56,7 @@ import type {
   DueTrigger as DueTriggerValue,
   CostType as CostTypeValue,
   DocumentKind as DocumentKindValue,
+  CrmLeadStatus as CrmLeadStatusValue,
 } from "@auto-import/contracts";
 
 export {
@@ -87,6 +91,9 @@ export {
   DueTrigger,
   CostType,
   DocumentKind,
+  CrmLeadStatus,
+  CrmLeadOutcome,
+  CrmReferenceKind,
 };
 
 export type ApiDossierType = DossierTypeValue;
@@ -110,6 +117,7 @@ export type ApiInstallmentStatus = InstallmentStatusValue;
 export type ApiDueTrigger = DueTriggerValue;
 export type ApiCostType = CostTypeValue;
 export type ApiDocumentKind = DocumentKindValue;
+export type ApiCrmLeadStatus = CrmLeadStatusValue;
 
 export interface ApiSuccessResponse<T> {
   success: true;
@@ -207,6 +215,16 @@ export const PROSPECT_STATUS_LABELS_API: Record<ApiProspectStatus, string> = {
   [ProspectStatus.WON]: "Gagné",
   [ProspectStatus.LOST]: "Perdu",
   [ProspectStatus.CONVERTED]: "Converti",
+};
+
+export const CRM_LEAD_STATUS_LABELS: Record<ApiCrmLeadStatus, string> = {
+  [CrmLeadStatus.NEW]: "Nouveau",
+  [CrmLeadStatus.CONTACTED]: "Contacté",
+  [CrmLeadStatus.QUALIFIED]: "Qualifié",
+  [CrmLeadStatus.APPOINTMENT]: "Rendez-vous",
+  [CrmLeadStatus.CONTRACT]: "Contrat",
+  [CrmLeadStatus.DEPOSIT]: "Acompte",
+  [CrmLeadStatus.CONVERTED]: "Converti",
 };
 
 export const OFFER_STATUS_LABELS_API: Record<ApiOfferStatus, string> = {

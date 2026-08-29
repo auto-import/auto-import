@@ -30,6 +30,14 @@ export class CreateClientDto {
   nationality?: string;
 
   @IsOptional()
+  @IsUUID()
+  countryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  nationalityCountryId?: string;
+
+  @IsOptional()
   @IsString()
   address?: string;
 

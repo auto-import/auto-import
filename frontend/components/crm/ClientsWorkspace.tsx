@@ -7,6 +7,9 @@ import { Plus, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Topbar from "@/components/Topbar";
 import { crmApi, type ApiClient } from "@/lib/crm-api";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
+import type { ApiCrmReference } from "@/lib/crm-api";
 
 export default function ClientsWorkspace() {
   const router = useRouter();
@@ -156,22 +159,40 @@ function ClientForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { hasPermission } = useAuth();
+  const canWriteIdentity = hasPermission(Permission.CLIENTS_IDENTITY_WRITE);
   const [values, setValues] = useState({
     firstName: "",
     lastName: "",
     phone: "",
     email: "",
-    nationality: "DZ",
+    countryId: "",
+    nationalityCountryId: "",
     nin: "",
     passportNumber: "",
     identityIssueDate: "",
     passportExpiry: "",
   });
+  const [countries, setCountries] = useState<ApiCrmReference[]>([]);
   const [passportScan, setPassportScan] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const input =
     "rounded-input border border-border bg-background px-3 py-2 text-sm";
+  useEffect(() => {
+    void crmApi.referenceData().then((items) => {
+      const available = items.filter(
+        (item) => item.kind === "COUNTRY" && item.active,
+      );
+      setCountries(available);
+      const algeria = available.find((item) => item.code === "DZ")?.id || "";
+      setValues((current) => ({
+        ...current,
+        countryId: algeria,
+        nationalityCountryId: algeria,
+      }));
+    });
+  }, []);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -246,66 +267,96 @@ function ClientForm({
             setValues({ ...values, email: event.target.value })
           }
         />
-        <input
+        <select
           className={input}
-          placeholder="Nationalité (DZ ou pays)"
-          value={values.nationality}
+          value={values.countryId}
           onChange={(event) =>
-            setValues({ ...values, nationality: event.target.value })
+            setValues({ ...values, countryId: event.target.value })
           }
-        />
-        <input
+        >
+          <option value="">Pays de résidence</option>
+          {countries.map((country) => (
+            <option key={country.id} value={country.id}>
+              {country.labelFr}
+            </option>
+          ))}
+        </select>
+        <select
           className={input}
-          inputMode="numeric"
-          pattern="[0-9]{18}"
-          maxLength={18}
-          placeholder="NIN algérien (18 chiffres)"
-          value={values.nin}
+          value={values.nationalityCountryId}
           onChange={(event) =>
-            setValues({ ...values, nin: event.target.value })
+            setValues({ ...values, nationalityCountryId: event.target.value })
           }
-        />
-        <input
-          className={input}
-          placeholder="Numéro de passeport"
-          value={values.passportNumber}
-          onChange={(event) =>
-            setValues({ ...values, passportNumber: event.target.value })
-          }
-        />
-        <label className="text-xs text-muted">
-          Date d’émission
+        >
+          <option value="">Nationalité</option>
+          {countries.map((country) => (
+            <option key={country.id} value={country.id}>
+              {country.labelFr}
+            </option>
+          ))}
+        </select>
+        {canWriteIdentity && (
           <input
-            type="date"
-            className={`${input} mt-1 w-full`}
-            value={values.identityIssueDate}
+            className={input}
+            inputMode="numeric"
+            pattern="[0-9]{18}"
+            maxLength={18}
+            placeholder="NIN algérien (18 chiffres)"
+            value={values.nin}
             onChange={(event) =>
-              setValues({ ...values, identityIssueDate: event.target.value })
+              setValues({ ...values, nin: event.target.value })
             }
           />
-        </label>
-        <label className="text-xs text-muted">
-          Date d’expiration
+        )}
+        {canWriteIdentity && (
           <input
-            type="date"
-            className={`${input} mt-1 w-full`}
-            value={values.passportExpiry}
+            className={input}
+            placeholder="Numéro de passeport"
+            value={values.passportNumber}
             onChange={(event) =>
-              setValues({ ...values, passportExpiry: event.target.value })
+              setValues({ ...values, passportNumber: event.target.value })
             }
           />
-        </label>
-        <label className="text-xs text-muted">
-          Scan passeport privé
-          <input
-            type="file"
-            accept="application/pdf,image/jpeg,image/png"
-            className="mt-1 w-full"
-            onChange={(event) =>
-              setPassportScan(event.target.files?.[0] ?? null)
-            }
-          />
-        </label>
+        )}
+        {canWriteIdentity && (
+          <label className="text-xs text-muted">
+            Date d’émission
+            <input
+              type="date"
+              className={`${input} mt-1 w-full`}
+              value={values.identityIssueDate}
+              onChange={(event) =>
+                setValues({ ...values, identityIssueDate: event.target.value })
+              }
+            />
+          </label>
+        )}
+        {canWriteIdentity && (
+          <label className="text-xs text-muted">
+            Date d’expiration
+            <input
+              type="date"
+              className={`${input} mt-1 w-full`}
+              value={values.passportExpiry}
+              onChange={(event) =>
+                setValues({ ...values, passportExpiry: event.target.value })
+              }
+            />
+          </label>
+        )}
+        {canWriteIdentity && (
+          <label className="text-xs text-muted">
+            Scan passeport privé
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png"
+              className="mt-1 w-full"
+              onChange={(event) =>
+                setPassportScan(event.target.files?.[0] ?? null)
+              }
+            />
+          </label>
+        )}
         <div className="flex justify-end gap-2 md:col-span-2">
           <button
             type="button"

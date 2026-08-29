@@ -35,6 +35,7 @@ describe('CrmTimelineService', () => {
       appointment: { findMany: jest.fn().mockResolvedValue([]) },
       crmNote: { findMany: jest.fn().mockResolvedValue([]) },
       prospectStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+      prospectConversion: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const service = new CrmTimelineService(prisma as never);
     const first = await service.getTimeline(
