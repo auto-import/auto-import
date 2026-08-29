@@ -17,6 +17,15 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import {
+  CreateSupplierBankDto,
+  CreateSupplierContactDto,
+  CreateSupplierIncidentDto,
+  LinkSupplierDossierDto,
+  ResolveSupplierIncidentDto,
+  TransitionSupplierDto,
+  UpdateSupplierScoreDto,
+} from './dto/supplier-v2.dto';
 
 @Controller('partners')
 export class PartnersController {
@@ -28,7 +37,7 @@ export class PartnersController {
     @Body() dto: CreatePartnerDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.partnersService.create(dto, user.organizationId);
+    return this.partnersService.create(dto, user.organizationId, user.id);
   }
 
   @Get()
@@ -66,5 +75,136 @@ export class PartnersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.partnersService.remove(id, user.organizationId);
+  }
+
+  @Post(':id/status')
+  @RequirePermission(Permission.SUPPLIERS_VERIFY)
+  transitionSupplier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransitionSupplierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.transitionSupplier(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/contacts')
+  @RequirePermission(Permission.PARTNERS_WRITE)
+  addContact(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSupplierContactDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.addContact(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Get(':id/bank-accounts')
+  @RequirePermission(Permission.SUPPLIERS_BANK_METADATA)
+  bankAccounts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.listBankAccounts(id, user.organizationId);
+  }
+
+  @Post(':id/bank-accounts')
+  @RequirePermission(Permission.SUPPLIERS_BANK_WRITE)
+  createBankAccount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSupplierBankDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.createBankAccount(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Get(':id/bank-accounts/:bankId/reveal')
+  @RequirePermission(Permission.SUPPLIERS_BANK_REVEAL)
+  revealBankAccount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('bankId', ParseUUIDPipe) bankId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.revealBankAccount(
+      id,
+      bankId,
+      user.organizationId,
+      user.id,
+    );
+  }
+
+  @Post(':id/incidents')
+  @RequirePermission(Permission.SUPPLIERS_INCIDENTS_MANAGE)
+  addIncident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSupplierIncidentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.addIncident(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/incidents/:incidentId/resolve')
+  @RequirePermission(Permission.SUPPLIERS_INCIDENTS_MANAGE)
+  resolveIncident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @Body() dto: ResolveSupplierIncidentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.resolveIncident(
+      id,
+      incidentId,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Patch(':id/score')
+  @RequirePermission(Permission.SUPPLIERS_SCORE_MANAGE)
+  updateScore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSupplierScoreDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.updateScore(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/dossiers')
+  @RequirePermission(Permission.PARTNERS_WRITE)
+  linkDossier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: LinkSupplierDossierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.linkDossier(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
   }
 }

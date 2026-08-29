@@ -104,7 +104,49 @@ Exact next action: create the verified Phase 2 Git checkpoint, then extend canon
 
 ## Phase 3 — Suppliers and China Offers
 
-Status: not started.
+Status: implemented; minimum verification completed. Exhaustive integration/Docker runtime verification is deferred until tomorrow.
+
+Completed requirements:
+
+- Canonical `Partner` supplier extension with independent verification lifecycle (`TO_VERIFY -> VERIFIED -> ACTIVE`, suspension/reactivation), supplier type, multiple normalized contacts, WhatsApp/WeChat, currency, Incoterms, lead/payment/delivery terms and four-dimensional score.
+- Restricted AES-backed supplier bank-detail records with metadata/reveal/write permissions and audits that never contain account values; incidents, resolution, dossier links and tenant-safe detail tabs/projections.
+- Supplier overview KPIs from canonical offers, purchases, vehicles, validated payments and incidents; supplier data remains referenced rather than copied into downstream modules.
+- `ChinaOffer` V2 supplier reference/price, Incoterm, location, lead time, validity, conditions, VIN and controlled workflow. Legacy CIF/DDP columns remain for read compatibility and are explicitly marked as historical estimates; customer pricing authority is Tarification/Quotation.
+- Append-only `ChinaOfferRevision` snapshots and status history. Existing legacy offers without a defensible actor/revision remain explicit reconciliation items; their first edited version captures the baseline before the change.
+- Idempotent assignment to one tenant-owned Dossier, source-traceable purchase/vehicle creation, supplier-dossier link, serializable stock claim and unique-conflict recovery.
+- Additive permissions, backend endpoints, French supplier/offer UI fields, KPI/detail views, workflow controls and price/status history.
+
+Migration:
+
+- `backend/prisma/migrations/20260829030000_erp_v2_phase3_suppliers_offers/migration.sql`
+- Additive tables/nullable columns/check constraints/indexes and known-value backfills only. Unknown legacy supplier/offer states, offers without supplier price and actorless legacy revisions are reported rather than guessed.
+- Read-only preflight and reconciliation: `backend/scripts/erp-v2-phase3-suppliers-offers-{preflight,reconciliation}-readonly.sql`.
+
+Verification evidence:
+
+- Prisma format, validation and client generation: passed.
+- Focused suppliers/offers tests: 2 suites, 8 tests passed.
+- Backend build: passed.
+- Frontend lint: zero errors and 13 pre-existing fixture warnings.
+- Frontend build initially found a real optional CIF/DDP API type regression; the compatibility type was corrected and the production build then passed.
+- Fresh disposable PostgreSQL 17 migration: all 17 migrations applied successfully.
+- Post-migration reconciliation on the fresh database: all seven unresolved/cross-tenant/mismatch metrics were zero.
+- `git diff --check`: passed; labeled tmpfs disposable PostgreSQL container removed after verification.
+
+Affected areas:
+
+- Prisma schema and Phase 3 migration/scripts.
+- Backend partners and offers DTOs/controllers/services/focused tests.
+- Shared permission contracts.
+- Frontend commerce API, suppliers workspace, China offers list/create and offer detail/history.
+
+Known deferred checks:
+
+- Representative production-shaped supplier/offer reconciliation with real legacy status vocabulary and actor assignment.
+- Authenticated multipart offer creation, bank reveal denial/audit, cross-tenant assignment and true concurrent dossier assignment integration tests.
+- Full suites and production Docker runtime inspection.
+
+Exact next action: create the verified Phase 3 Git checkpoint, then implement Phase 4 financial ledgers as additive canonical projections over existing contracts, invoices, payments, supplier payments, purchases and costs.
 
 ## Phase 4 — Contracts, Collections, Finance and Treasury
 

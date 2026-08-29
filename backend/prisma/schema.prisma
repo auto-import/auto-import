@@ -69,6 +69,12 @@ model Organization {
   gedDocumentLinks      GedDocumentLink[]
   gedValidationHistory  GedValidationHistory[]
   dossierChecklistRules DossierChecklistRule[]
+  supplierContacts      SupplierContact[]
+  supplierBankAccounts  SupplierBankAccount[]
+  supplierIncidents     SupplierIncident[]
+  supplierDossierLinks  SupplierDossierLink[]
+  offerRevisions        ChinaOfferRevision[]
+  offerStatusHistory    ChinaOfferStatusHistory[]
   invoices              Invoice[]
   paymentPlans          PaymentPlan[]
   payments              Payment[]
@@ -174,6 +180,14 @@ model User {
   gedValidationActions      GedValidationHistory[]      @relation("GedValidationActor")
   createdGedLinks           GedDocumentLink[]           @relation("GedLinkCreator")
   createdChecklistRules     DossierChecklistRule[]      @relation("ChecklistRuleCreator")
+  createdSupplierContacts   SupplierContact[]           @relation("SupplierContactCreator")
+  createdSupplierBanks      SupplierBankAccount[]       @relation("SupplierBankCreator")
+  updatedSupplierBanks      SupplierBankAccount[]       @relation("SupplierBankUpdater")
+  reportedSupplierIncidents SupplierIncident[]          @relation("SupplierIncidentReporter")
+  resolvedSupplierIncidents SupplierIncident[]          @relation("SupplierIncidentResolver")
+  createdSupplierLinks      SupplierDossierLink[]       @relation("SupplierDossierLinkCreator")
+  createdOfferRevisions     ChinaOfferRevision[]        @relation("ChinaOfferRevisionCreator")
+  offerStatusChanges        ChinaOfferStatusHistory[]   @relation("ChinaOfferStatusActor")
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -805,35 +819,139 @@ model WebhookInbox {
 }
 
 model Partner {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  name           String
-  type           String // "supplier" | "carrier" | "other"
-  country        String?
-  city           String?
-  contactPerson  String?
-  phone          String?
-  email          String?
-  address        String?
-  website        String?
-  paymentTerms   String?
-  deliveryTerms  String?
-  specialties    String[]     @default([])
-  notes          String?
-  status         String       @default("active")
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                  String       @id @default(uuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  name                String
+  type                String // "supplier" | "carrier" | "other"
+  country             String?
+  city                String?
+  contactPerson       String?
+  phone               String?
+  email               String?
+  address             String?
+  website             String?
+  paymentTerms        String?
+  deliveryTerms       String?
+  supplierType        String?
+  supplierStatus      String?
+  whatsapp            String?
+  wechat              String?
+  preferredCurrency   String?
+  incoterms           String[]     @default([])
+  averageLeadTimeDays Int?
+  scoreReliability    Int?
+  scoreQuality        Int?
+  scoreDelivery       Int?
+  scoreCommunication  Int?
+  specialties         String[]     @default([])
+  notes               String?
+  status              String       @default("active")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  suppliedVehicles Vehicle[]         @relation("VehicleSupplier")
+  suppliedVehicles Vehicle[]             @relation("VehicleSupplier")
   purchases        Purchase[]
   chinaOffers      ChinaOffer[]
   shipments        Shipment[]
   supplierPayments SupplierPayment[]
-  customsFiles     CustomsFile[]     @relation("CustomsBroker")
+  customsFiles     CustomsFile[]         @relation("CustomsBroker")
   gedLinks         GedDocumentLink[]
+  contacts         SupplierContact[]
+  bankAccounts     SupplierBankAccount[]
+  incidents        SupplierIncident[]
+  dossierLinks     SupplierDossierLink[]
 
   @@index([organizationId, type, status])
+  @@index([organizationId, type, supplierStatus])
+}
+
+model SupplierContact {
+  id              String       @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId      String
+  supplier        Partner      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  name            String
+  role            String?
+  phone           String?
+  phoneNormalized String?
+  email           String?
+  whatsapp        String?
+  wechat          String?
+  preferred       Boolean      @default(false)
+  active          Boolean      @default(true)
+  createdBy       String
+  creator         User         @relation("SupplierContactCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([supplierId, phoneNormalized])
+  @@index([organizationId, supplierId, active])
+}
+
+model SupplierBankAccount {
+  id               String       @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId       String
+  supplier         Partner      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  label            String
+  bankName         String?
+  currency         String
+  encryptedDetails String
+  lastFour         String?
+  status           String       @default("ACTIVE")
+  createdBy        String
+  creator          User         @relation("SupplierBankCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  updatedBy        String
+  updater          User         @relation("SupplierBankUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+  archivedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([organizationId, supplierId, status])
+}
+
+model SupplierIncident {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId     String
+  supplier       Partner      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  type           String
+  severity       String
+  title          String
+  description    String?
+  status         String       @default("OPEN")
+  occurredAt     DateTime
+  reportedBy     String
+  reporter       User         @relation("SupplierIncidentReporter", fields: [reportedBy], references: [id], onDelete: Restrict)
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  resolver       User?        @relation("SupplierIncidentResolver", fields: [resolvedBy], references: [id], onDelete: Restrict)
+  resolution     String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, supplierId, status, occurredAt])
+}
+
+model SupplierDossierLink {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId     String
+  supplier       Partner      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  dossierId      String
+  dossier        Dossier      @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  source         String
+  createdBy      String
+  creator        User         @relation("SupplierDossierLinkCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@unique([supplierId, dossierId])
+  @@index([organizationId, dossierId])
 }
 
 model CommerceSequence {
@@ -847,11 +965,11 @@ model CommerceSequence {
 }
 
 model ChinaOffer {
-  id                 String       @id @default(uuid())
+  id                 String              @id @default(uuid())
   organizationId     String
-  organization       Organization @relation(fields: [organizationId], references: [id])
+  organization       Organization        @relation(fields: [organizationId], references: [id])
   supplierId         String
-  supplier           Partner      @relation(fields: [supplierId], references: [id])
+  supplier           Partner             @relation(fields: [supplierId], references: [id])
   reference          String
   brand              String
   model              String
@@ -860,28 +978,87 @@ model ChinaOffer {
   condition          String
   mileage            Int?
   specification      Json
-  purchasePrice      Decimal?     @db.Decimal(12, 2)
-  cifPrice           Decimal      @db.Decimal(12, 2)
-  ddpPrice           Decimal      @db.Decimal(12, 2)
+  purchasePrice      Decimal?            @db.Decimal(12, 2)
+  supplierPrice      Decimal?            @db.Decimal(12, 2)
+  cifPrice           Decimal             @db.Decimal(12, 2)
+  ddpPrice           Decimal             @db.Decimal(12, 2)
   currency           String
+  supplierReference  String?
+  incoterm           String?
+  location           String?
+  leadTimeDays       Int?
+  paymentConditions  String?
+  vin                String?
+  offerStatus        String?
+  currentRevisionId  String?             @unique
+  currentRevision    ChinaOfferRevision? @relation("ChinaOfferCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
   validFrom          DateTime
   validUntil         DateTime
   availableQuantity  Int
-  reservedQuantity   Int          @default(0)
+  reservedQuantity   Int                 @default(0)
   estimatedDelayDays Int?
-  status             String       @default("available")
+  status             String              @default("available")
   notes              String?
   archivedAt         DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
-  reservations OfferReservation[]
-  photos       OfferPhoto[]
-  gedLinks     GedDocumentLink[]
+  reservations    OfferReservation[]
+  photos          OfferPhoto[]
+  gedLinks        GedDocumentLink[]
+  revisions       ChinaOfferRevision[]      @relation("ChinaOfferRevisions")
+  statusHistory   ChinaOfferStatusHistory[]
+  sourcePurchases Purchase[]                @relation("PurchaseSourceOffer")
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, validUntil])
   @@index([organizationId, supplierId, createdAt])
+  @@index([organizationId, offerStatus, validUntil])
+}
+
+model ChinaOfferRevision {
+  id                String       @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  offerId           String
+  offer             ChinaOffer   @relation("ChinaOfferRevisions", fields: [offerId], references: [id], onDelete: Restrict)
+  revisionNumber    Int
+  supplierPrice     Decimal      @db.Decimal(12, 2)
+  currency          String
+  incoterm          String?
+  location          String?
+  quantity          Int
+  leadTimeDays      Int?
+  validFrom         DateTime
+  validUntil        DateTime
+  paymentConditions String?
+  snapshot          Json
+  reason            String
+  createdBy         String
+  creator           User         @relation("ChinaOfferRevisionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt         DateTime     @default(now())
+
+  currentFor      ChinaOffer? @relation("ChinaOfferCurrentRevision")
+  sourcePurchases Purchase[]
+
+  @@unique([offerId, revisionNumber])
+  @@index([organizationId, offerId, createdAt])
+}
+
+model ChinaOfferStatusHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  offerId        String
+  offer          ChinaOffer   @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  fromStatus     String?
+  toStatus       String
+  reason         String?
+  actorId        String
+  actor          User         @relation("ChinaOfferStatusActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, offerId, createdAt])
 }
 
 model OfferReservation {
@@ -956,6 +1133,7 @@ model Dossier {
   tasks              Task[]
   checkpointEvidence DossierCheckpointEvidence[]
   gedLinks           GedDocumentLink[]
+  supplierLinks      SupplierDossierLink[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
@@ -1388,34 +1566,38 @@ model Reservation {
 // ──────────────────────────────────────────────
 
 model Purchase {
-  id                 String            @id @default(uuid())
-  organizationId     String
-  organization       Organization      @relation(fields: [organizationId], references: [id])
-  purchaseNumber     String
-  supplierId         String
-  supplier           Partner           @relation(fields: [supplierId], references: [id])
-  vehicleId          String
-  vehicle            Vehicle           @relation(fields: [vehicleId], references: [id])
-  purchasePrice      Decimal           @db.Decimal(12, 2)
-  currency           String
-  status             String            @default("pending")
-  purchaseDate       DateTime?
-  vehicleRequestId   String?           @unique
-  vehicleRequest     VehicleRequest?   @relation(fields: [vehicleRequestId], references: [id])
-  candidateId        String?           @unique
-  candidate          VehicleCandidate? @relation(fields: [candidateId], references: [id])
-  dossierId          String?
-  dossier            Dossier?          @relation(fields: [dossierId], references: [id])
-  orderId            String?
-  order              Order?            @relation(fields: [orderId], references: [id])
-  confirmedBy        String?
-  confirmer          User?             @relation("PurchaseConfirmer", fields: [confirmedBy], references: [id])
-  supplierSnapshot   Json?
-  vehicleSnapshot    Json?
-  offerReservationId String?           @unique
-  offerReservation   OfferReservation? @relation(fields: [offerReservationId], references: [id])
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                    String              @id @default(uuid())
+  organizationId        String
+  organization          Organization        @relation(fields: [organizationId], references: [id])
+  purchaseNumber        String
+  supplierId            String
+  supplier              Partner             @relation(fields: [supplierId], references: [id])
+  vehicleId             String
+  vehicle               Vehicle             @relation(fields: [vehicleId], references: [id])
+  purchasePrice         Decimal             @db.Decimal(12, 2)
+  currency              String
+  status                String              @default("pending")
+  purchaseDate          DateTime?
+  vehicleRequestId      String?             @unique
+  vehicleRequest        VehicleRequest?     @relation(fields: [vehicleRequestId], references: [id])
+  candidateId           String?             @unique
+  candidate             VehicleCandidate?   @relation(fields: [candidateId], references: [id])
+  dossierId             String?
+  dossier               Dossier?            @relation(fields: [dossierId], references: [id])
+  orderId               String?
+  order                 Order?              @relation(fields: [orderId], references: [id])
+  confirmedBy           String?
+  confirmer             User?               @relation("PurchaseConfirmer", fields: [confirmedBy], references: [id])
+  supplierSnapshot      Json?
+  vehicleSnapshot       Json?
+  offerReservationId    String?             @unique
+  offerReservation      OfferReservation?   @relation(fields: [offerReservationId], references: [id])
+  sourceOfferId         String?
+  sourceOffer           ChinaOffer?         @relation("PurchaseSourceOffer", fields: [sourceOfferId], references: [id], onDelete: Restrict)
+  sourceOfferRevisionId String?
+  sourceOfferRevision   ChinaOfferRevision? @relation(fields: [sourceOfferRevisionId], references: [id], onDelete: Restrict)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
   payments SupplierPayment[]
   costs    Cost[]
@@ -1427,6 +1609,8 @@ model Purchase {
   @@index([vehicleId])
   @@index([dossierId])
   @@index([orderId])
+  @@index([sourceOfferId])
+  @@index([sourceOfferRevisionId])
 }
 
 model SupplierPayment {

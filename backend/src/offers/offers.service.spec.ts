@@ -15,6 +15,13 @@ describe('OffersService', () => {
         count: jest.fn(),
         update: jest.fn(),
       },
+      chinaOfferRevision: {
+        aggregate: jest.fn().mockResolvedValue({ _max: { revisionNumber: 0 } }),
+        create: jest.fn(),
+      },
+      chinaOfferStatusHistory: { create: jest.fn() },
+      supplierDossierLink: { upsert: jest.fn() },
+      dossier: { findFirst: jest.fn() },
       partner: { findFirst: jest.fn() },
       commerceSequence: { upsert: jest.fn().mockResolvedValue({ value: 1 }) },
       offerReservation: {
@@ -110,5 +117,54 @@ describe('OffersService', () => {
       where: { id: 'offer-1' },
       data: { reservedQuantity: { decrement: 1 } },
     });
+  });
+
+  it('records a controlled supplier-offer workflow transition', async () => {
+    prisma.chinaOffer.findFirst.mockResolvedValue({
+      id: 'offer-1',
+      organizationId: 'org-1',
+      offerStatus: 'RECEIVED',
+      archivedAt: null,
+      validFrom: new Date('2026-01-01'),
+      validUntil: new Date('2027-01-01'),
+      availableQuantity: 1,
+      reservedQuantity: 0,
+    });
+    prisma.chinaOffer.update.mockResolvedValue({
+      id: 'offer-1',
+      offerStatus: 'UNDER_VERIFICATION',
+      archivedAt: null,
+      validFrom: new Date('2026-01-01'),
+      validUntil: new Date('2027-01-01'),
+      availableQuantity: 1,
+      reservedQuantity: 0,
+    });
+
+    const result = await service.transition(
+      'offer-1',
+      { status: 'UNDER_VERIFICATION', reason: 'Documents checked' },
+      'user-1',
+      'org-1',
+    );
+
+    expect(result.status).toBe('UNDER_VERIFICATION');
+    expect(prisma.chinaOfferStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fromStatus: 'RECEIVED',
+        toStatus: 'UNDER_VERIFICATION',
+        actorId: 'user-1',
+      }),
+    });
+  });
+
+  it('rejects an invalid offer workflow transition', async () => {
+    prisma.chinaOffer.findFirst.mockResolvedValue({
+      id: 'offer-1',
+      organizationId: 'org-1',
+      offerStatus: 'RECEIVED',
+    });
+    await expect(
+      service.transition('offer-1', { status: 'RESERVED' }, 'user-1', 'org-1'),
+    ).rejects.toThrow(ConflictException);
   });
 });

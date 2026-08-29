@@ -10,10 +10,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import {
   CreateOfferDto,
+  AssignOfferDto,
+  CreatePurchaseFromOfferDto,
   FilterOfferDto,
   ReserveOfferDto,
   MaterializeOfferDto,
   UpdateOfferDto,
+  TransitionOfferDto,
 } from './dto/offer.dto';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierStatus, DossierType } from '@auto-import/contracts';
@@ -24,6 +27,14 @@ import {
 import type { UploadedBufferFile } from '../documents/documents.service';
 
 type OfferRow = { id: string };
+
+const OFFER_TRANSITIONS: Record<string, readonly string[]> = {
+  RECEIVED: ['UNDER_VERIFICATION', 'REJECTED'],
+  UNDER_VERIFICATION: ['VALIDATED', 'REJECTED'],
+  VALIDATED: ['RESERVED', 'REJECTED'],
+  RESERVED: ['VALIDATED', 'REJECTED'],
+  REJECTED: [],
+};
 
 @Injectable()
 export class OffersService {
@@ -94,9 +105,16 @@ export class OffersService {
   private present<T extends Parameters<OffersService['derivedStatus']>[0]>(
     offer: T,
   ) {
+    const availabilityStatus = this.derivedStatus(offer);
     return {
       ...offer,
-      status: this.derivedStatus(offer),
+      status:
+        availabilityStatus === 'expired'
+          ? 'EXPIRED'
+          : ((offer as T & { offerStatus?: string | null }).offerStatus ??
+            'RECEIVED'),
+      legacyAvailabilityStatus: availabilityStatus,
+      customerPricingAuthority: 'TARIFICATION',
       remainingQuantity: Math.max(
         0,
         offer.availableQuantity - offer.reservedQuantity,
@@ -133,22 +151,111 @@ export class OffersService {
         id: supplierId,
         organizationId,
         type: 'supplier',
-        status: 'active',
+        OR: [
+          { supplierStatus: 'ACTIVE' },
+          { supplierStatus: null, status: 'active' },
+        ],
       },
       select: { id: true },
     });
     if (!supplier) throw new NotFoundException('Active supplier not found');
   }
 
-  async create(dto: CreateOfferDto, organizationId: string) {
+  private supplierPrice(dto: {
+    supplierPrice?: number;
+    purchasePrice?: number;
+    cifPrice?: number;
+  }) {
+    const price = dto.supplierPrice ?? dto.purchasePrice ?? dto.cifPrice;
+    if (price == null || price <= 0) {
+      throw new BadRequestException('A positive supplier price is required');
+    }
+    return price;
+  }
+
+  private async appendRevision(
+    tx: Prisma.TransactionClient,
+    offer: {
+      id: string;
+      organizationId: string;
+      supplierPrice: Prisma.Decimal | null;
+      purchasePrice: Prisma.Decimal | null;
+      currency: string;
+      incoterm: string | null;
+      location: string | null;
+      availableQuantity: number;
+      leadTimeDays: number | null;
+      estimatedDelayDays: number | null;
+      validFrom: Date;
+      validUntil: Date;
+      paymentConditions: string | null;
+      brand: string;
+      model: string;
+      version: string | null;
+      year: number | null;
+      condition: string;
+      mileage: number | null;
+      specification: Prisma.JsonValue;
+    },
+    userId: string,
+    reason: string,
+  ) {
+    const latest = await tx.chinaOfferRevision.aggregate({
+      where: { offerId: offer.id },
+      _max: { revisionNumber: true },
+    });
+    const supplierPrice = offer.supplierPrice ?? offer.purchasePrice;
+    if (!supplierPrice) throw new ConflictException('Supplier price missing');
+    const revision = await tx.chinaOfferRevision.create({
+      data: {
+        organizationId: offer.organizationId,
+        offerId: offer.id,
+        revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
+        supplierPrice,
+        currency: offer.currency,
+        incoterm: offer.incoterm,
+        location: offer.location,
+        quantity: offer.availableQuantity,
+        leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
+        validFrom: offer.validFrom,
+        validUntil: offer.validUntil,
+        paymentConditions: offer.paymentConditions,
+        reason,
+        createdBy: userId,
+        snapshot: {
+          brand: offer.brand,
+          model: offer.model,
+          version: offer.version,
+          year: offer.year,
+          condition: offer.condition,
+          mileage: offer.mileage,
+          specification: offer.specification,
+        },
+      },
+    });
+    await tx.chinaOffer.update({
+      where: { id: offer.id },
+      data: { currentRevisionId: revision.id },
+    });
+    return revision;
+  }
+
+  async create(dto: CreateOfferDto, organizationId: string, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
       await this.requireSupplier(tx, dto.supplierId, organizationId);
       const validFrom = new Date(dto.validFrom);
       const validUntil = new Date(dto.validUntil);
       this.validateDates(validFrom, validUntil);
+      const supplierPrice = this.supplierPrice(dto);
       const offer = await tx.chinaOffer.create({
         data: {
           ...dto,
+          supplierPrice,
+          purchasePrice: supplierPrice,
+          cifPrice: dto.cifPrice ?? supplierPrice,
+          ddpPrice: dto.ddpPrice ?? supplierPrice,
+          leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
+          offerStatus: 'RECEIVED',
           specification: dto.specification as Prisma.InputJsonValue,
           validFrom,
           validUntil,
@@ -157,6 +264,7 @@ export class OffersService {
         },
         include: { supplier: true },
       });
+      if (userId) await this.appendRevision(tx, offer, userId, 'Offre reçue');
       return this.present(offer);
     });
   }
@@ -174,9 +282,16 @@ export class OffersService {
         const validFrom = new Date(dto.validFrom);
         const validUntil = new Date(dto.validUntil);
         this.validateDates(validFrom, validUntil);
+        const supplierPrice = this.supplierPrice(dto);
         const offer = await tx.chinaOffer.create({
           data: {
             ...dto,
+            supplierPrice,
+            purchasePrice: supplierPrice,
+            cifPrice: dto.cifPrice ?? supplierPrice,
+            ddpPrice: dto.ddpPrice ?? supplierPrice,
+            leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
+            offerStatus: 'RECEIVED',
             specification: dto.specification as Prisma.InputJsonValue,
             validFrom,
             validUntil,
@@ -184,6 +299,7 @@ export class OffersService {
             reference: await this.nextReference(tx, organizationId),
           },
         });
+        await this.appendRevision(tx, offer, userId, 'Offre reçue');
         for (const [sortOrder, item] of stored.entries()) {
           const asset = await tx.fileAsset.create({
             data: {
@@ -439,6 +555,13 @@ export class OffersService {
       where: { id, organizationId },
       include: {
         supplier: true,
+        revisions: {
+          orderBy: { revisionNumber: 'desc' },
+          include: {
+            creator: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
+        statusHistory: { orderBy: { createdAt: 'desc' } },
         reservations: {
           include: {
             client: true,
@@ -453,7 +576,12 @@ export class OffersService {
     return this.present(offer);
   }
 
-  async update(id: string, dto: UpdateOfferDto, organizationId: string) {
+  async update(
+    id: string,
+    dto: UpdateOfferDto,
+    organizationId: string,
+    userId?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.chinaOffer.findFirst({
         where: { id, organizationId },
@@ -476,10 +604,62 @@ export class OffersService {
           'Quantity cannot be lower than active reservations',
         );
       }
+      const {
+        revisionReason,
+        cifPrice: _legacyCifPrice,
+        ddpPrice: _legacyDdpPrice,
+        ...changes
+      } = dto;
+      void _legacyCifPrice;
+      void _legacyDdpPrice;
+      const revisionFields: Array<keyof UpdateOfferDto> = [
+        'supplierPrice',
+        'purchasePrice',
+        'currency',
+        'incoterm',
+        'location',
+        'availableQuantity',
+        'leadTimeDays',
+        'estimatedDelayDays',
+        'validFrom',
+        'validUntil',
+        'paymentConditions',
+        'brand',
+        'model',
+        'version',
+        'year',
+        'condition',
+        'mileage',
+        'specification',
+      ];
+      const commercialChange = revisionFields.some(
+        (field) => dto[field] !== undefined,
+      );
+      if (commercialChange && !revisionReason?.trim()) {
+        throw new BadRequestException({
+          code: 'OFFER_REVISION_REASON_REQUIRED',
+          message: 'A revision reason is required for offer changes',
+        });
+      }
+      const supplierPrice =
+        dto.supplierPrice ??
+        dto.purchasePrice ??
+        current.supplierPrice?.toNumber();
+      if (commercialChange && userId && !current.currentRevisionId) {
+        await this.appendRevision(
+          tx,
+          current,
+          userId,
+          `Base historique avant modification: ${revisionReason!.trim()}`,
+        );
+      }
       const offer = await tx.chinaOffer.update({
         where: { id },
         data: {
-          ...dto,
+          ...changes,
+          ...(supplierPrice != null
+            ? { supplierPrice, purchasePrice: supplierPrice }
+            : {}),
           specification: dto.specification as Prisma.InputJsonValue | undefined,
           validFrom,
           validUntil,
@@ -487,6 +667,9 @@ export class OffersService {
         },
         include: { supplier: true },
       });
+      if (commercialChange && userId) {
+        await this.appendRevision(tx, offer, userId, revisionReason!.trim());
+      }
       return this.present(offer);
     });
   }
@@ -531,7 +714,7 @@ export class OffersService {
             throw new ConflictException(
               'Offer is expired, archived, or has insufficient quantity',
             );
-          return tx.offerReservation.create({
+          const reservation = await tx.offerReservation.create({
             data: {
               organizationId,
               offerId: id,
@@ -542,6 +725,11 @@ export class OffersService {
             },
             include: { offer: true, client: true },
           });
+          await tx.chinaOffer.update({
+            where: { id },
+            data: { offerStatus: 'RESERVED' },
+          });
+          return reservation;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -741,6 +929,8 @@ export class OffersService {
             dossierId: reservation.dossierId,
             confirmedBy: userId,
             offerReservationId: reservation.id,
+            sourceOfferId: reservation.offer.id,
+            sourceOfferRevisionId: reservation.offer.currentRevisionId,
             supplierSnapshot: {
               id: reservation.offer.supplier.id,
               name: reservation.offer.supplier.name,
@@ -801,6 +991,175 @@ export class OffersService {
       }
       return expired.length;
     });
+  }
+
+  async transition(
+    id: string,
+    dto: TransitionOfferDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const offer = await this.prisma.chinaOffer.findFirst({
+      where: { id, organizationId },
+    });
+    if (!offer) throw new NotFoundException('Offer not found');
+    const current = offer.offerStatus ?? 'RECEIVED';
+    if (current === dto.status) return this.present(offer);
+    if (!OFFER_TRANSITIONS[current]?.includes(dto.status)) {
+      throw new ConflictException({
+        code: 'OFFER_INVALID_TRANSITION',
+        message: `${current} cannot transition to ${dto.status}`,
+      });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.chinaOffer.update({
+        where: { id },
+        data: { offerStatus: dto.status },
+      });
+      await tx.chinaOfferStatusHistory.create({
+        data: {
+          organizationId,
+          offerId: id,
+          fromStatus: current,
+          toStatus: dto.status,
+          reason: dto.reason,
+          actorId: userId,
+        },
+      });
+      return this.present(updated);
+    });
+  }
+
+  async assignToDossier(
+    id: string,
+    dto: AssignOfferDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const run = () =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.offerReservation.findUnique({
+            where: { dossierId: dto.dossierId },
+          });
+          if (existing) {
+            if (existing.offerId !== id) {
+              throw new ConflictException(
+                'Dossier is assigned to another offer',
+              );
+            }
+            return existing;
+          }
+          const offer = await tx.chinaOffer.findFirst({
+            where: {
+              id,
+              organizationId,
+              archivedAt: null,
+              validUntil: { gte: new Date() },
+              offerStatus: { in: ['VALIDATED', 'RESERVED'] },
+            },
+          });
+          if (!offer) {
+            throw new ConflictException('Validated active offer required');
+          }
+          const dossier = await tx.dossier.findFirst({
+            where: { id: dto.dossierId, organizationId },
+            select: { id: true, clientId: true },
+          });
+          if (!dossier) throw new NotFoundException('Dossier not found');
+          const rows = await tx.$queryRaw<OfferRow[]>`
+            UPDATE "ChinaOffer"
+            SET "reservedQuantity" = "reservedQuantity" + 1,
+                "offerStatus" = 'RESERVED',
+                "updatedAt" = NOW()
+            WHERE "id" = ${id} AND "organizationId" = ${organizationId}
+              AND "reservedQuantity" + 1 <= "availableQuantity"
+            RETURNING "id"`;
+          if (rows.length !== 1) {
+            throw new ConflictException('Offer has insufficient quantity');
+          }
+          const reservation = await tx.offerReservation.create({
+            data: {
+              organizationId,
+              offerId: id,
+              clientId: dossier.clientId,
+              dossierId: dossier.id,
+              quantity: 1,
+              expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+              createdBy: userId,
+            },
+          });
+          await tx.supplierDossierLink.upsert({
+            where: {
+              supplierId_dossierId: {
+                supplierId: offer.supplierId,
+                dossierId: dossier.id,
+              },
+            },
+            create: {
+              organizationId,
+              supplierId: offer.supplierId,
+              dossierId: dossier.id,
+              source: 'CHINA_OFFER',
+              createdBy: userId,
+            },
+            update: {},
+          });
+          if (offer.offerStatus !== 'RESERVED') {
+            await tx.chinaOfferStatusHistory.create({
+              data: {
+                organizationId,
+                offerId: id,
+                fromStatus: offer.offerStatus,
+                toStatus: 'RESERVED',
+                reason: `Assigned to dossier ${dossier.id}`,
+                actorId: userId,
+              },
+            });
+          }
+          return reservation;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    try {
+      return await run();
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        ['P2002', 'P2034'].includes(error.code)
+      ) {
+        const existing = await this.prisma.offerReservation.findUnique({
+          where: { dossierId: dto.dossierId },
+        });
+        if (existing?.offerId === id) return existing;
+      }
+      throw error;
+    }
+  }
+
+  async createPurchaseFromOffer(
+    id: string,
+    dto: CreatePurchaseFromOfferDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    const reservation = await this.assignToDossier(
+      id,
+      dto,
+      userId,
+      organizationId,
+    );
+    return this.materialize(
+      reservation.id,
+      {
+        vin: dto.vin,
+        purchasePrice: dto.purchasePrice,
+        sellingPrice: dto.sellingPrice,
+        currentLocationId: dto.currentLocationId,
+      },
+      userId,
+      organizationId,
+    );
   }
 
   async statistics(organizationId: string) {

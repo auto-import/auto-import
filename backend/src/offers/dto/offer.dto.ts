@@ -39,9 +39,15 @@ export class CreateOfferDto {
   @IsObject()
   specification: Record<string, unknown>;
   @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
-  @Type(() => Number) @Min(0) cifPrice: number;
-  @Type(() => Number) @Min(0) ddpPrice: number;
+  @IsOptional() @Type(() => Number) @Min(0) supplierPrice?: number;
+  @IsOptional() @Type(() => Number) @Min(0) cifPrice?: number;
+  @IsOptional() @Type(() => Number) @Min(0) ddpPrice?: number;
   @IsIn(currencies) currency: string;
+  @IsOptional() @IsString() supplierReference?: string;
+  @IsOptional() @IsString() incoterm?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() paymentConditions?: string;
+  @IsOptional() @IsString() vin?: string;
   @IsDateString() validFrom: string;
   @IsDateString() validUntil: string;
   @Type(() => Number) @IsInt() @Min(1) availableQuantity: number;
@@ -50,6 +56,7 @@ export class CreateOfferDto {
   @IsInt()
   @Min(0)
   estimatedDelayDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) leadTimeDays?: number;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -68,9 +75,15 @@ export class UpdateOfferDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) mileage?: number;
   @IsOptional() @IsObject() specification?: Record<string, unknown>;
   @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
+  @IsOptional() @Type(() => Number) @Min(0) supplierPrice?: number;
   @IsOptional() @Type(() => Number) @Min(0) cifPrice?: number;
   @IsOptional() @Type(() => Number) @Min(0) ddpPrice?: number;
   @IsOptional() @IsIn(currencies) currency?: string;
+  @IsOptional() @IsString() supplierReference?: string;
+  @IsOptional() @IsString() incoterm?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() paymentConditions?: string;
+  @IsOptional() @IsString() vin?: string;
   @IsOptional() @IsDateString() validFrom?: string;
   @IsOptional() @IsDateString() validUntil?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) availableQuantity?: number;
@@ -79,6 +92,8 @@ export class UpdateOfferDto {
   @IsInt()
   @Min(0)
   estimatedDelayDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) leadTimeDays?: number;
+  @IsOptional() @IsString() revisionReason?: string;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -100,6 +115,24 @@ export class ReleaseOfferDto {
 }
 
 export class MaterializeOfferDto {
+  @IsString() vin: string;
+  @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
+  @IsOptional() @Type(() => Number) @Min(0) sellingPrice?: number;
+  @IsOptional() @IsUUID() currentLocationId?: string;
+}
+
+export class TransitionOfferDto {
+  @IsIn(['RECEIVED', 'UNDER_VERIFICATION', 'VALIDATED', 'REJECTED', 'RESERVED'])
+  status: string;
+  @IsOptional() @IsString() reason?: string;
+}
+
+export class AssignOfferDto {
+  @IsUUID() dossierId: string;
+  @IsOptional() @IsDateString() expiresAt?: string;
+}
+
+export class CreatePurchaseFromOfferDto extends AssignOfferDto {
   @IsString() vin: string;
   @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
   @IsOptional() @Type(() => Number) @Min(0) sellingPrice?: number;

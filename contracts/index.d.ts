@@ -342,8 +342,15 @@ export const Permission: {
   readonly PURCHASES_WRITE: "purchases:write";
   readonly PARTNERS_READ: "partners:read";
   readonly PARTNERS_WRITE: "partners:write";
+  readonly SUPPLIERS_VERIFY: "suppliers:verify";
+  readonly SUPPLIERS_BANK_METADATA: "suppliersBank:metadata";
+  readonly SUPPLIERS_BANK_REVEAL: "suppliersBank:reveal";
+  readonly SUPPLIERS_BANK_WRITE: "suppliersBank:write";
+  readonly SUPPLIERS_INCIDENTS_MANAGE: "suppliersIncidents:manage";
+  readonly SUPPLIERS_SCORE_MANAGE: "suppliersScore:manage";
   readonly OFFERS_READ: "offers:read";
   readonly OFFERS_WRITE: "offers:write";
+  readonly OFFERS_TRANSITION: "offers:transition";
   readonly OFFERS_READ_PURCHASE_PRICE: "offers:readPurchasePrice";
   readonly OFFERS_READ_MARGIN: "offers:readMargin";
   readonly PAYMENTS_READ: "payments:read";

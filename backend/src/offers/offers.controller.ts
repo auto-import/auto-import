@@ -21,11 +21,14 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateOfferDto,
+  AssignOfferDto,
+  CreatePurchaseFromOfferDto,
   FilterOfferDto,
   MaterializeOfferDto,
   ReleaseOfferDto,
   ReserveOfferDto,
   UpdateOfferDto,
+  TransitionOfferDto,
 } from './dto/offer.dto';
 import { OffersService } from './offers.service';
 
@@ -125,7 +128,42 @@ export class OffersController {
     @Body() dto: UpdateOfferDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.offers.update(id, dto, user.organizationId);
+    return this.offers.update(id, dto, user.organizationId, user.id);
+  }
+
+  @Post(':id/status')
+  @RequirePermission(Permission.OFFERS_TRANSITION)
+  transition(
+    @Param('id') id: string,
+    @Body() dto: TransitionOfferDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.transition(id, dto, user.id, user.organizationId);
+  }
+
+  @Post(':id/assign')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  assign(
+    @Param('id') id: string,
+    @Body() dto: AssignOfferDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.assignToDossier(id, dto, user.id, user.organizationId);
+  }
+
+  @Post(':id/create-purchase')
+  @RequirePermission(Permission.PURCHASES_WRITE)
+  createPurchase(
+    @Param('id') id: string,
+    @Body() dto: CreatePurchaseFromOfferDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.createPurchaseFromOffer(
+      id,
+      dto,
+      user.id,
+      user.organizationId,
+    );
   }
 
   @Delete(':id')

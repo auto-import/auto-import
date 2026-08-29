@@ -23,6 +23,12 @@ const blank = {
   website: "",
   paymentTerms: "",
   deliveryTerms: "",
+  supplierType: "VEHICLE",
+  whatsapp: "",
+  wechat: "",
+  preferredCurrency: "USD",
+  incoterms: "",
+  averageLeadTimeDays: "",
   specialties: "",
   notes: "",
 };
@@ -82,6 +88,12 @@ export default function SuppliersWorkspace() {
             website: partner.website ?? "",
             paymentTerms: partner.paymentTerms ?? "",
             deliveryTerms: partner.deliveryTerms ?? "",
+            supplierType: partner.supplierType ?? "VEHICLE",
+            whatsapp: partner.whatsapp ?? "",
+            wechat: partner.wechat ?? "",
+            preferredCurrency: partner.preferredCurrency ?? "USD",
+            incoterms: (partner.incoterms ?? []).join(", "),
+            averageLeadTimeDays: String(partner.averageLeadTimeDays ?? ""),
             specialties: partner.specialties.join(", "),
             notes: partner.notes ?? "",
           }
@@ -100,6 +112,13 @@ export default function SuppliersWorkspace() {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean),
+      incoterms: form.incoterms
+        .split(",")
+        .map((value) => value.trim().toUpperCase())
+        .filter(Boolean),
+      averageLeadTimeDays: form.averageLeadTimeDays
+        ? Number(form.averageLeadTimeDays)
+        : undefined,
     };
     try {
       if (editing) await commerceApi.partners.update(editing.id, payload);
@@ -173,7 +192,18 @@ export default function SuppliersWorkspace() {
               {items.map((partner) => (
                 <button
                   key={partner.id}
-                  onClick={() => setSelected(partner)}
+                  onClick={() =>
+                    void commerceApi.partners
+                      .get(partner.id)
+                      .then(setSelected)
+                      .catch((cause) =>
+                        setError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Chargement impossible",
+                        ),
+                      )
+                  }
                   className="grid w-full grid-cols-[1fr_auto] gap-4 p-4 text-left hover:bg-surface"
                 >
                   <div>
@@ -191,7 +221,7 @@ export default function SuppliersWorkspace() {
                         partner.status === "active" ? "text-green-700" : ""
                       }
                     >
-                      {partner.status}
+                      {partner.supplierStatus ?? partner.status}
                     </p>
                   </div>
                 </button>
@@ -234,6 +264,12 @@ export default function SuppliersWorkspace() {
                   "website",
                   "paymentTerms",
                   "deliveryTerms",
+                  "supplierType",
+                  "whatsapp",
+                  "wechat",
+                  "preferredCurrency",
+                  "incoterms",
+                  "averageLeadTimeDays",
                   "specialties",
                 ] as const
               ).map((key) => (
@@ -258,6 +294,12 @@ export default function SuppliersWorkspace() {
                         website: "Site web",
                         paymentTerms: "Conditions de paiement",
                         deliveryTerms: "Conditions de livraison",
+                        supplierType: "Type fournisseur",
+                        whatsapp: "WhatsApp",
+                        wechat: "WeChat",
+                        preferredCurrency: "Devise préférée",
+                        incoterms: "Incoterms (séparés par des virgules)",
+                        averageLeadTimeDays: "Délai moyen (jours)",
                         specialties: "Spécialités (séparées par des virgules)",
                       }[key]
                     }
@@ -265,6 +307,7 @@ export default function SuppliersWorkspace() {
                   <input
                     required={key === "name"}
                     className={inputClass}
+                    type={key === "averageLeadTimeDays" ? "number" : "text"}
                     value={form[key]}
                     onChange={(e) =>
                       setForm((current) => ({
@@ -319,6 +362,17 @@ export default function SuppliersWorkspace() {
             </div>
             <dl className="grid gap-3 text-sm md:grid-cols-2">
               <div>
+                <dt className="text-muted">Statut de vérification</dt>
+                <dd>{selected.supplierStatus ?? "À rapprocher"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted">Type / devise</dt>
+                <dd>
+                  {selected.supplierType ?? "—"} ·{" "}
+                  {selected.preferredCurrency ?? "—"}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-muted">Contact</dt>
                 <dd>{selected.contactPerson || "—"}</dd>
               </div>
@@ -335,6 +389,42 @@ export default function SuppliersWorkspace() {
                 <dd>{selected.paymentTerms || "—"}</dd>
               </div>
             </dl>
+            {selected.kpis && (
+              <div className="grid grid-cols-2 gap-3 rounded-card border p-3 text-sm md:grid-cols-4">
+                <div>
+                  <p className="text-muted">Offres actives</p>
+                  <b>{selected.kpis.activeOffers}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Achats</p>
+                  <b>{selected.kpis.totalPurchases}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Véhicules</p>
+                  <b>{selected.kpis.vehicles}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Incidents ouverts</p>
+                  <b>{selected.kpis.openIncidents}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Montant acheté</p>
+                  <b>{selected.kpis.amountPurchased}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Solde fournisseur</p>
+                  <b>{selected.kpis.supplierBalance}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Délai moyen</p>
+                  <b>{selected.kpis.averageLeadTimeDays ?? "—"}</b>
+                </div>
+                <div>
+                  <p className="text-muted">Score</p>
+                  <b>{selected.kpis.score ?? "—"}</b>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 className="rounded-button border px-4 py-2 text-sm"

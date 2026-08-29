@@ -25,6 +25,33 @@ export interface ApiPartner {
   specialties: string[];
   notes?: string | null;
   status: string;
+  supplierType?: string | null;
+  supplierStatus?: "TO_VERIFY" | "VERIFIED" | "ACTIVE" | "SUSPENDED" | null;
+  whatsapp?: string | null;
+  wechat?: string | null;
+  preferredCurrency?: string | null;
+  incoterms?: string[];
+  averageLeadTimeDays?: number | null;
+  scoreReliability?: number | null;
+  scoreQuality?: number | null;
+  scoreDelivery?: number | null;
+  scoreCommunication?: number | null;
+  contacts?: Array<Record<string, unknown>>;
+  incidents?: Array<Record<string, unknown>>;
+  dossierLinks?: Array<Record<string, unknown>>;
+  purchases?: Array<Record<string, unknown>>;
+  supplierPayments?: Array<Record<string, unknown>>;
+  gedLinks?: Array<Record<string, unknown>>;
+  kpis?: {
+    activeOffers: number;
+    totalPurchases: number;
+    amountPurchased: number;
+    vehicles: number;
+    averageLeadTimeDays?: number | null;
+    supplierBalance: number;
+    openIncidents: number;
+    score?: number | null;
+  };
   _count?: { suppliedVehicles: number; chinaOffers: number; purchases: number };
 }
 
@@ -109,8 +136,18 @@ export interface ApiOffer {
   mileage?: number | null;
   specification: Record<string, unknown>;
   purchasePrice?: string | number | null;
+  supplierPrice?: string | number | null;
+  supplierReference?: string | null;
   cifPrice: string | number;
   ddpPrice: string | number;
+  incoterm?: string | null;
+  location?: string | null;
+  leadTimeDays?: number | null;
+  paymentConditions?: string | null;
+  vin?: string | null;
+  offerStatus?: string | null;
+  legacyAvailabilityStatus?: string;
+  customerPricingAuthority?: string;
   currency: string;
   validFrom: string;
   validUntil: string;
@@ -122,6 +159,21 @@ export interface ApiOffer {
   notes?: string | null;
   reservations?: ApiOfferReservation[];
   photos?: ApiVehicle["photos"];
+  revisions?: Array<{
+    id: string;
+    version: number;
+    supplierPrice: string | number;
+    currency: string;
+    changeReason: string;
+    createdAt: string;
+  }>;
+  statusHistory?: Array<{
+    id: string;
+    fromStatus?: string | null;
+    toStatus: string;
+    reason?: string | null;
+    createdAt: string;
+  }>;
 }
 
 export interface ApiDossierEvidence {
@@ -226,6 +278,11 @@ export const commerceApi = {
       }),
     archive: (id: string) =>
       apiRequest<ApiPartner>(`/partners/${id}`, { method: "DELETE" }),
+    transition: (id: string, status: string, reason?: string) =>
+      apiRequest<ApiPartner>(`/partners/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status, reason }),
+      }),
   },
   vehicles: {
     list: (filters: Record<string, string | number | undefined> = {}) =>
@@ -299,6 +356,21 @@ export const commerceApi = {
     update: (id: string, data: Record<string, unknown>) =>
       apiRequest<ApiOffer>(`/offers/${id}`, {
         method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    transition: (id: string, status: string, reason?: string) =>
+      apiRequest<ApiOffer>(`/offers/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status, reason }),
+      }),
+    assign: (id: string, dossierId: string, expiresAt?: string) =>
+      apiRequest<ApiOfferReservation>(`/offers/${id}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ dossierId, expiresAt }),
+      }),
+    createPurchase: (id: string, data: Record<string, unknown>) =>
+      apiRequest(`/offers/${id}/create-purchase`, {
+        method: "POST",
         body: JSON.stringify(data),
       }),
     archive: (id: string) =>

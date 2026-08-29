@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsEmail, IsIn, IsArray } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsEmail,
+  IsIn,
+  IsArray,
+  IsInt,
+  Min,
+} from 'class-validator';
 
 export class UpdatePartnerDto {
   @IsOptional()
@@ -37,6 +46,16 @@ export class UpdatePartnerDto {
   @IsOptional() @IsString() website?: string;
   @IsOptional() @IsString() paymentTerms?: string;
   @IsOptional() @IsString() deliveryTerms?: string;
+  @IsOptional() @IsString() supplierType?: string;
+  @IsOptional() @IsString() whatsapp?: string;
+  @IsOptional() @IsString() wechat?: string;
+  @IsOptional() @IsString() preferredCurrency?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) incoterms?: string[];
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  averageLeadTimeDays?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) specialties?: string[];
   @IsOptional() @IsString() notes?: string;
 

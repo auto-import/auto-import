@@ -3,13 +3,7 @@
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 import Link from "next/link";
-import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { CarFront, Eye, Plus, Search, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -42,6 +36,13 @@ const empty = {
   purchasePrice: "",
   cifPrice: "",
   ddpPrice: "",
+  supplierPrice: "",
+  supplierReference: "",
+  incoterm: "FOB",
+  location: "",
+  leadTimeDays: "",
+  paymentConditions: "",
+  vin: "",
   currency: "USD",
   validFrom: new Date().toISOString().slice(0, 10),
   validUntil: "",
@@ -171,6 +172,10 @@ export default function OffersChinaPolished() {
           purchasePrice: form.purchasePrice
             ? Number(form.purchasePrice)
             : undefined,
+          supplierPrice: Number(form.supplierPrice),
+          leadTimeDays: form.leadTimeDays
+            ? Number(form.leadTimeDays)
+            : undefined,
           cifPrice: Number(form.cifPrice),
           ddpPrice: Number(form.ddpPrice),
           availableQuantity: Number(form.availableQuantity),
@@ -295,6 +300,7 @@ export default function OffersChinaPolished() {
                       "Fournisseur",
                       "Année",
                       "État",
+                      "Prix fournisseur",
                       "Prix CIF",
                       "Prix DDP",
                       ...(canSeePurchase ? ["Prix achat"] : []),
@@ -423,14 +429,27 @@ export default function OffersChinaPolished() {
               </button>
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <p className="rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 sm:col-span-2">
+                Le prix fournisseur et son historique sont l’autorité de cette
+                offre. Les prix client CIF/DDP restent des champs historiques de
+                compatibilité; la tarification finale est établie dans
+                Tarification/Devis.
+              </p>
               {Object.entries({
                 supplierId: "Fournisseur *",
+                supplierReference: "Référence fournisseur",
                 brand: "Marque *",
                 model: "Modèle *",
                 year: "Année",
+                supplierPrice: "Prix fournisseur *",
+                incoterm: "Incoterm",
+                location: "Localisation",
+                leadTimeDays: "Délai (jours)",
+                paymentConditions: "Conditions de paiement",
+                vin: "VIN optionnel",
                 purchasePrice: "Prix achat",
-                cifPrice: "Prix CIF *",
-                ddpPrice: "Prix DDP *",
+                cifPrice: "Estimation CIF historique *",
+                ddpPrice: "Estimation DDP historique *",
                 validFrom: "Valide du *",
                 validUntil: "Valide jusqu’au *",
                 availableQuantity: "Quantité *",
@@ -464,6 +483,7 @@ export default function OffersChinaPolished() {
                       required={[
                         "brand",
                         "model",
+                        "supplierPrice",
                         "cifPrice",
                         "ddpPrice",
                         "validFrom",
@@ -473,7 +493,15 @@ export default function OffersChinaPolished() {
                       type={
                         key.startsWith("valid")
                           ? "date"
-                          : ["brand", "model"].includes(key)
+                          : [
+                                "brand",
+                                "model",
+                                "supplierReference",
+                                "incoterm",
+                                "location",
+                                "paymentConditions",
+                                "vin",
+                              ].includes(key)
                             ? "text"
                             : "number"
                       }
@@ -559,6 +587,9 @@ function OfferRow({
       <td className="px-4 py-4">{offer.year ?? "—"}</td>
       <td className="px-4 py-4">
         {offer.condition === "new" ? "Neuf" : "Occasion"}
+      </td>
+      <td className="px-4 py-4">
+        {formatMoney(offer.supplierPrice, offer.currency)}
       </td>
       <td className="px-4 py-4">
         {formatMoney(offer.cifPrice, offer.currency)}
