@@ -3,6 +3,7 @@ import type {
   ApiSuccessResponse,
   ApiPermission,
 } from "@/lib/api-contract";
+import { publicApiBaseUrl } from "@/lib/runtime-endpoints";
 
 export interface AuthenticatedUser {
   id: string;
@@ -34,9 +35,7 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api"
-).replace(/\/$/, "");
+const API_BASE_URL = publicApiBaseUrl();
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<AuthResult> | null = null;

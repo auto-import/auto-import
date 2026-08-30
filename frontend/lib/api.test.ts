@@ -43,7 +43,7 @@ describe("frontend API authentication foundation", () => {
 
     await expect(authApi.login(user.email, "secret")).resolves.toEqual(user);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:3000/api/auth/login",
+      "/api/auth/login",
       expect.objectContaining({ method: "POST", credentials: "include" }),
     );
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("refreshToken");

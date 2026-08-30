@@ -1,5 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import { authApi } from "@/lib/api";
+import { publicRealtimeUrl } from "@/lib/runtime-endpoints";
 
 type Listener = () => void;
 
@@ -7,8 +8,7 @@ export function connectCallCenterRealtime(
   onHint: Listener,
   onConnectionChange: (connected: boolean) => void,
 ): () => void {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_REALTIME_URL ?? "http://localhost:3000/call-center";
+  const baseUrl = publicRealtimeUrl();
   const socket: Socket = io(baseUrl, {
     transports: ["websocket"],
     auth: { token: authApi.accessToken() },

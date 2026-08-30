@@ -32,7 +32,10 @@ describe("adminApi", () => {
       limit: 10,
     });
 
-    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    const url = new URL(
+      String(fetchMock.mock.calls[0][0]),
+      "https://erp.test",
+    );
     expect(Object.fromEntries(url.searchParams)).toEqual({
       search: "Nadia",
       status: "active",

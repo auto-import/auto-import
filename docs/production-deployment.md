@@ -42,3 +42,9 @@ The systemd examples are templates only. Before installing them, create a locked
 ## Operational checks
 
 Check `/health`, `/ping`, the frontend `/connexion`, PostgreSQL `pg_isready`, Redis authenticated `PING`, HTTPS redirect, and authenticated Socket.IO connections for both `/notifications` and `/call-center`. Restart the stack and prove database rows, a tenant logo and a private document persist. Perform an encrypted restore drill into a separately named database and storage directory after every material backup change.
+
+### Cross-device login check
+
+The public browser bundle must use same-origin endpoints. Keep the frontend build arguments at `NEXT_PUBLIC_API_BASE_URL=/api` and `NEXT_PUBLIC_REALTIME_URL=/call-center`; never build a VPS image with either value pointing to `localhost`, because `localhost` would refer to each visitor's own computer or phone. Set `APP_DOMAIN` to the hostname only, and set both `CORS_ORIGIN=https://<APP_DOMAIN>` and `PUBLIC_API_BASE_URL=https://<APP_DOMAIN>/api`.
+
+After every frontend rebuild, test from a private/incognito window on a second device. In browser developer tools, login must call `https://<APP_DOMAIN>/api/auth/login`, the response must set the `auto_import_refresh` cookie with `Secure`, `HttpOnly`, `SameSite=Lax`, and subsequent `/api/auth/refresh` requests must return HTTP 200. A request to `localhost`, an HTTP public URL, a missing refresh cookie, or a CORS error indicates a deployment configuration failure rather than invalid user credentials.

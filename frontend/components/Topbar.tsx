@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Bell, CheckCheck, ChevronDown, LogOut, UserRound } from "lucide-react";
 import { io } from "socket.io-client";
+import { publicApiBaseUrl } from "@/lib/runtime-endpoints";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
 import { phase3Api, type ApiNotification } from "@/lib/phase3-api";
@@ -52,9 +53,7 @@ export default function Topbar({
   }, [load]);
   useEffect(() => {
     if (!canReadNotifications) return;
-    const base = (
-      process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api"
-    ).replace(/\/api\/?$/, "");
+    const base = publicApiBaseUrl().replace(/\/api\/?$/, "");
     const socket = io(`${base}/notifications`, {
       transports: ["websocket"],
       auth: { token: authApi.accessToken() },

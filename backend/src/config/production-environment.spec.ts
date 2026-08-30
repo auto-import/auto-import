@@ -29,4 +29,14 @@ describe('production environment validation', () => {
     expect(message).toContain('JWT_ACCESS_SECRET');
     expect(message).not.toContain('change-me');
   });
+
+  it('rejects HTTP public origins because production refresh cookies are secure', () => {
+    expect(() =>
+      validateProductionEnvironment({
+        ...valid,
+        CORS_ORIGIN: 'http://erp.invalid',
+        PUBLIC_API_BASE_URL: 'http://erp.invalid/api',
+      }),
+    ).toThrow(/https:/);
+  });
 });
