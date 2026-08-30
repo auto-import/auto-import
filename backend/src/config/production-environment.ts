@@ -15,10 +15,27 @@ export function validateProductionEnvironment(
 ): void {
   if (environment.NODE_ENV !== 'production') return;
   const errors: string[] = [];
+  const deploymentEnvironment = environment.DEPLOYMENT_ENV ?? 'production';
+  const stagingHttp =
+    deploymentEnvironment === 'staging' && environment.COOKIE_SECURE === 'false';
+  if (!['production', 'staging'].includes(deploymentEnvironment)) {
+    errors.push('DEPLOYMENT_ENV must be production or staging');
+  }
+  if (!['true', 'false'].includes(environment.COOKIE_SECURE ?? '')) {
+    errors.push('COOKIE_SECURE must be true or false');
+  }
+  if (
+    deploymentEnvironment === 'production' &&
+    environment.COOKIE_SECURE !== 'true'
+  ) {
+    errors.push('COOKIE_SECURE must be true in production');
+  }
   const required = [
     'DATABASE_URL',
     'CORS_ORIGIN',
     'PUBLIC_API_BASE_URL',
+    'DEPLOYMENT_ENV',
+    'COOKIE_SECURE',
     'PRIVATE_STORAGE_ROOT',
     ...requiredSecrets,
   ] as const;
@@ -42,12 +59,18 @@ export function validateProductionEnvironment(
   validateUrl(
     environment.PUBLIC_API_BASE_URL,
     'PUBLIC_API_BASE_URL',
-    ['https:'],
+    stagingHttp ? ['http:', 'https:'] : ['https:'],
     errors,
   );
   for (const origin of (environment.CORS_ORIGIN ?? '').split(',')) {
     if (!origin.trim()) continue;
-    validateUrl(origin.trim(), 'CORS_ORIGIN', ['https:'], errors, true);
+    validateUrl(
+      origin.trim(),
+      'CORS_ORIGIN',
+      stagingHttp ? ['http:', 'https:'] : ['https:'],
+      errors,
+      true,
+    );
   }
   if ((environment.CORS_ORIGIN ?? '').includes('*')) {
     errors.push('CORS_ORIGIN must not contain wildcards');

@@ -177,9 +177,14 @@ export class AuthController {
   }
 
   private get cookieSecurityOptions() {
+    const configuredSecure = this.configService.get<string>('COOKIE_SECURE');
     return {
       httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
+      secure:
+        configuredSecure === 'false'
+          ? false
+          : configuredSecure === 'true' ||
+            this.configService.get('NODE_ENV') === 'production',
       sameSite: 'lax' as const,
       path: '/',
     };

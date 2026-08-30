@@ -2,6 +2,8 @@ import { validateProductionEnvironment } from './production-environment';
 
 const valid = {
   NODE_ENV: 'production',
+  DEPLOYMENT_ENV: 'production',
+  COOKIE_SECURE: 'true',
   DATABASE_URL: 'postgresql://erp:disposable-only@postgres:5432/erp',
   CORS_ORIGIN: 'https://erp.invalid',
   PUBLIC_API_BASE_URL: 'https://erp.invalid/api',
@@ -38,5 +40,23 @@ describe('production environment validation', () => {
         PUBLIC_API_BASE_URL: 'http://erp.invalid/api',
       }),
     ).toThrow(/https:/);
+  });
+
+  it('allows explicit HTTP only for staging with non-Secure cookies', () => {
+    expect(() =>
+      validateProductionEnvironment({
+        ...valid,
+        DEPLOYMENT_ENV: 'staging',
+        COOKIE_SECURE: 'false',
+        CORS_ORIGIN: 'http://203.0.113.10',
+        PUBLIC_API_BASE_URL: 'http://203.0.113.10/api',
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses insecure cookies in production', () => {
+    expect(() =>
+      validateProductionEnvironment({ ...valid, COOKIE_SECURE: 'false' }),
+    ).toThrow(/COOKIE_SECURE/);
   });
 });

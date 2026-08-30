@@ -25,6 +25,7 @@ backend/dist/
 .env.local
 .env.production
 .env.staging
+!.env.staging.example
 
 # Logs
 logs/

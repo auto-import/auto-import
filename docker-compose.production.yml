@@ -54,6 +54,8 @@ services:
     restart: "no"
     environment: &backend_environment
       NODE_ENV: production
+      DEPLOYMENT_ENV: production
+      COOKIE_SECURE: "true"
       DATABASE_URL: ${DATABASE_URL}
       CORS_ORIGIN: ${CORS_ORIGIN}
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
