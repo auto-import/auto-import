@@ -78,11 +78,49 @@ export class CostsService {
         'Operating expenses cannot be dossier costs',
       );
     }
+    if (costScope === 'DIRECT' && !dto.dossierId) {
+      throw new BadRequestException(
+        'Direct costs must be linked to a dossier',
+      );
+    }
+    if (dto.treasuryAccountId) {
+      const account = await this.prisma.treasuryAccount.findFirst({
+        where: {
+          id: dto.treasuryAccountId,
+          organizationId,
+          status: 'ACTIVE',
+          archivedAt: null,
+          currency,
+        },
+        select: { id: true },
+      });
+      if (!account)
+        throw new NotFoundException(
+          'Active treasury account in the cost currency not found',
+        );
+    }
+    if (dto.supportingDocumentId) {
+      const document = await this.prisma.gedDocument.findFirst({
+        where: {
+          id: dto.supportingDocumentId,
+          organizationId,
+          archivedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!document)
+        throw new NotFoundException('Supporting document not found');
+    }
     const cost = await this.prisma.$transaction(async (tx) => {
+      const {
+        treasuryAccountId,
+        supportingDocumentId,
+        ...costInput
+      } = dto;
       const created = await tx.cost.create({
         data: {
           organizationId,
-          type: dto.type,
+          type: costInput.type,
           costScope,
           amount,
           currency,
@@ -94,7 +132,7 @@ export class CostsService {
           shipmentId: dto.shipmentId,
           customsFileId: dto.customsFileId,
           occurredAt,
-          description: dto.description,
+          description: costInput.description,
           actorUserId: userId,
           status: 'POSTED',
         },
@@ -133,6 +171,8 @@ export class CostsService {
           dossierId: dto.dossierId,
           purchaseId: dto.purchaseId,
           costId: created.id,
+          treasuryAccountId,
+          supportingDocumentId,
           status: 'VALIDATED',
           createdBy: userId,
           validatedBy: userId,

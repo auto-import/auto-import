@@ -7,6 +7,7 @@ describe('DocumentsService', () => {
   let service: DocumentsService;
 
   const mockPrisma = {
+    contract: { findFirst: jest.fn() },
     dossier: {
       findFirst: jest.fn(),
     },
@@ -65,6 +66,7 @@ describe('DocumentsService', () => {
   });
 
   it('accepts only a valid signed-contract category with readable matching bytes', async () => {
+    mockPrisma.contract.findFirst.mockResolvedValue(null);
     mockPrisma.dossierDocumentAsset.findMany.mockResolvedValue([
       {
         id: 'signed-contract',
@@ -96,6 +98,28 @@ describe('DocumentsService', () => {
     await expect(
       service.verifySignedContract('dos-a', 'org-a'),
     ).resolves.toBeNull();
+  });
+
+  it('accepts the signed Contract authority when its validated GED bytes are intact', async () => {
+    mockPrisma.dossierDocumentAsset.findMany.mockClear();
+    mockPrisma.contract.findFirst.mockResolvedValue({
+      id: 'contract-a',
+      signedDocument: {
+        currentVersion: {
+          file: {
+            status: 'active',
+            storageKey: 'org-a/ged/signed-contract.pdf',
+            checksum: 'ged-checksum',
+          },
+        },
+      },
+    });
+    mockStorage.verify.mockResolvedValue(true);
+
+    await expect(
+      service.verifySignedContract('dos-a', 'org-a'),
+    ).resolves.toEqual(expect.objectContaining({ id: 'contract-a' }));
+    expect(mockPrisma.dossierDocumentAsset.findMany).not.toHaveBeenCalled();
   });
 
   it('reports every dossier vehicle that lacks valid checkpoint-specific bytes', async () => {

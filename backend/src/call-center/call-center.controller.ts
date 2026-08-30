@@ -15,15 +15,18 @@ import { CallCenterService } from './call-center.service';
 import {
   AppointmentStatusDto,
   AssignCallDto,
+  CallHistoryQueryDto,
   CallListQueryDto,
   CreateAppointmentDto,
   CreateChannelDto,
+  CreateManualCallDto,
   DispositionCallDto,
   FollowUpQueryDto,
   PresenceDto,
   ReplyWhatsappDto,
   TaskStatusDto,
   TransitionCallDto,
+  UpdateManualCallDto,
 } from './dto/call-center.dto';
 
 @Controller('call-center')
@@ -52,6 +55,39 @@ export class CallCenterController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.listCalls(user.organizationId, query);
+  }
+
+  @Get('history')
+  @RequirePermission(Permission.CALL_CENTER_ACCESS)
+  history(
+    @Query() query: CallHistoryQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.listCallHistory(user.organizationId, query);
+  }
+
+  @Post('calls/manual')
+  @RequirePermission(Permission.CALL_CENTER_HANDLE)
+  createManualCall(
+    @Body() dto: CreateManualCallDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.createManualCall(user.organizationId, user.id, dto);
+  }
+
+  @Patch('calls/:id/manual')
+  @RequirePermission(Permission.CALL_CENTER_HANDLE)
+  updateManualCall(
+    @Param('id') id: string,
+    @Body() dto: UpdateManualCallDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.updateManualCall(
+      user.organizationId,
+      id,
+      user.id,
+      dto,
+    );
   }
 
   @Get('calls/:id')

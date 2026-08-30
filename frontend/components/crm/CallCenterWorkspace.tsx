@@ -2,11 +2,12 @@
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   Activity,
   Calendar,
   MessageSquare,
+  Plus,
   Phone,
   PhoneCall,
   RefreshCw,
@@ -21,18 +22,36 @@ import {
 } from "@/lib/api-contract";
 import {
   callCenterApi,
+  crmApi,
   type AgentSummary,
   type ApiAppointment,
   type ApiCall,
   type ApiConversation,
   type ApiKpis,
   type ApiPresence,
+  type ApiProspect,
+  type ApiClient,
   type ApiTask,
+  type ManualCallInput,
 } from "@/lib/crm-api";
+import type { PaginatedData } from "@/lib/api-contract";
 import { connectCallCenterRealtime } from "@/lib/call-center-realtime";
 
 export default function CallCenterWorkspace() {
   const [calls, setCalls] = useState<ApiCall[]>([]);
+  const [history, setHistory] = useState<PaginatedData<ApiCall>>({
+    items: [],
+    pagination: {
+      page: 1,
+      pageSize: 20,
+      totalItems: 0,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  });
+  const [prospects, setProspects] = useState<ApiProspect[]>([]);
+  const [clients, setClients] = useState<ApiClient[]>([]);
   const [presence, setPresence] = useState<ApiPresence[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [conversations, setConversations] = useState<ApiConversation[]>([]);
@@ -61,6 +80,9 @@ export default function CallCenterWorkspace() {
         appointmentData,
         kpiData,
         channelData,
+        historyData,
+        prospectData,
+        clientData,
       ] = await Promise.all([
         callCenterApi.calls(),
         callCenterApi.presence(),
@@ -70,6 +92,9 @@ export default function CallCenterWorkspace() {
         callCenterApi.appointments(),
         callCenterApi.kpis(),
         callCenterApi.channels(),
+        callCenterApi.history(),
+        crmApi.listProspects({ limit: 100 }),
+        crmApi.listClients({ limit: 100 }),
       ]);
       setCalls(callData);
       setPresence(presenceData);
@@ -79,6 +104,9 @@ export default function CallCenterWorkspace() {
       setAppointments(appointmentData);
       setKpis(kpiData);
       setChannels(channelData);
+      setHistory(historyData);
+      setProspects(prospectData.items);
+      setClients(clientData.items);
       setSelectedCall((current) =>
         current
           ? (callData.find((call) => call.id === current.id) ?? null)
@@ -190,6 +218,13 @@ export default function CallCenterWorkspace() {
             <Metric label="Conversions" value={kpis.agent.conversions} />
           </div>
         )}
+        <ManualCallForm
+          agents={agents}
+          prospects={prospects}
+          clients={clients}
+          busy={busy}
+          run={action}
+        />
         {process.env.NODE_ENV !== "production" && (
           <SimulatorPanel
             voiceNumber={
@@ -418,8 +453,364 @@ export default function CallCenterWorkspace() {
             </div>
           )}
         </section>
+        <CallHistoryPanel
+          data={history}
+          agents={agents}
+          onChange={setHistory}
+          onSelect={setSelectedCall}
+        />
       </main>
     </>
+  );
+}
+
+function ManualCallForm({
+  agents,
+  prospects,
+  clients,
+  busy,
+  run,
+}: {
+  agents: AgentSummary[];
+  prospects: ApiProspect[];
+  clients: ApiClient[];
+  busy: boolean;
+  run: (work: () => Promise<unknown>) => Promise<void>;
+}) {
+  const initial: ManualCallInput = {
+    phone: "",
+    callAt: "",
+    direction: "INBOUND",
+    agentId: "",
+    durationSeconds: 0,
+    state: "COMPLETED",
+    subject: "",
+    outcome: "",
+  };
+  const [form, setForm] = useState<ManualCallInput>(initial);
+  const [contact, setContact] = useState("");
+  const set = <K extends keyof ManualCallInput>(
+    key: K,
+    value: ManualCallInput[K],
+  ) => setForm((current) => ({ ...current, [key]: value }));
+  function selectContact(value: string) {
+    setContact(value);
+    const [kind, id] = value.split(":");
+    const selected =
+      kind === "client"
+        ? clients.find((item) => item.id === id)
+        : prospects.find((item) => item.id === id);
+    setForm((current) => ({
+      ...current,
+      phone: selected?.phone || current.phone,
+      clientId: kind === "client" ? id : undefined,
+      prospectId: kind === "prospect" ? id : undefined,
+    }));
+  }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      await callCenterApi.createManualCall({
+        ...form,
+        callAt: new Date(form.callAt).toISOString(),
+        followUpAt: form.followUpAt
+          ? new Date(form.followUpAt).toISOString()
+          : undefined,
+        dossierId: form.dossierId?.trim() || undefined,
+      });
+      setForm(initial);
+      setContact("");
+    });
+  }
+  return (
+    <section className="card border-2 border-foreground/15">
+      <PanelTitle icon={<Plus className="h-5 w-5" />} title="Nouvel appel manuel" />
+      <p className="mb-4 text-sm text-muted">
+        La date et l’heure ci-dessous sont la date métier de l’appel. Elles ne
+        sont jamais remplacées par la date technique de création.
+      </p>
+      <form onSubmit={submit} className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <label>
+          <span className="field-label">Client / Lead</span>
+          <select
+            className="input w-full"
+            value={contact}
+            onChange={(event) => selectContact(event.target.value)}
+          >
+            <option value="">Détection automatique par téléphone</option>
+            <optgroup label="Clients">
+              {clients.map((item) => (
+                <option key={item.id} value={`client:${item.id}`}>
+                  {item.firstName} {item.lastName} · {item.phone || "sans téléphone"}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Leads">
+              {prospects
+                .filter((item) => !item.client)
+                .map((item) => (
+                  <option key={item.id} value={`prospect:${item.id}`}>
+                    {item.firstName} {item.lastName} · {item.phone || "sans téléphone"}
+                  </option>
+                ))}
+            </optgroup>
+          </select>
+        </label>
+        <Field label="Téléphone">
+          <input
+            required
+            className="input w-full"
+            value={form.phone}
+            onChange={(event) => set("phone", event.target.value)}
+          />
+        </Field>
+        <Field label="Date / heure de l’appel">
+          <input
+            required
+            type="datetime-local"
+            className="input w-full"
+            value={form.callAt}
+            onChange={(event) => set("callAt", event.target.value)}
+          />
+        </Field>
+        <Field label="Direction">
+          <select
+            className="input w-full"
+            value={form.direction}
+            onChange={(event) =>
+              set("direction", event.target.value as "INBOUND" | "OUTBOUND")
+            }
+          >
+            <option value="INBOUND">Entrant</option>
+            <option value="OUTBOUND">Sortant</option>
+          </select>
+        </Field>
+        <Field label="Agent / Commercial">
+          <select
+            required
+            className="input w-full"
+            value={form.agentId}
+            onChange={(event) => set("agentId", event.target.value)}
+          >
+            <option value="">Choisir</option>
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.firstName} {agent.lastName}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Durée (secondes)">
+          <input
+            required
+            min={0}
+            max={86400}
+            type="number"
+            className="input w-full"
+            value={form.durationSeconds}
+            onChange={(event) => set("durationSeconds", Number(event.target.value))}
+          />
+        </Field>
+        <Field label="Statut">
+          <select
+            className="input w-full"
+            value={form.state}
+            onChange={(event) =>
+              set("state", event.target.value as ManualCallInput["state"])
+            }
+          >
+            <option value="COMPLETED">Terminé</option>
+            <option value="MISSED">Sans réponse</option>
+            <option value="FAILED">Échec</option>
+          </select>
+        </Field>
+        <Field label="Objet">
+          <input
+            required
+            className="input w-full"
+            value={form.subject}
+            onChange={(event) => set("subject", event.target.value)}
+          />
+        </Field>
+        <Field label="Résultat">
+          <input
+            required
+            className="input w-full"
+            value={form.outcome}
+            onChange={(event) => set("outcome", event.target.value)}
+          />
+        </Field>
+        <Field label="Prochaine action">
+          <input
+            className="input w-full"
+            value={form.nextAction || ""}
+            onChange={(event) => set("nextAction", event.target.value)}
+          />
+        </Field>
+        <Field label="Date / heure de relance">
+          <input
+            type="datetime-local"
+            className="input w-full"
+            value={form.followUpAt || ""}
+            onChange={(event) => set("followUpAt", event.target.value)}
+          />
+        </Field>
+        <Field label="Dossier lié (ID, optionnel)">
+          <input
+            className="input w-full"
+            value={form.dossierId || ""}
+            onChange={(event) => set("dossierId", event.target.value)}
+          />
+        </Field>
+        <label className="md:col-span-2 xl:col-span-4">
+          <span className="field-label">Notes</span>
+          <textarea
+            className="input min-h-20 w-full"
+            value={form.notes || ""}
+            onChange={(event) => set("notes", event.target.value)}
+          />
+        </label>
+        <button
+          disabled={busy}
+          className="rounded-button bg-foreground px-4 py-2.5 text-sm font-semibold text-white md:col-span-2 xl:col-span-4 xl:justify-self-end"
+        >
+          Enregistrer l’appel manuel
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function CallHistoryPanel({
+  data,
+  agents,
+  onChange,
+  onSelect,
+}: {
+  data: PaginatedData<ApiCall>;
+  agents: AgentSummary[];
+  onChange: (value: PaginatedData<ApiCall>) => void;
+  onSelect: (value: ApiCall) => void;
+}) {
+  const [filters, setFilters] = useState({
+    search: "",
+    direction: "",
+    state: "",
+    agentId: "",
+  });
+  const loadPage = async (page: number) =>
+    onChange(
+      await callCenterApi.history({
+        ...filters,
+        page,
+        pageSize: data.pagination.pageSize,
+      }),
+    );
+  return (
+    <section className="card">
+      <PanelTitle icon={<Phone className="h-5 w-5" />} title="Historique des appels" />
+      <form
+        className="mb-4 grid gap-2 md:grid-cols-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void loadPage(1);
+        }}
+      >
+        <input
+          className="input"
+          placeholder="Téléphone, contact, objet, résultat"
+          value={filters.search}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, search: event.target.value }))
+          }
+        />
+        <select
+          className="input"
+          value={filters.direction}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, direction: event.target.value }))
+          }
+        >
+          <option value="">Toutes directions</option>
+          <option value="INBOUND">Entrants</option>
+          <option value="OUTBOUND">Sortants</option>
+        </select>
+        <select
+          className="input"
+          value={filters.state}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, state: event.target.value }))
+          }
+        >
+          <option value="">Tous statuts</option>
+          {Object.values(CallState).map((state) => (
+            <option key={state} value={state}>{state}</option>
+          ))}
+        </select>
+        <select
+          className="input"
+          value={filters.agentId}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, agentId: event.target.value }))
+          }
+        >
+          <option value="">Tous les agents</option>
+          {agents.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.firstName} {agent.lastName}
+            </option>
+          ))}
+        </select>
+        <button className="rounded-button bg-foreground px-3 py-2 text-sm text-white md:col-span-4 md:justify-self-end">
+          Rechercher
+        </button>
+      </form>
+      <div className="space-y-2">
+        {data.items.map((call) => (
+          <button
+            key={call.id}
+            onClick={() => onSelect(call)}
+            className="grid w-full gap-1 rounded-card border border-border p-3 text-left md:grid-cols-4"
+          >
+            <span className="font-medium">{call.subject || "Appel"}</span>
+            <span>{call.externalNumber}</span>
+            <span>{call.direction} · {call.state}</span>
+            <span>{new Date(call.receivedAt).toLocaleString(getRuntimeLocale())}</span>
+          </button>
+        ))}
+        {data.items.length === 0 && <Empty text="Aucun appel pour ces filtres." />}
+      </div>
+      <div className="mt-4 flex items-center justify-between text-sm">
+        <button
+          type="button"
+          disabled={!data.pagination.hasPreviousPage}
+          onClick={() => void loadPage(data.pagination.page - 1)}
+          className="rounded-button border border-border px-3 py-2 disabled:opacity-40"
+        >
+          Précédent
+        </button>
+        <span>
+          Page {data.pagination.page} / {data.pagination.totalPages} · {data.pagination.totalItems} appel(s)
+        </span>
+        <button
+          type="button"
+          disabled={!data.pagination.hasNextPage}
+          onClick={() => void loadPage(data.pagination.page + 1)}
+          className="rounded-button border border-border px-3 py-2 disabled:opacity-40"
+        >
+          Suivant
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label>
+      <span className="field-label">{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -444,6 +835,24 @@ function CallScreen({
   );
   const [nextAction, setNextAction] = useState("");
   const [callbackAt, setCallbackAt] = useState("");
+  const [manualEdit, setManualEdit] = useState<ManualCallInput>({
+    phone: call.externalNumber,
+    callAt: toLocalDateTimeInput(call.receivedAt),
+    direction: call.direction,
+    agentId: call.handlingEmployee?.id || "",
+    durationSeconds: call.durationSeconds || 0,
+    state: (["COMPLETED", "MISSED", "FAILED"].includes(call.state)
+      ? call.state
+      : "COMPLETED") as ManualCallInput["state"],
+    subject: call.subject || "",
+    outcome: call.outcome || "",
+    notes: call.notes || undefined,
+    nextAction: call.nextAction || undefined,
+    followUpAt: call.nextActionAt
+      ? toLocalDateTimeInput(call.nextActionAt)
+      : undefined,
+    dossierId: call.dossier?.id,
+  });
   const contact = call.client || call.prospect;
   const answerableStates: ApiCall["state"][] = [
     CallState.ASSIGNED,
@@ -468,6 +877,108 @@ function CallScreen({
         <button onClick={onClose}>Fermer</button>
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {call.providerKey === "manual" && (
+          <form
+            className="grid gap-2 rounded-card border border-border p-4 lg:col-span-2 md:grid-cols-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void run(() =>
+                callCenterApi.updateManualCall(call.id, {
+                  ...manualEdit,
+                  callAt: new Date(manualEdit.callAt).toISOString(),
+                  followUpAt: manualEdit.followUpAt
+                    ? new Date(manualEdit.followUpAt).toISOString()
+                    : undefined,
+                  dossierId: manualEdit.dossierId?.trim() || undefined,
+                }),
+              );
+            }}
+          >
+            <h3 className="font-semibold md:col-span-3">Modifier l’appel manuel</h3>
+            <input
+              required
+              className="input"
+              aria-label="Téléphone"
+              value={manualEdit.phone}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, phone: event.target.value }))
+              }
+            />
+            <input
+              required
+              type="datetime-local"
+              className="input"
+              aria-label="Date et heure de l’appel"
+              value={manualEdit.callAt}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, callAt: event.target.value }))
+              }
+            />
+            <select
+              required
+              className="input"
+              aria-label="Agent"
+              value={manualEdit.agentId}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, agentId: event.target.value }))
+              }
+            >
+              <option value="">Agent / Commercial</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.firstName} {agent.lastName}
+                </option>
+              ))}
+            </select>
+            <input
+              required
+              className="input"
+              aria-label="Objet"
+              value={manualEdit.subject}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, subject: event.target.value }))
+              }
+            />
+            <input
+              required
+              className="input"
+              aria-label="Résultat"
+              value={manualEdit.outcome}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, outcome: event.target.value }))
+              }
+            />
+            <input
+              required
+              min={0}
+              max={86400}
+              type="number"
+              className="input"
+              aria-label="Durée en secondes"
+              value={manualEdit.durationSeconds}
+              onChange={(event) =>
+                setManualEdit((current) => ({
+                  ...current,
+                  durationSeconds: Number(event.target.value),
+                }))
+              }
+            />
+            <textarea
+              className="input md:col-span-2"
+              aria-label="Notes"
+              value={manualEdit.notes || ""}
+              onChange={(event) =>
+                setManualEdit((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+            <button
+              disabled={busy}
+              className="rounded-button bg-foreground px-3 py-2 text-sm text-white"
+            >
+              Enregistrer les modifications
+            </button>
+          </form>
+        )}
         <div className="space-y-3">
           <label className="block text-xs text-muted">
             Employé destinataire
@@ -791,4 +1302,11 @@ function contactName(conversation: ApiConversation) {
   return contact
     ? `${contact.firstName} ${contact.lastName}`
     : conversation.externalNumber;
+}
+
+function toLocalDateTimeInput(value: string) {
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }

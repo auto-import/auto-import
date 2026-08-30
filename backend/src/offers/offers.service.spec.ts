@@ -52,8 +52,7 @@ describe('OffersService', () => {
           model: 'Coolray',
           condition: 'new',
           specification: {},
-          cifPrice: 10,
-          ddpPrice: 12,
+          supplierPrice: 10,
           currency: 'USD',
           validFrom: '2026-08-25T00:00:00.000Z',
           validUntil: '2026-08-24T00:00:00.000Z',
@@ -66,7 +65,9 @@ describe('OffersService', () => {
 
   it('reserves quantity atomically without creating a vehicle', async () => {
     prisma.client.findFirst.mockResolvedValue({ id: 'client-1' });
-    prisma.$queryRaw.mockResolvedValue([{ id: 'offer-1' }]);
+    prisma.$queryRaw.mockResolvedValue([
+      { id: 'offer-1', currentRevisionId: 'revision-1' },
+    ]);
     prisma.offerReservation.create.mockResolvedValue({
       id: 'reservation-1',
       quantity: 1,
@@ -79,6 +80,11 @@ describe('OffersService', () => {
       'org-1',
     );
     expect(result.id).toBe('reservation-1');
+    expect(prisma.offerReservation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ sourceOfferRevisionId: 'revision-1' }),
+      }),
+    );
     expect(prisma.vehicle.create).not.toHaveBeenCalled();
   });
 

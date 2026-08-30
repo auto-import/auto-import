@@ -2,6 +2,7 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -219,6 +220,9 @@ export class CreateSupplierPaymentDto {
   @IsString()
   purchaseId: string;
 
+  @IsIn(['DEPOSIT', 'COMPLEMENT', 'BALANCE'])
+  paymentKind: string;
+
   @IsNumber()
   @IsPositive()
   amount: number;
@@ -322,8 +326,26 @@ export class CreateCostDto {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  treasuryAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  supportingDocumentId?: string;
+
+  @IsOptional()
   @IsDateString()
   occurredAt?: string;
+}
+
+export class ConfirmFinanceEntryDto {
+  @IsOptional()
+  @IsString()
+  treasuryAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  supportingDocumentId?: string;
 }
 
 export class ReverseCostDto {

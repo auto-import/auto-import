@@ -38,10 +38,7 @@ export class CreateOfferDto {
   })
   @IsObject()
   specification: Record<string, unknown>;
-  @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) supplierPrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) cifPrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) ddpPrice?: number;
+  @Type(() => Number) @Min(0.01) supplierPrice: number;
   @IsIn(currencies) currency: string;
   @IsOptional() @IsString() supplierReference?: string;
   @IsOptional() @IsString() incoterm?: string;
@@ -74,10 +71,7 @@ export class UpdateOfferDto {
   @IsOptional() @IsIn(conditions) condition?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) mileage?: number;
   @IsOptional() @IsObject() specification?: Record<string, unknown>;
-  @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
   @IsOptional() @Type(() => Number) @Min(0) supplierPrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) cifPrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) ddpPrice?: number;
   @IsOptional() @IsIn(currencies) currency?: string;
   @IsOptional() @IsString() supplierReference?: string;
   @IsOptional() @IsString() incoterm?: string;
@@ -116,13 +110,18 @@ export class ReleaseOfferDto {
 
 export class MaterializeOfferDto {
   @IsString() vin: string;
-  @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) sellingPrice?: number;
   @IsOptional() @IsUUID() currentLocationId?: string;
 }
 
 export class TransitionOfferDto {
-  @IsIn(['RECEIVED', 'UNDER_VERIFICATION', 'VALIDATED', 'REJECTED', 'RESERVED'])
+  @IsIn([
+    'RECEIVED',
+    'UNDER_VERIFICATION',
+    'VALIDATED',
+    'REJECTED',
+    'RESERVED',
+    'EXPIRED',
+  ])
   status: string;
   @IsOptional() @IsString() reason?: string;
 }
@@ -134,7 +133,5 @@ export class AssignOfferDto {
 
 export class CreatePurchaseFromOfferDto extends AssignOfferDto {
   @IsString() vin: string;
-  @IsOptional() @Type(() => Number) @Min(0) purchasePrice?: number;
-  @IsOptional() @Type(() => Number) @Min(0) sellingPrice?: number;
   @IsOptional() @IsUUID() currentLocationId?: string;
 }

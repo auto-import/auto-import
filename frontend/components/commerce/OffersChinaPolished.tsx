@@ -33,9 +33,6 @@ const empty = {
   model: "",
   year: "",
   condition: "new",
-  purchasePrice: "",
-  cifPrice: "",
-  ddpPrice: "",
   supplierPrice: "",
   supplierReference: "",
   incoterm: "FOB",
@@ -52,7 +49,6 @@ const empty = {
 export default function OffersChinaPolished() {
   const { hasPermission } = useAuth();
   const canWrite = hasPermission(Permission.OFFERS_WRITE);
-  const canSeePurchase = hasPermission(Permission.OFFERS_READ_PURCHASE_PRICE);
   const [items, setItems] = useState<ApiOffer[]>([]);
   const [stats, setStats] = useState<{
     total: number;
@@ -169,15 +165,10 @@ export default function OffersChinaPolished() {
         {
           ...form,
           year: form.year ? Number(form.year) : undefined,
-          purchasePrice: form.purchasePrice
-            ? Number(form.purchasePrice)
-            : undefined,
           supplierPrice: Number(form.supplierPrice),
           leadTimeDays: form.leadTimeDays
             ? Number(form.leadTimeDays)
             : undefined,
-          cifPrice: form.cifPrice ? Number(form.cifPrice) : undefined,
-          ddpPrice: form.ddpPrice ? Number(form.ddpPrice) : undefined,
           availableQuantity: Number(form.availableQuantity),
           specification: {},
           validFrom: new Date(form.validFrom).toISOString(),
@@ -299,9 +290,6 @@ export default function OffersChinaPolished() {
                       "Année",
                       "État",
                       "Prix fournisseur",
-                      "Prix CIF",
-                      "Prix DDP",
-                      ...(canSeePurchase ? ["Prix achat"] : []),
                       "Disponibilité",
                       "Statut",
                       "Validité",
@@ -315,11 +303,7 @@ export default function OffersChinaPolished() {
                 </thead>
                 <tbody>
                   {items.map((offer) => (
-                    <OfferRow
-                      key={offer.id}
-                      offer={offer}
-                      canSeePurchase={canSeePurchase}
-                    />
+                    <OfferRow key={offer.id} offer={offer} />
                   ))}
                 </tbody>
               </table>
@@ -337,8 +321,8 @@ export default function OffersChinaPolished() {
                         {offer.reference} · {offer.supplier.name}
                       </p>
                       <p className="mt-2 text-sm">
-                        CIF {formatMoney(offer.cifPrice, offer.currency)} · DDP{" "}
-                        {formatMoney(offer.ddpPrice, offer.currency)}
+                        Prix fournisseur{" "}
+                        {formatMoney(offer.supplierPrice, offer.currency)}
                       </p>
                     </div>
                   </div>
@@ -428,10 +412,9 @@ export default function OffersChinaPolished() {
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <p className="rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 sm:col-span-2">
-                Le prix fournisseur et son historique sont l’autorité de cette
-                offre. Les prix client CIF/DDP restent des champs historiques de
-                compatibilité; la tarification finale est établie dans
-                Tarification/Devis.
+                Cette fiche contient uniquement le prix fournisseur et son
+                historique. La tarification client CIF/DDP est établie dans un
+                devis distinct lié au dossier.
               </p>
               {Object.entries({
                 supplierId: "Fournisseur *",
@@ -445,9 +428,6 @@ export default function OffersChinaPolished() {
                 leadTimeDays: "Délai (jours)",
                 paymentConditions: "Conditions de paiement",
                 vin: "VIN optionnel",
-                purchasePrice: "Prix achat (référence)",
-                cifPrice: "Estimation CIF (optionnel)",
-                ddpPrice: "Estimation DDP (optionnel)",
                 validFrom: "Valide du *",
                 validUntil: "Valide jusqu’au *",
                 availableQuantity: "Quantité *",
@@ -556,13 +536,7 @@ export default function OffersChinaPolished() {
     </>
   );
 }
-function OfferRow({
-  offer,
-  canSeePurchase,
-}: {
-  offer: ApiOffer;
-  canSeePurchase: boolean;
-}) {
+function OfferRow({ offer }: { offer: ApiOffer }) {
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-4 py-4">
@@ -587,17 +561,6 @@ function OfferRow({
       <td className="px-4 py-4">
         {formatMoney(offer.supplierPrice, offer.currency)}
       </td>
-      <td className="px-4 py-4">
-        {formatMoney(offer.cifPrice, offer.currency)}
-      </td>
-      <td className="px-4 py-4">
-        {formatMoney(offer.ddpPrice, offer.currency)}
-      </td>
-      {canSeePurchase && (
-        <td className="px-4 py-4">
-          {formatMoney(offer.purchasePrice, offer.currency)}
-        </td>
-      )}
       <td className="px-4 py-4">{offer.remainingQuantity}</td>
       <td className="px-4 py-4">
         <span className="rounded-full border border-border px-3 py-1">

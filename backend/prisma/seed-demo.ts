@@ -858,9 +858,25 @@ async function seedCommerceAndDossiers(): Promise<void> {
               : index % 7 === 6
                 ? 'sold'
                 : 'reserved';
-      await tx.chinaOffer.upsert({
+      const offerStatus =
+        status === 'expired'
+          ? 'EXPIRED'
+          : status === 'reserved' || status === 'sold'
+            ? 'RESERVED'
+            : 'VALIDATED';
+      const supplierPrice = money(12_500 + index * 400);
+      const offer = await tx.chinaOffer.upsert({
         where: { id: key('offer', index) },
-        update: { availableQuantity, reservedQuantity, status },
+        update: {
+          availableQuantity,
+          reservedQuantity,
+          status,
+          offerStatus,
+          supplierPrice,
+          purchasePrice: supplierPrice,
+          cifPrice: null,
+          ddpPrice: null,
+        },
         create: {
           id: key('offer', index),
           organizationId: PRIMARY_ORG_ID,
@@ -877,9 +893,8 @@ async function seedCommerceAndDossiers(): Promise<void> {
             color: ['blanc', 'gris', 'bleu'][index % 3],
             origin: 'CN',
           },
-          purchasePrice: money(12_500 + index * 400),
-          cifPrice: money(16_000 + index * 450),
-          ddpPrice: money(19_500 + index * 500),
+          supplierPrice,
+          purchasePrice: supplierPrice,
           currency: ['USD', 'CNY', 'EUR'][index % 3],
           validFrom: at(config.anchor, -30),
           validUntil:
@@ -890,10 +905,39 @@ async function seedCommerceAndDossiers(): Promise<void> {
           reservedQuantity,
           estimatedDelayDays: 45 + index,
           status,
+          offerStatus,
           notes: 'Offre commerciale fictive.',
           archivedAt: status === 'sold' ? at(config.anchor, -2) : null,
           createdAt: at(config.anchor, -35 + index),
         },
+      });
+      const revision = await tx.chinaOfferRevision.upsert({
+        where: { id: key('offer-revision', index) },
+        update: { supplierPrice, currency: offer.currency },
+        create: {
+          id: key('offer-revision', index),
+          organizationId: PRIMARY_ORG_ID,
+          offerId: offer.id,
+          revisionNumber: 1,
+          supplierPrice,
+          currency: offer.currency,
+          quantity: availableQuantity,
+          validFrom: offer.validFrom,
+          validUntil: offer.validUntil,
+          snapshot: {
+            brand: offer.brand,
+            model: offer.model,
+            version: offer.version,
+            condition: offer.condition,
+          },
+          reason: 'Initial demo supplier price',
+          createdBy: userId('admin'),
+          createdAt: offer.createdAt,
+        },
+      });
+      await tx.chinaOffer.update({
+        where: { id: offer.id },
+        data: { currentRevisionId: revision.id },
       });
     }
 
@@ -1131,6 +1175,7 @@ async function seedCommerceAndDossiers(): Promise<void> {
             id: key('offer-reservation', index),
             organizationId: PRIMARY_ORG_ID,
             offerId: key('offer', index % 14),
+            sourceOfferRevisionId: key('offer-revision', index % 14),
             clientId: clientId(index),
             dossierId: dossierId(index),
             quantity: 1,

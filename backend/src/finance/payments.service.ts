@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import {
+  ConfirmFinanceEntryDto,
   FilterPaymentsDto,
   RecordPaymentDto,
   ReversePaymentDto,
@@ -142,7 +143,12 @@ export class PaymentsService {
     });
   }
 
-  async confirm(id: string, organizationId: string, userId: string) {
+  async confirm(
+    id: string,
+    organizationId: string,
+    userId: string,
+    dto: ConfirmFinanceEntryDto = {},
+  ) {
     const payment = await this.prisma.payment.findFirst({
       where: { id, organizationId },
       include: { allocations: true },
@@ -161,6 +167,35 @@ export class PaymentsService {
     }
 
     const notification = await this.prisma.$transaction(async (tx) => {
+      if (dto.treasuryAccountId) {
+        const account = await tx.treasuryAccount.findFirst({
+          where: {
+            id: dto.treasuryAccountId,
+            organizationId,
+            status: 'ACTIVE',
+            archivedAt: null,
+            currency: payment.currency,
+          },
+          select: { id: true },
+        });
+        if (!account) {
+          throw new NotFoundException(
+            'Active treasury account in the payment currency not found',
+          );
+        }
+      }
+      if (dto.supportingDocumentId) {
+        const document = await tx.gedDocument.findFirst({
+          where: {
+            id: dto.supportingDocumentId,
+            organizationId,
+            archivedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!document)
+          throw new NotFoundException('Supporting document not found');
+      }
       const confirmed = await tx.payment.update({
         where: { id },
         data: {
@@ -223,6 +258,8 @@ export class PaymentsService {
           paymentMode: confirmed.paymentMethod,
           reference: confirmed.reference,
           customerPaymentId: confirmed.id,
+          treasuryAccountId: dto.treasuryAccountId,
+          supportingDocumentId: dto.supportingDocumentId,
           status: 'VALIDATED',
           createdBy: userId,
           validatedBy: userId,

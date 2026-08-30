@@ -2,7 +2,14 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Building2, Camera, KeyRound, Languages, Trash2 } from "lucide-react";
+import {
+  Building2,
+  Camera,
+  KeyRound,
+  Languages,
+  Mail,
+  Trash2,
+} from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { authApi, profileApi, type ApiProfile } from "@/lib/api";
 import {
@@ -17,7 +24,7 @@ import { useBranding } from "@/components/BrandingProvider";
 
 export default function ProfileWorkspace() {
   const { locale, setLocale, t } = useI18n();
-  const { hasPermission } = useAuth();
+  const { hasPermission, refreshCurrentUser } = useAuth();
   const { logoUrl, refreshBranding } = useBranding();
   const canManageBranding = hasPermission(Permission.SETTINGS_WRITE);
   const [profile, setProfile] = useState<ApiProfile | null>(null);
@@ -30,6 +37,11 @@ export default function ProfileWorkspace() {
   const [password, setPassword] = useState({
     currentPassword: "",
     newPassword: "",
+    confirmation: "",
+  });
+  const [email, setEmail] = useState({
+    currentPassword: "",
+    newEmail: "",
     confirmation: "",
   });
 
@@ -119,6 +131,26 @@ export default function ProfileWorkspace() {
       await authApi.changePassword(password);
       setPassword({ currentPassword: "", newPassword: "", confirmation: "" });
       setMessage(t("passwordUpdated"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("updateFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeEmail(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const nextEmail = email.newEmail.trim().toLowerCase();
+      if (nextEmail !== email.confirmation.trim().toLowerCase())
+        throw new Error("Les adresses e-mail ne correspondent pas.");
+      await authApi.changeEmail({ ...email, newEmail: nextEmail });
+      setEmail({ currentPassword: "", newEmail: "", confirmation: "" });
+      await Promise.all([load(), refreshCurrentUser()]);
+      setMessage("Adresse e-mail mise à jour et sessions précédentes révoquées.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("updateFailed"));
     } finally {
@@ -394,6 +426,78 @@ export default function ProfileWorkspace() {
                     </button>
                   )}
                 </div>
+              </section>
+            )}
+            {canManageBranding && (
+              <section className="card">
+                <div className="flex items-center gap-3">
+                  <Mail className="h-5 w-5" />
+                  <div>
+                    <h2 className="font-bold">Sécurité du compte administrateur</h2>
+                    <p className="text-sm text-muted">
+                      E-mail actuel : {profile.email}
+                    </p>
+                  </div>
+                </div>
+                <form
+                  onSubmit={changeEmail}
+                  className="mt-5 grid gap-4 sm:grid-cols-2"
+                >
+                  <label className="sm:col-span-2">
+                    <span className="field-label">Mot de passe actuel</span>
+                    <input
+                      required
+                      type="password"
+                      autoComplete="current-password"
+                      className={inputClass}
+                      value={email.currentPassword}
+                      onChange={(event) =>
+                        setEmail((current) => ({
+                          ...current,
+                          currentPassword: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Nouvel e-mail</span>
+                    <input
+                      required
+                      type="email"
+                      autoComplete="email"
+                      className={inputClass}
+                      value={email.newEmail}
+                      onChange={(event) =>
+                        setEmail((current) => ({
+                          ...current,
+                          newEmail: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Confirmer le nouvel e-mail</span>
+                    <input
+                      required
+                      type="email"
+                      autoComplete="email"
+                      className={inputClass}
+                      value={email.confirmation}
+                      onChange={(event) =>
+                        setEmail((current) => ({
+                          ...current,
+                          confirmation: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <button
+                    disabled={busy}
+                    className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white sm:col-span-2 sm:justify-self-end"
+                  >
+                    {busy ? t("saving") : "Changer l’e-mail"}
+                  </button>
+                </form>
               </section>
             )}
             <section className="card">

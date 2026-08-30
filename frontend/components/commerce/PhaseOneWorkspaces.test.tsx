@@ -49,7 +49,7 @@ describe("Phase 1 commerce workspaces", () => {
   it("uses the canonical offerId query parameter for dossier creation", async () => {
     mocks.listOffers.mockResolvedValue({ items: [{
       id: "offer-1", reference: "OFF-2026-00001", supplierId: "supplier-1", supplier: { id: "supplier-1", name: "China Motors", specialties: [], status: "active", type: "supplier" },
-      brand: "Geely", model: "Coolray", condition: "new", specification: {}, cifPrice: 10000, ddpPrice: 12000,
+      brand: "Geely", model: "Coolray", condition: "new", specification: {}, supplierPrice: 10000,
       currency: "USD", validFrom: "2026-08-01T00:00:00.000Z", validUntil: "2026-09-01T00:00:00.000Z",
       availableQuantity: 2, reservedQuantity: 0, remainingQuantity: 2, status: "available",
     }], pagination: { ...pagination, totalItems: 1, totalPages: 1 } });

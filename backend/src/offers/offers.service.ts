@@ -26,14 +26,15 @@ import {
 } from '../documents/storage.provider';
 import type { UploadedBufferFile } from '../documents/documents.service';
 
-type OfferRow = { id: string };
+type OfferRow = { id: string; currentRevisionId: string | null };
 
 const OFFER_TRANSITIONS: Record<string, readonly string[]> = {
-  RECEIVED: ['UNDER_VERIFICATION', 'REJECTED'],
-  UNDER_VERIFICATION: ['VALIDATED', 'REJECTED'],
-  VALIDATED: ['RESERVED', 'REJECTED'],
-  RESERVED: ['VALIDATED', 'REJECTED'],
+  RECEIVED: ['UNDER_VERIFICATION', 'REJECTED', 'EXPIRED'],
+  UNDER_VERIFICATION: ['VALIDATED', 'REJECTED', 'EXPIRED'],
+  VALIDATED: ['RESERVED', 'REJECTED', 'EXPIRED'],
+  RESERVED: ['VALIDATED', 'REJECTED', 'EXPIRED'],
   REJECTED: [],
+  EXPIRED: ['UNDER_VERIFICATION'],
 };
 
 @Injectable()
@@ -105,9 +106,22 @@ export class OffersService {
   private present<T extends Parameters<OffersService['derivedStatus']>[0]>(
     offer: T,
   ) {
+    const {
+      cifPrice: _legacyCifPrice,
+      ddpPrice: _legacyDdpPrice,
+      purchasePrice: _legacyPurchasePrice,
+      ...supplierOffer
+    } = offer as T & {
+      cifPrice?: unknown;
+      ddpPrice?: unknown;
+      purchasePrice?: unknown;
+    };
+    void _legacyCifPrice;
+    void _legacyDdpPrice;
+    void _legacyPurchasePrice;
     const availabilityStatus = this.derivedStatus(offer);
     return {
-      ...offer,
+      ...supplierOffer,
       status:
         availabilityStatus === 'expired'
           ? 'EXPIRED'
@@ -161,12 +175,8 @@ export class OffersService {
     if (!supplier) throw new NotFoundException('Active supplier not found');
   }
 
-  private supplierPrice(dto: {
-    supplierPrice?: number;
-    purchasePrice?: number;
-    cifPrice?: number;
-  }) {
-    const price = dto.supplierPrice ?? dto.purchasePrice ?? dto.cifPrice;
+  private supplierPrice(dto: { supplierPrice?: number }) {
+    const price = dto.supplierPrice;
     if (price == null || price <= 0) {
       throw new BadRequestException('A positive supplier price is required');
     }
@@ -251,9 +261,9 @@ export class OffersService {
         data: {
           ...dto,
           supplierPrice,
-          purchasePrice: dto.purchasePrice ?? supplierPrice,
-          cifPrice: dto.cifPrice != null ? dto.cifPrice : undefined,
-          ddpPrice: dto.ddpPrice != null ? dto.ddpPrice : undefined,
+          purchasePrice: supplierPrice,
+          cifPrice: null,
+          ddpPrice: null,
           leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
           offerStatus: 'RECEIVED',
           specification: dto.specification as Prisma.InputJsonValue,
@@ -287,9 +297,9 @@ export class OffersService {
           data: {
             ...dto,
             supplierPrice,
-            purchasePrice: dto.purchasePrice ?? supplierPrice,
-            cifPrice: dto.cifPrice != null ? dto.cifPrice : undefined,
-            ddpPrice: dto.ddpPrice != null ? dto.ddpPrice : undefined,
+            purchasePrice: supplierPrice,
+            cifPrice: null,
+            ddpPrice: null,
             leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
             offerStatus: 'RECEIVED',
             specification: dto.specification as Prisma.InputJsonValue,
@@ -604,17 +614,9 @@ export class OffersService {
           'Quantity cannot be lower than active reservations',
         );
       }
-      const {
-        revisionReason,
-        cifPrice: _legacyCifPrice,
-        ddpPrice: _legacyDdpPrice,
-        ...changes
-      } = dto;
-      void _legacyCifPrice;
-      void _legacyDdpPrice;
+      const { revisionReason, ...changes } = dto;
       const revisionFields: Array<keyof UpdateOfferDto> = [
         'supplierPrice',
-        'purchasePrice',
         'currency',
         'incoterm',
         'location',
@@ -642,9 +644,7 @@ export class OffersService {
         });
       }
       const supplierPrice =
-        dto.supplierPrice ??
-        dto.purchasePrice ??
-        current.supplierPrice?.toNumber();
+        dto.supplierPrice ?? current.supplierPrice?.toNumber();
       if (commercialChange && userId && !current.currentRevisionId) {
         await this.appendRevision(
           tx,
@@ -709,15 +709,19 @@ export class OffersService {
           WHERE "id" = ${id} AND "organizationId" = ${organizationId}
             AND "archivedAt" IS NULL AND "validFrom" <= NOW() AND "validUntil" >= NOW()
             AND "reservedQuantity" + ${quantity} <= "availableQuantity"
-          RETURNING "id"`;
+          RETURNING "id", "currentRevisionId"`;
           if (rows.length !== 1)
             throw new ConflictException(
               'Offer is expired, archived, or has insufficient quantity',
-            );
+              );
+          if (!rows[0].currentRevisionId) {
+            throw new ConflictException('Offer price revision is missing');
+          }
           const reservation = await tx.offerReservation.create({
             data: {
               organizationId,
               offerId: id,
+              sourceOfferRevisionId: rows[0].currentRevisionId,
               clientId: dto.clientId,
               quantity,
               expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
@@ -793,6 +797,7 @@ export class OffersService {
           },
           include: {
             offer: { include: { supplier: true, photos: true } },
+            sourceOfferRevision: true,
             dossier: true,
           },
         });
@@ -826,7 +831,7 @@ export class OffersService {
             throw new NotFoundException('Warehouse location not found');
         }
         const purchasePrice =
-          dto.purchasePrice ?? reservation.offer.purchasePrice?.toNumber();
+          reservation.sourceOfferRevision.supplierPrice.toNumber();
         if (purchasePrice == null || purchasePrice <= 0) {
           throw new ConflictException('A positive purchase price is required');
         }
@@ -846,7 +851,6 @@ export class OffersService {
             mileage: reservation.offer.mileage,
             condition: reservation.offer.condition,
             purchasePrice,
-            sellingPrice: dto.sellingPrice,
             currency: reservation.offer.currency,
             acquisitionType: 'chinaOffer',
             supplierId: reservation.offer.supplierId,
@@ -930,7 +934,7 @@ export class OffersService {
             confirmedBy: userId,
             offerReservationId: reservation.id,
             sourceOfferId: reservation.offer.id,
-            sourceOfferRevisionId: reservation.offer.currentRevisionId,
+            sourceOfferRevisionId: reservation.sourceOfferRevisionId,
             supplierSnapshot: {
               id: reservation.offer.supplier.id,
               name: reservation.offer.supplier.name,
@@ -1062,6 +1066,9 @@ export class OffersService {
           if (!offer) {
             throw new ConflictException('Validated active offer required');
           }
+          if (!offer.currentRevisionId) {
+            throw new ConflictException('Offer price revision is missing');
+          }
           const dossier = await tx.dossier.findFirst({
             where: { id: dto.dossierId, organizationId },
             select: { id: true, clientId: true },
@@ -1074,7 +1081,7 @@ export class OffersService {
                 "updatedAt" = NOW()
             WHERE "id" = ${id} AND "organizationId" = ${organizationId}
               AND "reservedQuantity" + 1 <= "availableQuantity"
-            RETURNING "id"`;
+            RETURNING "id", "currentRevisionId"`;
           if (rows.length !== 1) {
             throw new ConflictException('Offer has insufficient quantity');
           }
@@ -1082,6 +1089,7 @@ export class OffersService {
             data: {
               organizationId,
               offerId: id,
+              sourceOfferRevisionId: offer.currentRevisionId,
               clientId: dossier.clientId,
               dossierId: dossier.id,
               quantity: 1,
@@ -1151,11 +1159,9 @@ export class OffersService {
     );
     return this.materialize(
       reservation.id,
-      {
-        vin: dto.vin,
-        purchasePrice: dto.purchasePrice,
-        sellingPrice: dto.sellingPrice,
-        currentLocationId: dto.currentLocationId,
+        {
+          vin: dto.vin,
+          currentLocationId: dto.currentLocationId,
       },
       userId,
       organizationId,

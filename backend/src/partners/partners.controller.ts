@@ -19,6 +19,8 @@ import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
   CreateSupplierBankDto,
+  UpdateSupplierBankDto,
+  ArchiveSupplierBankDto,
   CreateSupplierContactDto,
   CreateSupplierIncidentDto,
   LinkSupplierDossierDto,
@@ -128,6 +130,40 @@ export class PartnersController {
       user.organizationId,
       user.id,
       dto,
+    );
+  }
+
+  @Patch(':id/bank-accounts/:bankId')
+  @RequirePermission(Permission.SUPPLIERS_BANK_WRITE)
+  updateBankAccount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('bankId', ParseUUIDPipe) bankId: string,
+    @Body() dto: UpdateSupplierBankDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.updateBankAccount(
+      id,
+      bankId,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Delete(':id/bank-accounts/:bankId')
+  @RequirePermission(Permission.SUPPLIERS_BANK_WRITE)
+  archiveBankAccount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('bankId', ParseUUIDPipe) bankId: string,
+    @Body() dto: ArchiveSupplierBankDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.archiveBankAccount(
+      id,
+      bankId,
+      user.organizationId,
+      user.id,
+      dto.reason,
     );
   }
 

@@ -371,6 +371,37 @@ export class DocumentsService {
   }
 
   async verifySignedContract(dossierId: string, organizationId: string) {
+    // Contracts & Collections is the commercial authority. Accept a signed
+    // contract only when its central GED document is validated and its current
+    // encrypted file version still passes the stored SHA-256 integrity check.
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        dossierId,
+        organizationId,
+        status: 'SIGNED',
+        archivedAt: null,
+        signedDocument: {
+          archivedAt: null,
+          validationStatus: 'VALIDATED',
+        },
+      },
+      include: {
+        signedDocument: {
+          include: { currentVersion: { include: { file: true } } },
+        },
+      },
+      orderBy: { signedAt: 'desc' },
+    });
+    const currentFile = contract?.signedDocument?.currentVersion?.file;
+    if (
+      currentFile?.status === 'active' &&
+      (await this.storage.verify(currentFile.storageKey, currentFile.checksum))
+    ) {
+      return contract;
+    }
+
+    // Backward-compatible path for pre-GED signed-contract evidence. Existing
+    // records remain usable while new workflows converge on Contract + GED.
     const documents = await this.prisma.dossierDocumentAsset.findMany({
       where: {
         dossierId,

@@ -72,7 +72,7 @@ async function connectBrowser() {
       pending.set(id, { resolve, reject });
       socket.send(JSON.stringify({ id, method, params }));
     });
-  return { socket, send, events };
+  return { socket, send, events, targetId: target.id };
 }
 
 const login = await request("/auth/login", {
@@ -100,7 +100,12 @@ async function waitUntil(expression, description) {
     if (await evaluate(expression)) return;
     await sleep(200);
   }
-  throw new Error(`Timed out waiting for ${description}`);
+  const pageState = await evaluate(
+    "({ path: location.pathname, text: (document.body?.innerText ?? '').slice(0, 500), email: document.querySelector('#email')?.value, passwordLength: document.querySelector('#password')?.value?.length, valid: document.querySelector('form')?.checkValidity() })",
+  );
+  throw new Error(
+    `Timed out waiting for ${description}; page=${JSON.stringify(pageState)}`,
+  );
 }
 
 async function navigate(path, expectedText) {
@@ -115,11 +120,12 @@ async function setInput(selector, value) {
   const ok = await evaluate(`(() => {
     const field = document.querySelector(${JSON.stringify(selector)});
     if (!field) return false;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
-    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.focus();
+    field.select();
     return true;
   })()`);
   if (!ok) throw new Error(`Input not found: ${selector}`);
+  await browser.send("Input.insertText", { text: value });
 }
 
 try {
@@ -128,6 +134,8 @@ try {
   await browser.send("Network.enable");
   await browser.send("Network.clearBrowserCookies");
   await navigate("/connexion", "Connexion");
+  // Wait for client-side hydration before dispatching controlled-input events.
+  await sleep(500);
   await setInput("#email", adminEmail);
   await setInput("#password", adminPassword);
   await evaluate("document.querySelector('form')?.requestSubmit()");
@@ -144,6 +152,22 @@ try {
   // Diagnostics below cover the authenticated application journey only.
   browser.events.length = 0;
 
+  const crmReferences = await request("/crm/reference-data", { headers });
+  const entryChannel = crmReferences.find(
+    (reference) => reference.kind === "ENTRY_CHANNEL",
+  );
+  const marketingSource = crmReferences.find(
+    (reference) => reference.kind === "MARKETING_SOURCE",
+  );
+  const nationalityCountry = crmReferences.find(
+    (reference) => reference.kind === "COUNTRY",
+  );
+  if (!entryChannel || !marketingSource || !nationalityCountry) {
+    throw new Error(
+      "CRM entry-channel and marketing-source references are required",
+    );
+  }
+
   const prospect = await request("/prospects", {
     method: "POST",
     headers,
@@ -152,7 +176,8 @@ try {
       lastName: `Navigatrice ${runId}`,
       phone: `+21355${String(Date.now()).slice(-7)}`,
       email: `${runId}@example.test`,
-      source: "browser-acceptance",
+      entryChannelId: entryChannel.id,
+      marketingSourceId: marketingSource.id,
     },
   });
   await request(`/prospects/${prospect.id}/activities`, {
@@ -166,10 +191,26 @@ try {
     },
   });
   await navigate("/crm/leads", "Élodie");
+  for (const status of [
+    "CONTACTED",
+    "QUALIFIED",
+    "APPOINTMENT",
+    "CONTRACT",
+    "DEPOSIT",
+  ]) {
+    await request(`/prospects/${prospect.id}/transition`, {
+      method: "POST",
+      headers,
+      body: { status },
+    });
+  }
   const client = await request(`/prospects/${prospect.id}/convert`, {
     method: "POST",
     headers,
-    body: { nationality: "Algérienne", address: "Alger" },
+    body: {
+      nationalityCountryId: nationalityCountry.id,
+      address: "Alger",
+    },
   });
   await navigate("/crm/clients", "Élodie");
 
@@ -225,7 +266,7 @@ try {
       },
     });
   }
-  await navigate("/crm/call-center", "Call Center");
+  await navigate("/crm/call-center", "Centre d’appels");
 
   const supplier = await request("/partners", {
     method: "POST",
@@ -256,29 +297,62 @@ try {
       country: "Algérie",
     },
   });
-  const offer = await request("/offers", {
+  const offerForm = new FormData();
+  for (const [key, value] of Object.entries({
+    supplierId: supplier.id,
+    brand: "Geely",
+    model: `Coolray ${runId}`,
+    year: "2026",
+    condition: "new",
+    specification: JSON.stringify({ engine: "1.5T", color: "Bleu" }),
+    supplierPrice: "12000",
+    currency: "USD",
+    validFrom: new Date(Date.now() - 86400000).toISOString(),
+    validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
+    availableQuantity: "6",
+  })) {
+    offerForm.append(key, value);
+  }
+  const onePixelPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  for (let index = 0; index < 3; index += 1) {
+    offerForm.append(
+      "photos",
+      new Blob([Buffer.concat([onePixelPng, Buffer.from([index])])], {
+        type: "image/png",
+      }),
+      `browser-offer-${index + 1}.png`,
+    );
+  }
+  const offer = await request("/offers/with-photos", {
     method: "POST",
     headers,
-    body: {
-      supplierId: supplier.id,
-      brand: "Geely",
-      model: `Coolray ${runId}`,
-      year: 2026,
-      condition: "new",
-      specification: { engine: "1.5T", color: "Bleu" },
-      purchasePrice: 12000,
-      cifPrice: 14500,
-      ddpPrice: 19500,
-      currency: "USD",
-      validFrom: new Date(Date.now() - 86400000).toISOString(),
-      validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
-      availableQuantity: 6,
-    },
+    body: offerForm,
   });
-  const vehicle = await request("/vehicles", {
-    method: "POST",
-    headers,
-    body: {
+  async function createVehicleWithPhotos(input, photoPrefix) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(input)) {
+      form.append(key, String(value));
+    }
+    for (let index = 0; index < 3; index += 1) {
+      form.append(
+        "photos",
+        new Blob([Buffer.concat([onePixelPng, Buffer.from([index + 3])])], {
+          type: "image/png",
+        }),
+        `${photoPrefix}-${index + 1}.png`,
+      );
+    }
+    return request("/vehicles/with-photos", {
+      method: "POST",
+      headers,
+      body: form,
+    });
+  }
+  const vehicle = await createVehicleWithPhotos(
+    {
       vin: `GATEA${String(Date.now()).slice(-12)}`,
       brand: "Chery",
       model: `Tiggo ${runId}`,
@@ -290,11 +364,10 @@ try {
       acquisitionType: "stock",
       supplierId: supplier.id,
     },
-  });
-  const vehicleDdp = await request("/vehicles", {
-    method: "POST",
-    headers,
-    body: {
+    "browser-vehicle-cif",
+  );
+  const vehicleDdp = await createVehicleWithPhotos(
+    {
       vin: `DDP${String(Date.now()).slice(-14)}`,
       brand: "Chery",
       model: `Arrizo ${runId}`,
@@ -306,7 +379,8 @@ try {
       acquisitionType: "stock",
       supplierId: supplier.id,
     },
-  });
+    "browser-vehicle-ddp",
+  );
   await navigate("/fournisseurs", `Fournisseur ${runId}`);
   await navigate("/offres", `Coolray ${runId}`);
   await navigate("/vehicules", `Tiggo ${runId}`);
@@ -339,8 +413,6 @@ try {
       headers,
       body: {
         vin: `BUY${String(Date.now()).slice(-14)}`,
-        purchasePrice: 12000,
-        sellingPrice: 19000,
       },
     },
   );
@@ -368,6 +440,23 @@ try {
   await navigate("/dossiers", dossiers.VEHICLE_SALE_CIF.reference);
 
   const cif = dossiers.VEHICLE_SALE_CIF;
+  const form = new FormData();
+  form.set("dossierId", cif.id);
+  form.set("kind", "CONTRACT");
+  form.set("documentType", "SIGNED_CONTRACT");
+  form.set("title", `Contrat signé ${runId}`);
+  form.set(
+    "file",
+    new Blob(["%PDF-1.4\nGate A disposable document\n%%EOF"], {
+      type: "application/pdf",
+    }),
+    `${runId}.pdf`,
+  );
+  const document = await request("/documents/upload", {
+    method: "POST",
+    headers,
+    body: form,
+  });
   for (const status of [
     "clientConfirmed",
     "contractSigned",
@@ -454,12 +543,25 @@ try {
       description: "Fret maritime",
     },
   });
+  const usdRate = await request("/finance/exchange-rates", {
+    method: "POST",
+    headers,
+    body: {
+      baseCurrency: "USD",
+      quoteCurrency: "DZD",
+      rate: 135,
+      effectiveAt: new Date(Date.now() - 60000).toISOString(),
+      source: "browser-acceptance",
+    },
+  });
   const supplierPayment = await request("/finance/supplier-payments", {
     method: "POST",
     headers,
     body: {
       supplierId: supplier.id,
       purchaseId: purchase.id,
+      paymentKind: "DEPOSIT",
+      exchangeRateId: usdRate.id,
       amount: 12000,
       currency: "USD",
       paymentMethod: "bank_transfer",
@@ -471,7 +573,7 @@ try {
     method: "POST",
     headers,
   });
-  await navigate("/finance", "Finance & Rentabilité");
+  await navigate("/finance", "Finance & Contrôle de Gestion");
 
   const shipment = await request("/shipments", {
     method: "POST",
@@ -493,23 +595,24 @@ try {
       body: { status, comment: `Gate A ${status}` },
     });
   }
-  const customs = await request("/customs", {
-    method: "POST",
+  const customsPage = await request(`/customs?shipmentId=${shipment.id}`, {
     headers,
-    body: {
-      shipmentId: shipment.id,
-      dossierId: dossiers.VEHICLE_SALE_DDP.id,
-      vehicleId: vehicle.id,
-      brokerPartnerId: broker.id,
-      declarationNumber: `DEC-${runId}`,
-      customsValue: 2000000,
-      dutyAmount: 300000,
-      taxAmount: 190000,
-      feesAmount: 25000,
-      currency: "DZD",
-    },
   });
-  for (const status of ["inInspection", "cleared", "released"]) {
+  const customs = customsPage.items.find(
+    (item) => item.vehicleId === vehicle.id && item.dossierId === cif.id,
+  );
+  if (!customs) {
+    throw new Error("Shipment arrival did not create the vehicle customs file");
+  }
+  for (const status of [
+    "FILE_TRANSMITTED",
+    "CLEARANCE_IN_PROGRESS",
+    "INSPECTION",
+    "DUTIES_TAXES",
+    "RELEASE",
+    "PORT_EXIT",
+    "CLOSED",
+  ]) {
     await request(`/customs/${customs.id}/transition`, {
       method: "POST",
       headers,
@@ -518,23 +621,6 @@ try {
   }
   await navigate("/expeditions", shipment.shipmentNumber);
 
-  const form = new FormData();
-  form.set("dossierId", cif.id);
-  form.set("kind", "CONTRACT");
-  form.set("documentType", "contrat");
-  form.set("title", `Contrat signé ${runId}`);
-  form.set(
-    "file",
-    new Blob(["%PDF-1.4\nGate A disposable document\n%%EOF"], {
-      type: "application/pdf",
-    }),
-    `${runId}.pdf`,
-  );
-  const document = await request("/documents/upload", {
-    method: "POST",
-    headers,
-    body: form,
-  });
   const download = await rawRequest(`/documents/${document.id}/download`, {
     headers,
   });
@@ -636,15 +722,20 @@ try {
 
   const displayName = `AutoImport Vérifié ${runId}`;
   await navigate("/parametres", "Paramètres");
+  await waitUntil(
+    "[...document.querySelectorAll('label')].some((node) => node.textContent?.includes('Nom affiché') && node.querySelector('input'))",
+    "settings form data",
+  );
   const settingChanged = await evaluate(`(() => {
     const label = [...document.querySelectorAll('label')].find((node) => node.textContent?.includes('Nom affiché'));
     const input = label?.querySelector('input');
     if (!input) return false;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(displayName)});
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    input.select();
     return true;
   })()`);
   if (!settingChanged) throw new Error("Allowed setting field not found");
+  await browser.send("Input.insertText", { text: displayName });
   const saved = await evaluate(
     `(() => { const button = [...document.querySelectorAll('button')].find((node) => node.textContent?.includes('Enregistrer les modifications')); if (!button) return false; button.click(); return true; })()`,
   );
@@ -710,5 +801,8 @@ try {
     `FINAL_BROWSER_ACCEPTANCE_PASS run=${runId} lead-client calls-messages supplier-offer-vehicle dossiers=CIF,DDP,SHIPPING reservation-release finance shipment-customs document=${document.file.storageKey} gate=blocked-then-passed task=${task.id}:completed notification=${taskNotification.id}:read audit=redacted dashboard=reconciled report=utf8-csv settings=persisted-currency-locked viewports=desktop-mobile diagnostics=clean`,
   );
 } finally {
+  await browser
+    .send("Target.closeTarget", { targetId: browser.targetId })
+    .catch(() => undefined);
   browser.socket.close();
 }

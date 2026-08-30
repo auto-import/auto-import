@@ -42,6 +42,7 @@ describe('FinanceService', () => {
     mockPrisma.dossier.findFirst.mockResolvedValue({
       id: 'dossier-1',
       reference: 'DOS-2026-00001',
+      contracts: [],
       paymentPlans: [
         {
           id: 'plan-1',
@@ -83,11 +84,16 @@ describe('FinanceService', () => {
         {
           id: 'pur-1',
           purchasePrice: new Prisma.Decimal(600000),
+          currency: 'DZD',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
           payments: [
             {
               id: 'sp-1',
               amount: new Prisma.Decimal(600000),
               status: 'CONFIRMED',
+              financeTransaction: {
+                amountDzd: new Prisma.Decimal(600000),
+              },
             },
           ],
         },
@@ -123,15 +129,17 @@ describe('FinanceService', () => {
     expect(summary.gates.finalPaid).toBe(false);
     expect(summary.gates.canAdvanceToPurchase).toBe(true);
     expect(summary.gates.canAdvanceToDelivery).toBe(false);
-    expect(summary.costs.totalInBaseCurrency).toBe('150000');
-    expect(summary.profitability.grossMargin).toBe('850000');
-    expect(summary.profitability.grossMarginPercentage).toBe('85');
+    expect(summary.costs.totalInBaseCurrency).toBe('750000');
+    expect(summary.costs.purchaseCost).toBe('600000');
+    expect(summary.profitability.grossMargin).toBe('250000');
+    expect(summary.profitability.grossMarginPercentage).toBe('25');
   });
 
   it('keeps a completed full-upfront plan as the dossier revenue authority', async () => {
     mockPrisma.dossier.findFirst.mockResolvedValue({
       id: 'dossier-completed',
       reference: 'DOS-2026-00002',
+      contracts: [],
       paymentPlans: [
         {
           id: 'plan-completed',

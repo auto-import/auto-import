@@ -35,7 +35,6 @@ export default function DossierDetailWorkspace({
   const [opsUserId, setOpsUserId] = useState("");
   const [comment, setComment] = useState("");
   const [vin, setVin] = useState("");
-  const [purchasePrice, setPurchasePrice] = useState("");
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const load = useCallback(async () => {
@@ -99,10 +98,8 @@ export default function DossierDetailWorkspace({
     try {
       await commerceApi.offers.materialize(dossier.offerReservation.id, {
         vin: vin.trim(),
-        purchasePrice: purchasePrice ? Number(purchasePrice) : undefined,
       });
       setVin("");
-      setPurchasePrice("");
       await load();
     } catch (caught) {
       setError(
@@ -287,8 +284,8 @@ export default function DossierDetailWorkspace({
               <section className="card space-y-3 p-5">
                 <h2 className="font-semibold">Confirmer l’achat fournisseur</h2>
                 <p className="text-sm text-muted">
-                  Le véhicule n’est matérialisé qu’avec un VIN et un prix
-                  d’achat faisant autorité.
+                  Le prix fournisseur est repris depuis la révision exacte de
+                  l’offre réservée. Saisissez uniquement le VIN.
                 </p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <label>
@@ -297,15 +294,6 @@ export default function DossierDetailWorkspace({
                       className={inputClass}
                       value={vin}
                       onChange={(event) => setVin(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span className="field-label">Prix d’achat</span>
-                    <input
-                      type="number"
-                      className={inputClass}
-                      value={purchasePrice}
-                      onChange={(event) => setPurchasePrice(event.target.value)}
                     />
                   </label>
                 </div>

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
@@ -122,17 +126,9 @@ export class ExchangeRatesService {
       return new Prisma.Decimal(1).dividedBy(inverseRate.rate);
     }
 
-    // Fallback default official pegs if not yet seeded
-    if (base === 'DZD' && quote === 'USD') return new Prisma.Decimal(135.0);
-    if (base === 'DZD' && quote === 'EUR') return new Prisma.Decimal(145.0);
-    if (base === 'DZD' && quote === 'CNY') return new Prisma.Decimal(18.5);
-    if (base === 'USD' && quote === 'DZD')
-      return new Prisma.Decimal(1).dividedBy(135.0);
-    if (base === 'EUR' && quote === 'DZD')
-      return new Prisma.Decimal(1).dividedBy(145.0);
-    if (base === 'CNY' && quote === 'DZD')
-      return new Prisma.Decimal(1).dividedBy(18.5);
-
-    return new Prisma.Decimal(1);
+    throw new ConflictException({
+      code: 'HISTORICAL_EXCHANGE_RATE_REQUIRED',
+      message: `No ${base}/${quote} exchange rate exists at the transaction date`,
+    });
   }
 }

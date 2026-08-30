@@ -34,9 +34,6 @@ const emptyForm = {
   transmission: "",
   color: "",
   supplierPrice: "",
-  purchasePrice: "",
-  cifPrice: "",
-  ddpPrice: "",
   currency: "USD",
   validFrom: today,
   validUntil: "",
@@ -109,13 +106,7 @@ export default function OffersWorkspace() {
             fuelType: String(offer.specification.fuelType ?? ""),
             transmission: String(offer.specification.transmission ?? ""),
             color: String(offer.specification.color ?? ""),
-            supplierPrice:
-              offer.supplierPrice?.toString() ??
-              offer.purchasePrice?.toString() ??
-              "",
-            purchasePrice: offer.purchasePrice?.toString() ?? "",
-            cifPrice: offer.cifPrice?.toString() ?? "",
-            ddpPrice: offer.ddpPrice?.toString() ?? "",
+            supplierPrice: offer.supplierPrice?.toString() ?? "",
             currency: offer.currency,
             validFrom: offer.validFrom.slice(0, 10),
             validUntil: offer.validUntil.slice(0, 10),
@@ -130,11 +121,7 @@ export default function OffersWorkspace() {
     event.preventDefault();
     setSaving(true);
     setError("");
-    const supplierPriceVal = form.supplierPrice
-      ? Number(form.supplierPrice)
-      : form.purchasePrice
-        ? Number(form.purchasePrice)
-        : 0;
+    const supplierPriceVal = Number(form.supplierPrice);
     const payload = {
       supplierId: form.supplierId,
       brand: form.brand,
@@ -150,9 +137,6 @@ export default function OffersWorkspace() {
         color: form.color,
       },
       supplierPrice: supplierPriceVal,
-      purchasePrice: supplierPriceVal,
-      cifPrice: form.cifPrice ? Number(form.cifPrice) : undefined,
-      ddpPrice: form.ddpPrice ? Number(form.ddpPrice) : undefined,
       currency: form.currency,
       validFrom: new Date(form.validFrom).toISOString(),
       validUntil: new Date(form.validUntil).toISOString(),
@@ -248,8 +232,10 @@ export default function OffersWorkspace() {
                   {offer.condition === "new" ? "Neuf" : "Occasion"}
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
-                  <span>CIF {formatMoney(offer.cifPrice, offer.currency)}</span>
-                  <span>DDP {formatMoney(offer.ddpPrice, offer.currency)}</span>
+                  <span>
+                    Prix fournisseur{" "}
+                    {formatMoney(offer.supplierPrice, offer.currency)}
+                  </span>
                   <span>{offer.remainingQuantity} disponible(s)</span>
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
@@ -323,9 +309,6 @@ export default function OffersWorkspace() {
                   "transmission",
                   "color",
                   "supplierPrice",
-                  "purchasePrice",
-                  "cifPrice",
-                  "ddpPrice",
                   "availableQuantity",
                   "estimatedDelayDays",
                 ] as const
@@ -343,10 +326,7 @@ export default function OffersWorkspace() {
                         fuelType: "Carburant",
                         transmission: "Transmission",
                         color: "Couleur",
-                        supplierPrice: "Prix fournisseur / achat *",
-                        purchasePrice: "Prix achat (référence)",
-                        cifPrice: "Prix CIF (optionnel)",
-                        ddpPrice: "Prix DDP (optionnel)",
+                        supplierPrice: "Prix fournisseur *",
                         availableQuantity: "Quantité *",
                         estimatedDelayDays: "Délai estimé (jours)",
                       }[key]

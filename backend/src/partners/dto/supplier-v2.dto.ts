@@ -36,6 +36,17 @@ export class CreateSupplierBankDto {
   @IsObject() details: Record<string, unknown>;
 }
 
+export class UpdateSupplierBankDto {
+  @IsOptional() @IsString() label?: string;
+  @IsOptional() @IsString() bankName?: string;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsObject() details?: Record<string, unknown>;
+}
+
+export class ArchiveSupplierBankDto {
+  @IsString() reason: string;
+}
+
 export class CreateSupplierIncidentDto {
   @IsString() type: string;
   @IsIn(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']) severity: string;

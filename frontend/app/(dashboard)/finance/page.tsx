@@ -16,6 +16,9 @@ import {
   type ApiExchangeRate,
   fetchFinanceTransactions,
   fetchTreasuryAccounts,
+  createSupplierPayment,
+  fetchPurchasesForPayment,
+  type ApiPurchaseForPayment,
   type ApiFinanceTransaction,
   type ApiTreasuryAccount,
 } from "@/lib/finance-api";
@@ -64,6 +67,7 @@ export default function FinanceDashboardPage() {
     ApiSupplierPayment[]
   >([]);
   const [supplierLoading, setSupplierLoading] = useState(false);
+  const [purchases, setPurchases] = useState<ApiPurchaseForPayment[]>([]);
 
   // Costs
   const [costs, setCosts] = useState<ApiCost[]>([]);
@@ -75,10 +79,21 @@ export default function FinanceDashboardPage() {
 
   // Modals
   const [showCostModal, setShowCostModal] = useState(false);
-  const [newCostType, setNewCostType] = useState("SHIPPING");
+  const [newCostType, setNewCostType] = useState("RENT");
   const [newCostAmount, setNewCostAmount] = useState("");
   const [newCostCurrency, setNewCostCurrency] = useState("DZD");
   const [newCostDesc, setNewCostDesc] = useState("");
+  const [newCostTreasuryId, setNewCostTreasuryId] = useState("");
+
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [supplierPurchaseId, setSupplierPurchaseId] = useState("");
+  const [supplierPaymentKind, setSupplierPaymentKind] = useState<
+    "DEPOSIT" | "COMPLEMENT" | "BALANCE"
+  >("DEPOSIT");
+  const [supplierAmount, setSupplierAmount] = useState("");
+  const [supplierMethod, setSupplierMethod] = useState("");
+  const [supplierReference, setSupplierReference] = useState("");
+  const [supplierIdempotencyKey, setSupplierIdempotencyKey] = useState("");
 
   const [showRateModal, setShowRateModal] = useState(false);
   const newRateBase = "DZD";
@@ -86,75 +101,86 @@ export default function FinanceDashboardPage() {
   const [newRateValue, setNewRateValue] = useState("");
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+
+  const reportLoadError = useCallback((cause: unknown) => {
+    setLoadError(
+      cause instanceof Error ? cause.message : "Chargement financier impossible",
+    );
+  }, []);
 
   const loadOverview = useCallback(async () => {
     try {
       const data = await fetchOrganizationFinancialOverview();
       setOverview(data);
-    } catch {
-      // ignore
+    } catch (cause) {
+      reportLoadError(cause);
     }
-  }, []);
+  }, [reportLoadError]);
 
   const loadTransactions = useCallback(async () => {
     setTxLoading(true);
     try {
       const res = await fetchFinanceTransactions();
       setTransactions(res || []);
-    } catch {
-      // ignore
+    } catch (cause) {
+      reportLoadError(cause);
     } finally {
       setTxLoading(false);
     }
-  }, []);
+  }, [reportLoadError]);
 
   const loadTreasury = useCallback(async () => {
     setTreasuryLoading(true);
     try {
       const res = await fetchTreasuryAccounts();
       setTreasuryAccounts(res || []);
-    } catch {
-      // ignore
+    } catch (cause) {
+      reportLoadError(cause);
     } finally {
       setTreasuryLoading(false);
     }
-  }, []);
+  }, [reportLoadError]);
 
   const loadSupplierPayments = useCallback(async () => {
     setSupplierLoading(true);
     try {
-      const res = await fetchSupplierPayments({ page: 1, limit: 50 });
+      const [res, purchasePage] = await Promise.all([
+        fetchSupplierPayments({ page: 1, limit: 50 }),
+        fetchPurchasesForPayment(),
+      ]);
       setSupplierPayments(res.items || []);
-    } catch {
-      // ignore
+      setPurchases(purchasePage.items || []);
+    } catch (cause) {
+      reportLoadError(cause);
     } finally {
       setSupplierLoading(false);
     }
-  }, []);
+  }, [reportLoadError]);
 
   const loadCosts = useCallback(async () => {
     setCostLoading(true);
     try {
       const res = await fetchCosts({ page: 1, limit: 50 });
       setCosts(res.items || []);
-    } catch {
-      // ignore
+    } catch (cause) {
+      reportLoadError(cause);
     } finally {
       setCostLoading(false);
     }
-  }, []);
+  }, [reportLoadError]);
 
   const loadRates = useCallback(async () => {
     setRatesLoading(true);
     try {
       const res = await fetchExchangeRates({ page: 1, limit: 50 });
       setExchangeRates(res.items || []);
-    } catch {
-      // ignore
+    } catch (cause) {
+      reportLoadError(cause);
     } finally {
       setRatesLoading(false);
     }
-  }, []);
+  }, [reportLoadError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -199,13 +225,54 @@ export default function FinanceDashboardPage() {
   const handleConfirmSupplier = async (id: string) => {
     setActionLoading(id);
     try {
-      await confirmSupplierPayment(id);
+      const payment = supplierPayments.find((item) => item.id === id);
+      const account = treasuryAccounts.find(
+        (item) => item.status === "ACTIVE" && item.currency === payment?.currency,
+      );
+      if (!account) {
+        throw new Error(
+          `Créez un compte de trésorerie actif en ${payment?.currency ?? "devise du paiement"} avant confirmation.`,
+        );
+      }
+      await confirmSupplierPayment(id, { treasuryAccountId: account.id });
       await loadSupplierPayments();
       await loadOverview();
+      await loadTreasury();
     } catch (err) {
       alert(
         (err instanceof Error ? err.message : "") ||
           "Erreur lors de la confirmation du paiement fournisseur",
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateSupplierPayment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const purchase = purchases.find((item) => item.id === supplierPurchaseId);
+    if (!purchase || Number(supplierAmount) <= 0) return;
+    setActionLoading("supplier-create");
+    try {
+      await createSupplierPayment({
+        purchaseId: purchase.id,
+        supplierId: purchase.supplierId,
+        paymentKind: supplierPaymentKind,
+        amount: Number(supplierAmount),
+        currency: purchase.currency,
+        paymentMethod: supplierMethod || undefined,
+        reference: supplierReference || undefined,
+        idempotencyKey: supplierIdempotencyKey,
+      });
+      setShowSupplierModal(false);
+      setSupplierPurchaseId("");
+      setSupplierAmount("");
+      setSupplierReference("");
+      await loadSupplierPayments();
+    } catch (err) {
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur lors de l’enregistrement du paiement fournisseur",
       );
     } finally {
       setActionLoading(null);
@@ -218,15 +285,19 @@ export default function FinanceDashboardPage() {
     try {
       await createCost({
         type: newCostType,
+        costScope: "OPERATING",
         amount: Number(newCostAmount),
         currency: newCostCurrency,
         description: newCostDesc,
+        treasuryAccountId: newCostTreasuryId || undefined,
       });
       setShowCostModal(false);
       setNewCostAmount("");
       setNewCostDesc("");
+      setNewCostTreasuryId("");
       await loadCosts();
       await loadOverview();
+      await loadTreasury();
     } catch (err) {
       alert(
         (err instanceof Error ? err.message : "") ||
@@ -409,6 +480,16 @@ export default function FinanceDashboardPage() {
       ),
     },
     {
+      key: "paymentKind",
+      header: "Échéance",
+      render: (row) =>
+        ({
+          DEPOSIT: "Acompte",
+          COMPLEMENT: "Complément",
+          BALANCE: "Solde",
+        })[row.paymentKind] ?? row.paymentKind,
+    },
+    {
       key: "amount",
       header: "Montant déboursé",
       render: (row) => (
@@ -416,6 +497,14 @@ export default function FinanceDashboardPage() {
           {formatMontant(Number(row.amount))} {row.currency}
         </span>
       ),
+    },
+    {
+      key: "purchaseRemaining",
+      header: "Reste achat",
+      render: (row) =>
+        row.purchaseRemaining == null
+          ? "—"
+          : `${formatMontant(Number(row.purchaseRemaining))} ${row.currency}`,
     },
     {
       key: "paymentDate",
@@ -543,6 +632,17 @@ export default function FinanceDashboardPage() {
       />
 
       <div className="p-8 space-y-6">
+        {loadError && (
+          <div className="rounded-card border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            {loadError}
+            <button
+              className="ml-3 underline"
+              onClick={() => setLoadError("")}
+            >
+              Fermer
+            </button>
+          </div>
+        )}
         {/* Metric Cards */}
         {overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -825,15 +925,27 @@ export default function FinanceDashboardPage() {
               <h3 className="font-bold text-base text-foreground">
                 Règlements Fournisseurs & Achats Véhicules
               </h3>
-              <button
-                onClick={() => loadSupplierPayments()}
-                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
-                title="Actualiser"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${supplierLoading ? "animate-spin" : ""}`}
-                />
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setSupplierIdempotencyKey(crypto.randomUUID());
+                    setShowSupplierModal(true);
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground"
+                >
+                  <Plus className="h-4 w-4" />
+                  Enregistrer un paiement
+                </button>
+                <button
+                  onClick={() => loadSupplierPayments()}
+                  className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                  title="Actualiser"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${supplierLoading ? "animate-spin" : ""}`}
+                  />
+                </button>
+              </div>
             </div>
 
             <div className="card p-0 overflow-hidden">
@@ -887,6 +999,116 @@ export default function FinanceDashboardPage() {
         )}
       </div>
 
+      {showSupplierModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="card max-w-lg w-full p-6 space-y-4">
+            <h3 className="font-bold text-lg text-foreground">
+              Enregistrer un paiement fournisseur
+            </h3>
+            <form onSubmit={handleCreateSupplierPayment} className="space-y-4">
+              <label className="block">
+                <span className="block text-xs font-semibold text-muted uppercase mb-1">
+                  Achat concerné
+                </span>
+                <select
+                  required
+                  value={supplierPurchaseId}
+                  onChange={(event) => {
+                    setSupplierPurchaseId(event.target.value);
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                >
+                  <option value="">Sélectionner</option>
+                  {purchases
+                    .filter((purchase) => purchase.status !== "cancelled")
+                    .map((purchase) => (
+                      <option key={purchase.id} value={purchase.id}>
+                        {purchase.purchaseNumber} · {purchase.supplier.name} ·{" "}
+                        {formatMontant(Number(purchase.purchasePrice))}{" "}
+                        {purchase.currency}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <span className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Nature
+                  </span>
+                  <select
+                    value={supplierPaymentKind}
+                    onChange={(event) =>
+                      setSupplierPaymentKind(
+                        event.target.value as
+                          | "DEPOSIT"
+                          | "COMPLEMENT"
+                          | "BALANCE",
+                      )
+                    }
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  >
+                    <option value="DEPOSIT">Acompte</option>
+                    <option value="COMPLEMENT">Complément</option>
+                    <option value="BALANCE">Solde</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Montant
+                  </span>
+                  <input
+                    required
+                    min="0.01"
+                    step="0.01"
+                    type="number"
+                    value={supplierAmount}
+                    onChange={(event) => setSupplierAmount(event.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </label>
+                <label>
+                  <span className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Moyen de paiement
+                  </span>
+                  <input
+                    value={supplierMethod}
+                    onChange={(event) => setSupplierMethod(event.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </label>
+                <label>
+                  <span className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Référence
+                  </span>
+                  <input
+                    value={supplierReference}
+                    onChange={(event) =>
+                      setSupplierReference(event.target.value)
+                    }
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  />
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSupplierModal(false)}
+                  className="px-4 py-2 text-sm border border-border rounded-button"
+                >
+                  Annuler
+                </button>
+                <button
+                  disabled={actionLoading === "supplier-create"}
+                  className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-button disabled:opacity-50"
+                >
+                  Enregistrer en attente
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Cost Modal */}
       {showCostModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -904,14 +1126,11 @@ export default function FinanceDashboardPage() {
                   onChange={(e) => setNewCostType(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                 >
-                  <option value="SHIPPING">Fret maritime / Transport</option>
-                  <option value="CUSTOMS">Droits & Frais de Douane</option>
-                  <option value="INSURANCE">Assurance</option>
-                  <option value="STORAGE">Frais d’entreposage / Port</option>
-                  <option value="SUPPLIER">
-                    Paiement / Acompte Fournisseur
-                  </option>
-                  <option value="OTHER">Autre charge</option>
+                  <option value="RENT">Loyer</option>
+                  <option value="SALARY">Salaires</option>
+                  <option value="ADVERTISING">Publicité</option>
+                  <option value="GENERAL">Frais généraux</option>
+                  <option value="OTHER">Autre charge d’exploitation</option>
                 </select>
               </div>
 
@@ -958,6 +1177,29 @@ export default function FinanceDashboardPage() {
                   className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                   placeholder="Ex: Frais de manutention portuaire"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                  Compte de trésorerie
+                </label>
+                <select
+                  value={newCostTreasuryId}
+                  onChange={(event) => setNewCostTreasuryId(event.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                >
+                  <option value="">Aucun mouvement de trésorerie</option>
+                  {treasuryAccounts
+                    .filter(
+                      (account) =>
+                        account.status === "ACTIVE" &&
+                        account.currency === newCostCurrency,
+                    )
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} · {account.name}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

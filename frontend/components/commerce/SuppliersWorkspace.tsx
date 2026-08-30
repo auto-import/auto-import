@@ -659,7 +659,7 @@ export default function SuppliersWorkspace() {
                           </div>
                           <p className="text-xs text-muted">Réf: {offer.reference}</p>
                           <p className="font-semibold text-primary">
-                            Prix fournisseur: {formatMoney(offer.supplierPrice ?? offer.purchasePrice, offer.currency)}
+                            Prix fournisseur: {formatMoney(offer.supplierPrice, offer.currency)}
                           </p>
                           <p className="text-xs text-muted">
                             Qté disponible: {offer.availableQuantity}

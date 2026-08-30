@@ -74,10 +74,8 @@ describe('AuthService refresh sessions', () => {
     []
   >();
   const transactionSessionCreate = jest.fn<Promise<unknown>, []>();
-  const transactionUserUpdate = jest.fn<
-    Promise<{ id: string }>,
-    [{ where: { id: string }; data: { passwordHash: string } }]
-  >();
+  const transactionUserUpdate = jest.fn<Promise<unknown>, [unknown]>();
+  const transactionAuditCreate = jest.fn<Promise<unknown>, [unknown]>();
   const transactionClient = {
     user: { update: transactionUserUpdate },
     refreshSession: {
@@ -85,6 +83,7 @@ describe('AuthService refresh sessions', () => {
       updateMany: transactionSessionUpdateMany,
       create: transactionSessionCreate,
     },
+    auditLog: { create: transactionAuditCreate },
   };
   const runTransaction = async <T>(
     callback: (client: typeof transactionClient) => Promise<T>,
@@ -107,7 +106,8 @@ describe('AuthService refresh sessions', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    transactionUserUpdate.mockResolvedValue({ id: 'user-1' });
+    transactionUserUpdate.mockResolvedValue(activeUser);
+    transactionAuditCreate.mockResolvedValue({ id: 'audit-1' });
   });
 
   it('rejects current-user loading when the organization is inactive', async () => {
@@ -209,6 +209,62 @@ describe('AuthService refresh sessions', () => {
       sessionBehavior: 'current_rotated_other_sessions_revoked',
     });
     expect(JSON.stringify(result)).not.toContain('Next!Password456');
+    const audit = transactionAuditCreate.mock.calls[0][0];
+    expect(JSON.stringify(audit)).not.toContain('Current!Pass123');
+    expect(JSON.stringify(audit)).not.toContain('Next!Password456');
+  });
+
+  it('changes the current administrator email, rotates sessions and writes a redacted audit entry', async () => {
+    userFindUnique.mockResolvedValue({
+      ...activeUser,
+      passwordHash: await bcrypt.hash('Current!Pass123', 4),
+    });
+    sessionFindUnique.mockResolvedValue({
+      id: 'session-1',
+      userId: activeUser.id,
+      revokedAt: null,
+    });
+    transactionSessionUpdateMany.mockResolvedValue({ count: 3 });
+    transactionSessionCreate.mockResolvedValue({ id: 'session-next' });
+    transactionUserUpdate.mockResolvedValue({
+      ...activeUser,
+      email: 'new-admin@example.com',
+    });
+
+    const result = await service.changeOwnEmail(
+      activeUser.id,
+      'Current!Pass123',
+      'New-Admin@Example.com',
+      'new-admin@example.com',
+      'current-refresh',
+      { ipAddress: '127.0.0.1', userAgent: 'test' },
+    );
+
+    expect(transactionUserUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: activeUser.id },
+        data: { email: 'new-admin@example.com' },
+      }),
+    );
+    expect(result.user.email).toBe('new-admin@example.com');
+    expect(result.sessionBehavior).toBe(
+      'current_rotated_other_sessions_revoked',
+    );
+    const audit = transactionAuditCreate.mock.calls[0][0];
+    expect(audit).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'account.email.changed',
+          oldValues: { email: activeUser.email },
+          newValues: {
+            email: 'new-admin@example.com',
+            activeSessionsRevoked: 3,
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(audit)).not.toContain('Current!Pass123');
+    expect(JSON.stringify(audit)).not.toContain('passwordHash');
   });
 
   it('returns a neutral error for a wrong current password', async () => {

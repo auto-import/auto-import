@@ -14,6 +14,11 @@ export class FinanceService {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
       include: {
+        contracts: {
+          where: { archivedAt: null, status: { in: ['SIGNED', 'DRAFT'] } },
+          orderBy: [{ signedAt: 'desc' }, { createdAt: 'desc' }],
+          take: 1,
+        },
         paymentPlans: {
           where: { status: { in: ['active', 'completed'] } },
           orderBy: { createdAt: 'desc' },
@@ -55,6 +60,7 @@ export class FinanceService {
           include: {
             payments: {
               where: { status: 'CONFIRMED' },
+              include: { financeTransaction: true },
             },
           },
         },
@@ -79,7 +85,11 @@ export class FinanceService {
     let totalRevenue = new Prisma.Decimal(0);
     let currency = 'DZD';
 
-    if (activePlan) {
+    const commercialContract = dossier.contracts?.[0] ?? null;
+    if (commercialContract) {
+      totalRevenue = commercialContract.totalAmount;
+      currency = commercialContract.currency;
+    } else if (activePlan) {
       totalRevenue = activePlan.totalAmount;
       currency = activePlan.currency;
     } else if (dossier.invoices.length > 0) {
@@ -128,8 +138,7 @@ export class FinanceService {
         finalCollected = secondInst.paidAmount;
       }
     } else {
-      // Default 30% rule if no formal plan created yet
-      upfrontRequired = totalRevenue.mul(30).div(100).toDecimalPlaces(2);
+      upfrontRequired = commercialContract?.requiredDeposit ?? new Prisma.Decimal(0);
       upfrontCollected = totalCollected.greaterThanOrEqualTo(upfrontRequired)
         ? upfrontRequired
         : totalCollected;
@@ -175,17 +184,44 @@ export class FinanceService {
       }
     }
 
-    // Include purchase prices from linked purchases if not already captured in posted costs
+    // A purchase is a committed dossier cost even before it is fully paid. A
+    // linked POSTED cost remains authoritative when present; otherwise use the
+    // immutable purchase snapshot so profitability is not understated.
     let totalSupplierCommitted = new Prisma.Decimal(0);
     let totalSupplierPaid = new Prisma.Decimal(0);
 
     for (const p of dossier.purchases) {
-      totalSupplierCommitted = totalSupplierCommitted.add(p.purchasePrice);
-      const paid = p.payments.reduce(
-        (sum, sp) => sum.add(sp.amount),
+      const purchaseRate =
+        p.currency === 'DZD'
+          ? new Prisma.Decimal(1)
+          : await this.exchangeRates.findEffectiveRate(
+              organizationId,
+              'DZD',
+              p.currency,
+              p.purchaseDate ?? p.createdAt,
+            );
+      const committedBase = p.purchasePrice.mul(purchaseRate).toDecimalPlaces(2);
+      totalSupplierCommitted = totalSupplierCommitted.add(committedBase);
+
+      const hasPostedPurchaseCost = dossier.costs.some(
+        (cost) =>
+          cost.purchaseId === p.id &&
+          (cost.type === 'PURCHASE' || cost.type === 'SUPPLIER'),
+      );
+      if (!hasPostedPurchaseCost) {
+        purchaseCost = purchaseCost.add(committedBase);
+        totalCostBase = totalCostBase.add(committedBase);
+      }
+
+      const paidBase = p.payments.reduce(
+        (sum, sp) =>
+          sum.add(
+            sp.financeTransaction?.amountDzd ??
+              (p.currency === 'DZD' ? sp.amount : new Prisma.Decimal(0)),
+          ),
         new Prisma.Decimal(0),
       );
-      totalSupplierPaid = totalSupplierPaid.add(paid);
+      totalSupplierPaid = totalSupplierPaid.add(paidBase);
     }
 
     // Revenue converted to Base Currency (DZD) for Margin
@@ -195,6 +231,7 @@ export class FinanceService {
         organizationId,
         'DZD',
         currency,
+        commercialContract?.signedAt ?? commercialContract?.createdAt,
       );
       totalRevenueBase = totalRevenue.mul(rate).toDecimalPlaces(2);
     }
@@ -223,7 +260,9 @@ export class FinanceService {
           : '0.00',
       },
       gates: {
-        strategy: activePlan?.strategy || 'THIRTY_SEVENTY',
+        strategy: commercialContract
+          ? 'CONTRACT_SCHEDULE'
+          : activePlan?.strategy || 'NO_SCHEDULE',
         upfrontRequired: upfrontRequired.toString(),
         upfrontCollected: upfrontCollected.toString(),
         upfrontPaid,
@@ -241,6 +280,7 @@ export class FinanceService {
         otherCost: otherCost.toString(),
       },
       supplier: {
+        currency: 'DZD',
         committed: totalSupplierCommitted.toString(),
         paid: totalSupplierPaid.toString(),
         outstanding: totalSupplierCommitted.minus(totalSupplierPaid).toString(),
@@ -250,6 +290,7 @@ export class FinanceService {
         grossMarginPercentage: grossMarginPercentage.toString(),
       },
       invoices: dossier.invoices,
+      contract: commercialContract,
       paymentPlan: activePlan,
       payments: dossier.payments,
       recentCosts: dossier.costs,
@@ -257,46 +298,73 @@ export class FinanceService {
   }
 
   async getOrganizationFinancialOverview(organizationId: string) {
-    const [invoices, payments, costs] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where: { organizationId, status: { not: 'VOIDED' } },
+    const [contracts, transactions] = await Promise.all([
+      this.prisma.contract.findMany({
+        where: { organizationId, archivedAt: null, status: 'SIGNED' },
       }),
-      this.prisma.payment.findMany({
-        where: { organizationId, status: 'CONFIRMED' },
-      }),
-      this.prisma.cost.findMany({
-        where: { organizationId, status: 'POSTED' },
+      this.prisma.financeTransaction.findMany({
+        where: { organizationId, status: 'VALIDATED' },
+        select: {
+          direction: true,
+          type: true,
+          amountDzd: true,
+          customerPaymentId: true,
+          supplierPaymentId: true,
+          costId: true,
+        },
       }),
     ]);
 
-    const totalInvoiced = invoices.reduce(
-      (sum, i) => sum.add(i.total),
+    let totalContracted = new Prisma.Decimal(0);
+    for (const contract of contracts) {
+      const rate =
+        contract.currency === 'DZD'
+          ? new Prisma.Decimal(1)
+          : await this.exchangeRates.findEffectiveRate(
+              organizationId,
+              'DZD',
+              contract.currency,
+              contract.signedAt ?? contract.createdAt,
+            );
+      totalContracted = totalContracted.add(contract.totalAmount.mul(rate));
+    }
+    const totalCollected = transactions
+      .filter((transaction) => transaction.customerPaymentId)
+      .reduce(
+      (sum, transaction) => sum.add(transaction.amountDzd),
       new Prisma.Decimal(0),
     );
-    const totalCollected = payments.reduce(
-      (sum, p) => sum.add(p.amount),
-      new Prisma.Decimal(0),
-    );
-    const totalCosts = costs.reduce(
-      (sum, c) => sum.add(c.amountInBaseCurrency || c.amount),
+    const totalCosts = transactions
+      // Costs measure profitability. Supplier payments are cash settlement of
+      // those liabilities and must not be counted a second time.
+      .filter(
+        (transaction) => transaction.direction === 'DEBIT' && transaction.costId,
+      )
+      .reduce(
+      (sum, transaction) => sum.add(transaction.amountDzd),
       new Prisma.Decimal(0),
     );
 
-    const outstanding = totalInvoiced.minus(totalCollected);
-    const grossProfit = totalInvoiced.minus(totalCosts);
+    const outstanding = totalContracted.minus(totalCollected);
+    const grossProfit = totalContracted.minus(totalCosts);
 
     return {
       baseCurrency: 'DZD',
-      totalInvoiced: totalInvoiced.toString(),
+      totalContracted: totalContracted.toString(),
+      totalInvoiced: totalContracted.toString(),
       totalCollected: totalCollected.toString(),
       totalOutstanding: outstanding.greaterThan(0)
         ? outstanding.toString()
         : '0.00',
       totalCosts: totalCosts.toString(),
       grossProfit: grossProfit.toString(),
-      invoiceCount: invoices.length,
-      paymentCount: payments.length,
-      costCount: costs.length,
+      contractCount: contracts.length,
+      invoiceCount: 0,
+      paymentCount: transactions.filter((entry) => entry.customerPaymentId)
+        .length,
+      costCount: transactions.filter(
+        (entry) => entry.costId,
+      ).length,
     };
   }
 }

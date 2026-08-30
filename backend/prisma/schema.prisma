@@ -75,6 +75,8 @@ model Organization {
   supplierDossierLinks  SupplierDossierLink[]
   offerRevisions        ChinaOfferRevision[]
   offerStatusHistory    ChinaOfferStatusHistory[]
+  customerQuotations    CustomerQuotation[]
+  quotationRevisions    CustomerQuotationRevision[]
   contracts             Contract[]
   treasuryAccounts      TreasuryAccount[]
   financeTransactions   FinanceTransaction[]
@@ -147,6 +149,7 @@ model User {
   crmNotes                  CrmNote[]
   dispatchedCalls           CallSession[]               @relation("CallDispatcher")
   handledCalls              CallSession[]               @relation("CallHandler")
+  recordedCalls             CallSession[]               @relation("CallRecorder")
   callEvents                CallEvent[]
   dispatchedAssignments     CallAssignment[]            @relation("AssignmentDispatcher")
   assignmentsFrom           CallAssignment[]            @relation("AssignmentFrom")
@@ -195,6 +198,8 @@ model User {
   createdContracts          Contract[]                  @relation("ContractCreator")
   validatedFinanceEntries   FinanceTransaction[]        @relation("FinanceTransactionValidator")
   createdFinanceEntries     FinanceTransaction[]        @relation("FinanceTransactionCreator")
+  createdCustomerQuotations CustomerQuotation[]         @relation("CustomerQuotationCreator")
+  createdQuotationRevisions CustomerQuotationRevision[] @relation("CustomerQuotationRevisionCreator")
 
   @@index([organizationId, status])
   @@index([officeId])
@@ -403,6 +408,7 @@ model Client {
   gedLinks              GedDocumentLink[]
   contracts             Contract[]
   financeTransactions   FinanceTransaction[]
+  customerQuotations    CustomerQuotation[]
 
   @@unique([organizationId, ninLookupHash])
   @@unique([organizationId, passportLookupHash])
@@ -610,6 +616,11 @@ model CallSession {
   dispatcher         User?          @relation("CallDispatcher", fields: [dispatcherId], references: [id])
   handlingEmployeeId String?
   handlingEmployee   User?          @relation("CallHandler", fields: [handlingEmployeeId], references: [id])
+  recordedById       String?
+  recordedBy         User?          @relation("CallRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  dossierId          String?
+  dossier            Dossier?       @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  subject            String?
   state              CallState      @default(RINGING)
   receivedAt         DateTime       @default(now())
   queuedAt           DateTime?
@@ -637,6 +648,8 @@ model CallSession {
   @@index([organizationId, handlingEmployeeId, receivedAt])
   @@index([prospectId, receivedAt])
   @@index([clientId, receivedAt])
+  @@index([dossierId, receivedAt])
+  @@index([recordedById, receivedAt])
 }
 
 model CallEvent {
@@ -1015,12 +1028,13 @@ model ChinaOffer {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  reservations    OfferReservation[]
-  photos          OfferPhoto[]
-  gedLinks        GedDocumentLink[]
-  revisions       ChinaOfferRevision[]      @relation("ChinaOfferRevisions")
-  statusHistory   ChinaOfferStatusHistory[]
-  sourcePurchases Purchase[]                @relation("PurchaseSourceOffer")
+  reservations       OfferReservation[]
+  photos             OfferPhoto[]
+  gedLinks           GedDocumentLink[]
+  revisions          ChinaOfferRevision[]      @relation("ChinaOfferRevisions")
+  statusHistory      ChinaOfferStatusHistory[]
+  sourcePurchases    Purchase[]                @relation("PurchaseSourceOffer")
+  customerQuotations CustomerQuotation[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, validUntil])
@@ -1050,8 +1064,10 @@ model ChinaOfferRevision {
   creator           User         @relation("ChinaOfferRevisionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
   createdAt         DateTime     @default(now())
 
-  currentFor      ChinaOffer? @relation("ChinaOfferCurrentRevision")
-  sourcePurchases Purchase[]
+  currentFor         ChinaOffer?         @relation("ChinaOfferCurrentRevision")
+  sourcePurchases    Purchase[]
+  customerQuotations CustomerQuotation[]
+  reservations       OfferReservation[]
 
   @@unique([offerId, revisionNumber])
   @@index([organizationId, offerId, createdAt])
@@ -1074,27 +1090,30 @@ model ChinaOfferStatusHistory {
 }
 
 model OfferReservation {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  offerId        String
-  offer          ChinaOffer   @relation(fields: [offerId], references: [id])
-  clientId       String
-  client         Client       @relation(fields: [clientId], references: [id])
-  dossierId      String?      @unique
-  dossier        Dossier?     @relation(fields: [dossierId], references: [id])
-  quantity       Int          @default(1)
-  status         String       @default("active")
-  expiresAt      DateTime?
-  releasedAt     DateTime?
-  releaseReason  String?
-  createdBy      String
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  purchase       Purchase?
+  id                    String             @id @default(uuid())
+  organizationId        String
+  organization          Organization       @relation(fields: [organizationId], references: [id])
+  offerId               String
+  offer                 ChinaOffer         @relation(fields: [offerId], references: [id])
+  sourceOfferRevisionId String
+  sourceOfferRevision   ChinaOfferRevision @relation(fields: [sourceOfferRevisionId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                Client             @relation(fields: [clientId], references: [id])
+  dossierId             String?            @unique
+  dossier               Dossier?           @relation(fields: [dossierId], references: [id])
+  quantity              Int                @default(1)
+  status                String             @default("active")
+  expiresAt             DateTime?
+  releasedAt            DateTime?
+  releaseReason         String?
+  createdBy             String
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  purchase              Purchase?
 
   @@index([organizationId, status, expiresAt])
   @@index([offerId, status])
+  @@index([sourceOfferRevisionId])
   @@index([clientId, createdAt])
 }
 
@@ -1148,6 +1167,8 @@ model Dossier {
   supplierLinks       SupplierDossierLink[]
   contracts           Contract[]
   financeTransactions FinanceTransaction[]
+  customerQuotations  CustomerQuotation[]
+  calls               CallSession[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, status, openedAt])
@@ -1637,6 +1658,7 @@ model SupplierPayment {
   purchaseId     String
   purchase       Purchase      @relation(fields: [purchaseId], references: [id])
   amount         Decimal       @db.Decimal(12, 2)
+  paymentKind    String        @default("COMPLEMENT")
   currency       String
   paymentMethod  String?
   reference      String?
@@ -2418,6 +2440,73 @@ model ContractScheduleItem {
 
   @@unique([contractId, sequence])
   @@index([dueDate])
+}
+
+/// Customer-facing CIF/DDP pricing. Supplier offer prices never live here and
+/// customer prices never live on ChinaOffer. Every price change is append-only.
+model CustomerQuotation {
+  id                    String                     @id @default(uuid())
+  organizationId        String
+  organization          Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  quotationNumber       String
+  dossierId             String
+  dossier               Dossier                    @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  sourceOfferId         String?
+  sourceOffer           ChinaOffer?                @relation(fields: [sourceOfferId], references: [id], onDelete: Restrict)
+  sourceOfferRevisionId String?
+  sourceOfferRevision   ChinaOfferRevision?        @relation(fields: [sourceOfferRevisionId], references: [id], onDelete: Restrict)
+  priceBasis            String
+  currency              String
+  status                String                     @default("DRAFT")
+  currentRevisionId     String?                    @unique
+  currentRevision       CustomerQuotationRevision? @relation("CustomerQuotationCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
+  expiresAt             DateTime?
+  sentAt                DateTime?
+  acceptedAt            DateTime?
+  createdBy             String
+  creator               User                       @relation("CustomerQuotationCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  revisions CustomerQuotationRevision[] @relation("CustomerQuotationRevisions")
+
+  @@unique([organizationId, quotationNumber])
+  @@index([organizationId, status, createdAt])
+  @@index([dossierId, createdAt])
+  @@index([clientId, createdAt])
+  @@index([sourceOfferId])
+}
+
+model CustomerQuotationRevision {
+  id                 String            @id @default(uuid())
+  organizationId     String
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  quotationId        String
+  quotation          CustomerQuotation @relation("CustomerQuotationRevisions", fields: [quotationId], references: [id], onDelete: Restrict)
+  revisionNumber     Int
+  vehicleAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  freightAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  insuranceAmount    Decimal           @default(0) @db.Decimal(14, 2)
+  customsAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  transitAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  otherCostsAmount   Decimal           @default(0) @db.Decimal(14, 2)
+  marginAmount       Decimal           @default(0) @db.Decimal(14, 2)
+  finalCustomerPrice Decimal           @db.Decimal(14, 2)
+  paymentConditions  String?
+  validityNote       String?
+  notes              String?
+  reason             String
+  snapshot           Json
+  createdBy          String
+  creator            User              @relation("CustomerQuotationRevisionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt          DateTime          @default(now())
+
+  currentFor CustomerQuotation? @relation("CustomerQuotationCurrentRevision")
+
+  @@unique([quotationId, revisionNumber])
+  @@index([organizationId, quotationId, createdAt])
 }
 
 model TreasuryAccount {

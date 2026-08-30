@@ -18,6 +18,9 @@ import { Public } from '../common/decorators/public.decorator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from './auth.types';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ChangeEmailDto } from './dto/change-email.dto';
+import { RequirePermission } from '../common/decorators/require-permission.decorator';
+import { Permission } from '@auto-import/contracts';
 
 const REFRESH_COOKIE = 'auto_import_refresh';
 
@@ -127,6 +130,36 @@ export class AuthController {
       user.id,
       dto.currentPassword,
       dto.newPassword,
+      dto.confirmation,
+      this.readRefreshCookie(request),
+      this.sessionMetadata(request),
+    );
+    this.setRefreshCookie(
+      response,
+      result.refreshToken,
+      result.refreshExpiresAt,
+    );
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+      sessionBehavior: result.sessionBehavior,
+    };
+  }
+
+  @Post('change-email')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(Permission.SETTINGS_WRITE)
+  async changeEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangeEmailDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.assertTrustedOrigin(request);
+    const result = await this.authService.changeOwnEmail(
+      user.id,
+      dto.currentPassword,
+      dto.newEmail,
       dto.confirmation,
       this.readRefreshCookie(request),
       this.sessionMetadata(request),

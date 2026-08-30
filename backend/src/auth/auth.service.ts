@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -223,7 +227,7 @@ export class AuthService {
     const refreshExpiresAt = new Date(now + this.refreshSessionTtlMs);
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: userId }, data: { passwordHash } });
-      await tx.refreshSession.updateMany({
+      const revoked = await tx.refreshSession.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date(), rotatedAt: new Date() },
       });
@@ -232,6 +236,21 @@ export class AuthService {
           userId,
           tokenHash: this.hashRefreshToken(nextRefreshToken),
           expiresAt: refreshExpiresAt,
+          ipAddress: metadata.ipAddress,
+          userAgent: metadata.userAgent,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: user.organizationId,
+          userId,
+          action: 'account.password.changed',
+          entityType: 'User',
+          entityId: userId,
+          newValues: {
+            passwordChanged: true,
+            activeSessionsRevoked: revoked.count,
+          },
           ipAddress: metadata.ipAddress,
           userAgent: metadata.userAgent,
         },
@@ -246,6 +265,101 @@ export class AuthService {
       user: principal,
       sessionBehavior: 'current_rotated_other_sessions_revoked' as const,
     };
+  }
+
+  async changeOwnEmail(
+    userId: string,
+    currentPassword: string,
+    newEmailInput: string,
+    confirmationInput: string,
+    refreshToken: string | undefined,
+    metadata: SessionMetadata,
+  ) {
+    const newEmail = newEmailInput.trim().toLowerCase();
+    const confirmation = confirmationInput.trim().toLowerCase();
+    if (newEmail !== confirmation) {
+      throw new UnauthorizedException('Email change unavailable');
+    }
+    if (!refreshToken) throw new UnauthorizedException('Invalid session');
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: AUTH_USER_INCLUDE,
+    });
+    if (
+      !user ||
+      newEmail === user.email.trim().toLowerCase() ||
+      !(await bcrypt.compare(currentPassword, user.passwordHash))
+    ) {
+      throw new UnauthorizedException('Email change unavailable');
+    }
+    this.assertActiveAccount(user);
+    const currentSession = await this.prisma.refreshSession.findUnique({
+      where: { tokenHash: this.hashRefreshToken(refreshToken) },
+    });
+    if (
+      !currentSession ||
+      currentSession.userId !== userId ||
+      currentSession.revokedAt
+    ) {
+      throw new UnauthorizedException('Invalid session');
+    }
+    const nextRefreshToken = this.createRefreshToken();
+    const refreshExpiresAt = new Date(Date.now() + this.refreshSessionTtlMs);
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const nextUser = await tx.user.update({
+          where: { id: userId },
+          data: { email: newEmail },
+          include: AUTH_USER_INCLUDE,
+        });
+        const revoked = await tx.refreshSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date(), rotatedAt: new Date() },
+        });
+        await tx.refreshSession.create({
+          data: {
+            userId,
+            tokenHash: this.hashRefreshToken(nextRefreshToken),
+            expiresAt: refreshExpiresAt,
+            ipAddress: metadata.ipAddress,
+            userAgent: metadata.userAgent,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: user.organizationId,
+            userId,
+            action: 'account.email.changed',
+            entityType: 'User',
+            entityId: userId,
+            oldValues: { email: user.email.trim().toLowerCase() },
+            newValues: {
+              email: newEmail,
+              activeSessionsRevoked: revoked.count,
+            },
+            ipAddress: metadata.ipAddress,
+            userAgent: metadata.userAgent,
+          },
+        });
+        return nextUser;
+      });
+      const principal = this.toAuthenticatedUser(updated);
+      return {
+        accessToken: this.createAccessToken(principal),
+        refreshToken: nextRefreshToken,
+        refreshExpiresAt,
+        user: principal,
+        sessionBehavior: 'current_rotated_other_sessions_revoked' as const,
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Email is already in use');
+      }
+      throw error;
+    }
   }
 
   get refreshSessionTtlMs(): number {

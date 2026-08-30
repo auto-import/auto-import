@@ -185,12 +185,6 @@ function ClientForm({
         (item) => item.kind === "COUNTRY" && item.active,
       );
       setCountries(available);
-      const algeria = available.find((item) => item.code === "DZ")?.id || "";
-      setValues((current) => ({
-        ...current,
-        countryId: algeria,
-        nationalityCountryId: algeria,
-      }));
     });
   }, []);
   async function submit(event: React.FormEvent) {

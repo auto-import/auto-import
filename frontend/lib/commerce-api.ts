@@ -185,11 +185,8 @@ export interface ApiOffer {
   condition: string;
   mileage?: number | null;
   specification: Record<string, unknown>;
-  purchasePrice?: string | number | null;
   supplierPrice?: string | number | null;
   supplierReference?: string | null;
-  cifPrice?: string | number | null;
-  ddpPrice?: string | number | null;
   incoterm?: string | null;
   location?: string | null;
   leadTimeDays?: number | null;
@@ -211,10 +208,10 @@ export interface ApiOffer {
   photos?: ApiVehicle["photos"];
   revisions?: Array<{
     id: string;
-    version: number;
+    revisionNumber: number;
     supplierPrice: string | number;
     currency: string;
-    changeReason: string;
+    reason: string;
     createdAt: string;
   }>;
   statusHistory?: Array<{
@@ -224,6 +221,40 @@ export interface ApiOffer {
     reason?: string | null;
     createdAt: string;
   }>;
+}
+
+export interface ApiCustomerQuotationRevision {
+  id: string;
+  revisionNumber: number;
+  vehicleAmount: string | number;
+  freightAmount: string | number;
+  insuranceAmount: string | number;
+  customsAmount: string | number;
+  transitAmount: string | number;
+  otherCostsAmount: string | number;
+  marginAmount: string | number;
+  finalCustomerPrice: string | number;
+  paymentConditions?: string | null;
+  validityNote?: string | null;
+  notes?: string | null;
+  reason: string;
+  createdAt: string;
+}
+
+export interface ApiCustomerQuotation {
+  id: string;
+  quotationNumber: string;
+  dossierId: string;
+  clientId: string;
+  sourceOfferId?: string | null;
+  priceBasis: "CIF" | "DDP";
+  currency: string;
+  status: string;
+  expiresAt?: string | null;
+  currentRevision?: ApiCustomerQuotationRevision | null;
+  revisions?: ApiCustomerQuotationRevision[];
+  dossier?: { id: string; reference: string };
+  client?: { id: string; firstName: string; lastName: string };
 }
 
 export interface ApiDossierEvidence {
@@ -459,8 +490,6 @@ export const commerceApi = {
       id: string,
       data: {
         vin: string;
-        purchasePrice?: number;
-        sellingPrice?: number;
         currentLocationId?: string;
       },
     ) =>
@@ -475,6 +504,29 @@ export const commerceApi = {
         availableQuantity: number;
         reservedQuantity: number;
       }>("/offers/statistics"),
+  },
+  quotations: {
+    list: (filters: Record<string, string | number | undefined> = {}) =>
+      apiRequest<PaginatedData<ApiCustomerQuotation>>(
+        `/quotations${queryString(filters)}`,
+      ),
+    get: (id: string) =>
+      apiRequest<ApiCustomerQuotation>(`/quotations/${id}`),
+    create: (data: Record<string, unknown>) =>
+      apiRequest<ApiCustomerQuotation>("/quotations", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    revise: (id: string, data: Record<string, unknown>) =>
+      apiRequest<ApiCustomerQuotation>(`/quotations/${id}/revisions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    transition: (id: string, status: string, reason?: string) =>
+      apiRequest<ApiCustomerQuotation>(`/quotations/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status, reason }),
+      }),
   },
   dossiers: {
     list: (filters: Record<string, string | number | undefined> = {}) =>

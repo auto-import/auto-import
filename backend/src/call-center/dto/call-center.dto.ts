@@ -16,6 +16,7 @@ import {
 import {
   AgentPresenceStatus,
   AppointmentStatus,
+  CallDirection,
   CallState,
   CompanyChannelKind,
   LeadQualification,
@@ -205,6 +206,166 @@ export class CallListQueryDto {
   @Min(1)
   @Max(100)
   limit = 50;
+}
+
+export class CallHistoryQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsEnum(CallState)
+  state?: CallState;
+
+  @IsOptional()
+  @IsEnum(CallDirection)
+  direction?: CallDirection;
+
+  @IsOptional()
+  @IsUUID()
+  agentId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize = 20;
+}
+
+export class CreateManualCallDto {
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
+
+  @IsDateString()
+  callAt: string;
+
+  @IsEnum(CallDirection)
+  direction: CallDirection;
+
+  @IsUUID()
+  agentId: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(86400)
+  durationSeconds: number;
+
+  @IsOptional()
+  @IsIn([CallState.COMPLETED, CallState.MISSED, CallState.FAILED])
+  state?: CallState;
+
+  @IsString()
+  @IsNotEmpty()
+  subject: string;
+
+  @IsString()
+  @IsNotEmpty()
+  outcome: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  nextAction?: string;
+
+  @IsOptional()
+  @IsDateString()
+  followUpAt?: string;
+
+  @IsOptional()
+  @IsUUID()
+  prospectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  dossierId?: string;
+}
+
+export class UpdateManualCallDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  phone?: string;
+
+  @IsOptional()
+  @IsDateString()
+  callAt?: string;
+
+  @IsOptional()
+  @IsEnum(CallDirection)
+  direction?: CallDirection;
+
+  @IsOptional()
+  @IsUUID()
+  agentId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(86400)
+  durationSeconds?: number;
+
+  @IsOptional()
+  @IsIn([CallState.COMPLETED, CallState.MISSED, CallState.FAILED])
+  state?: CallState;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  outcome?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  nextAction?: string;
+
+  @IsOptional()
+  @IsDateString()
+  followUpAt?: string;
+
+  @IsOptional()
+  @IsUUID()
+  prospectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  dossierId?: string;
 }
 
 export class FollowUpQueryDto {

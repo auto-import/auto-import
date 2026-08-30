@@ -62,7 +62,10 @@ export default function LeadFormDialog({
             sources.find((item) => item.code === "OTHER")?.id ||
             sources[0]?.id ||
             "",
-          countryId: countries.find((item) => item.code === "DZ")?.id || "",
+          countryId:
+            countries.find(
+              (item) => item.metadata?.defaultForPhone === true,
+            )?.id || "",
         }));
       })
       .catch((caught) =>

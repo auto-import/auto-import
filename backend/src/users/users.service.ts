@@ -238,12 +238,24 @@ export class UsersService {
       }
     }
 
-    await this.prisma.user.delete({
-      where: { id },
-    });
+    // Users own auditable business history (notifications, calls, payments, tasks,
+    // audit logs, etc.). Hard deletion would either violate foreign keys or erase
+    // attribution that must be retained. Treat DELETE as a safe account removal:
+    // disable authentication immediately and revoke every active session while
+    // preserving the historical user row and its tenant-scoped relationships.
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id },
+        data: { status: 'inactive' },
+      }),
+      this.prisma.refreshSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
 
-    this.logger.log(`User deleted: ${id}`);
-    return { message: 'User deleted successfully' };
+    this.logger.log(`User deactivated and sessions revoked: ${id}`);
+    return { message: 'User deactivated successfully' };
   }
 
   async updatePassword(

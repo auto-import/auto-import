@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateSupplierPaymentDto,
+  ConfirmFinanceEntryDto,
   FilterSupplierPaymentsDto,
   ReverseSupplierPaymentDto,
 } from './dto/finance.dto';
@@ -40,8 +41,17 @@ export class SupplierPaymentsController {
 
   @Post(':id/confirm')
   @RequirePermission(Permission.SUPPLIER_PAYMENTS_CONFIRM)
-  confirm(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.supplierPayments.confirm(id, user.organizationId, user.id);
+  confirm(
+    @Param('id') id: string,
+    @Body() dto: ConfirmFinanceEntryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.supplierPayments.confirm(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
   }
 
   @Post(':id/reverse')

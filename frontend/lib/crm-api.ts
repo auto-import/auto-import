@@ -147,7 +147,9 @@ export interface TimelineItem {
 
 export interface ApiCall {
   id: string;
+  providerKey: string;
   providerCallId: string;
+  direction: "INBOUND" | "OUTBOUND";
   externalNumber: string;
   companyNumber: string;
   state: ApiCallState;
@@ -160,12 +162,33 @@ export interface ApiCall {
   outcome?: string | null;
   notes?: string | null;
   nextAction?: string | null;
+  nextActionAt?: string | null;
+  subject?: string | null;
   dispositionedAt?: string | null;
   prospect?: ApiProspect | null;
   client?: ApiClient | null;
   dispatcher?: AgentSummary | null;
   handlingEmployee?: AgentSummary | null;
+  recordedBy?: AgentSummary | null;
+  dossier?: { id: string; reference: string; clientId: string } | null;
   channel: { id: string; displayName: string; providerKey: string };
+}
+
+export interface ManualCallInput {
+  phone: string;
+  callAt: string;
+  direction: "INBOUND" | "OUTBOUND";
+  agentId: string;
+  durationSeconds: number;
+  state: "COMPLETED" | "MISSED" | "FAILED";
+  subject: string;
+  outcome: string;
+  notes?: string;
+  nextAction?: string;
+  followUpAt?: string;
+  prospectId?: string;
+  clientId?: string;
+  dossierId?: string;
 }
 
 export interface ApiPresence {
@@ -352,6 +375,23 @@ export const callCenterApi = {
   },
   call(id: string) {
     return apiRequest<ApiCall>(`/call-center/calls/${id}`);
+  },
+  history(filters: Record<string, string | number | undefined> = {}) {
+    return apiRequest<PaginatedData<ApiCall>>(
+      `/call-center/history${query(filters)}`,
+    );
+  },
+  createManualCall(input: ManualCallInput) {
+    return apiRequest<ApiCall>("/call-center/calls/manual", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+  updateManualCall(id: string, input: Partial<ManualCallInput>) {
+    return apiRequest<ApiCall>(`/call-center/calls/${id}/manual`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
   },
   assign(id: string, toUserId: string, reason?: string) {
     return apiRequest<ApiCall>(`/call-center/calls/${id}/assign`, {

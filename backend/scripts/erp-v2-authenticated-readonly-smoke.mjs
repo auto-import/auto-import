@@ -48,7 +48,10 @@ async function login() {
 
 const token = await login();
 const checks = [
-  ['/ged/references', Array.isArray],
+  [
+    '/ged/references',
+    (value) => Array.isArray(value?.categories) && Array.isArray(value?.types),
+  ],
   ['/ged/documents?page=1&limit=5', (value) => Array.isArray(value?.items)],
   ['/partners?type=supplier&page=1&limit=5', (value) => Array.isArray(value?.items)],
   ['/offers?page=1&limit=5', (value) => Array.isArray(value?.items)],
@@ -57,6 +60,7 @@ const checks = [
   ['/finance/treasury/accounts', Array.isArray],
   ['/shipments?page=1&limit=5', (value) => Array.isArray(value?.items)],
   ['/customs?page=1&limit=5', (value) => Array.isArray(value?.items)],
+  ['/quotations?page=1&limit=5', (value) => Array.isArray(value?.items)],
 ];
 
 for (const [path, validate] of checks) {

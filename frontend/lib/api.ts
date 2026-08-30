@@ -201,6 +201,19 @@ export const authApi = {
     return { user: result.user, sessionBehavior: result.sessionBehavior };
   },
 
+  async changeEmail(data: {
+    currentPassword: string;
+    newEmail: string;
+    confirmation: string;
+  }): Promise<{ user: AuthenticatedUser; sessionBehavior: string }> {
+    const result = await apiRequest<AuthResult & { sessionBehavior: string }>(
+      "/auth/change-email",
+      { method: "POST", body: JSON.stringify(data) },
+    );
+    accessToken = result.accessToken;
+    return { user: result.user, sessionBehavior: result.sessionBehavior };
+  },
+
   async logout(): Promise<void> {
     try {
       await apiRequest<{ message: string }>(

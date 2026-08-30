@@ -13,7 +13,15 @@ export class CrmKpiService {
     agentId?: string,
   ) {
     const range = { gte: from, lt: to };
-    const [calls, transfers, messages, callbacks, appointments, converted] =
+    const [
+      calls,
+      transfers,
+      messages,
+      callbacks,
+      appointments,
+      converted,
+      prospects,
+    ] =
       await Promise.all([
         this.prisma.callSession.findMany({
           where: {
@@ -72,6 +80,23 @@ export class CrmKpiService {
             ...(agentId ? { assignedTo: agentId } : {}),
           },
         }),
+        this.prisma.prospect.findMany({
+          where: {
+            organizationId,
+            createdAt: range,
+            archivedAt: null,
+            ...(agentId ? { assignedTo: agentId } : {}),
+          },
+          select: {
+            id: true,
+            qualification: true,
+            crmStatus: true,
+            createdAt: true,
+            lastInteractionAt: true,
+            entryChannel: { select: { code: true, labelFr: true } },
+            marketingSource: { select: { code: true, labelFr: true } },
+          },
+        }),
       ]);
 
     const handled = calls.filter(
@@ -96,12 +121,90 @@ export class CrmKpiService {
         ...(agentId ? { assignedTo: agentId } : {}),
       },
     });
+    const callsByAgent = Array.from(
+      calls.reduce((groups, call) => {
+        const key = call.handlingEmployeeId ?? 'UNASSIGNED';
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+        return groups;
+      }, new Map<string, number>()),
+      ([agentIdValue, total]) => ({ agentId: agentIdValue, total }),
+    );
+    const responseSeconds = prospects
+      .filter((prospect) => prospect.lastInteractionAt)
+      .map((prospect) =>
+        Math.max(
+          0,
+          Math.round(
+            (prospect.lastInteractionAt!.getTime() -
+              prospect.createdAt.getTime()) /
+              1000,
+          ),
+        ),
+      );
+    const qualifiedLeads = prospects.filter(
+      (prospect) =>
+        ['HOT', 'WARM'].includes(prospect.qualification) ||
+        ['QUALIFIED', 'APPOINTMENT', 'CONTRACT', 'DEPOSIT', 'CONVERTED'].includes(
+          prospect.crmStatus ?? '',
+        ),
+    ).length;
 
     return {
       period: {
         from: from.toISOString(),
         toExclusive: to.toISOString(),
         timezone: 'UTC',
+      },
+      callCenter: {
+        totalCalls: calls.length,
+        inboundCalls: calls.filter((call) => call.direction === 'INBOUND')
+          .length,
+        outboundCalls: calls.filter((call) => call.direction === 'OUTBOUND')
+          .length,
+        answeredCalls: calls.filter((call) => call.answeredAt).length,
+        missedCalls: calls.filter((call) => call.state === CallState.MISSED)
+          .length,
+        averageDurationSeconds: average(
+          calls
+            .filter((call) => call.answeredAt)
+            .map((call) => call.durationSeconds ?? 0),
+        ),
+        callbacks: callbacks.length,
+        callsByAgent,
+      },
+      crm: {
+        leads: prospects.length,
+        qualifiedLeads,
+        leadsBySource: countBy(
+          prospects.map(
+            (prospect) =>
+              prospect.marketingSource?.code ?? 'UNSPECIFIED',
+          ),
+        ),
+        leadsByChannel: countBy(
+          prospects.map(
+            (prospect) => prospect.entryChannel?.code ?? 'UNSPECIFIED',
+          ),
+        ),
+        qualification: countBy(
+          prospects.map((prospect) => prospect.qualification),
+        ),
+        appointments: appointments.length,
+        conversions: converted,
+        conversionRate:
+          prospects.length === 0 ? 0 : converted / prospects.length,
+        averageFirstResponseSeconds: average(responseSeconds),
+        followUps: {
+          scheduled: callbacks.length,
+          completed: callbacks.filter((task) => task.status === 'completed')
+            .length,
+          overdue: callbacks.filter(
+            (task) =>
+              !['completed', 'cancelled'].includes(task.status) &&
+              task.dueDate !== null &&
+              task.dueDate < new Date(),
+          ).length,
+        },
       },
       dispatcher: {
         callsReceived: received,
@@ -162,6 +265,13 @@ export class CrmKpiService {
       },
     };
   }
+}
+
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((groups, value) => {
+    groups[value] = (groups[value] ?? 0) + 1;
+    return groups;
+  }, {});
 }
 
 function average(values: number[]): number {

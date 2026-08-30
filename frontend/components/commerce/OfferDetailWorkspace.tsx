@@ -2,14 +2,24 @@
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Package } from "lucide-react";
+import { ArrowLeft, Calendar, Package, Plus, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
-import { commerceApi, type ApiOffer } from "@/lib/commerce-api";
+import {
+  commerceApi,
+  type ApiCustomerQuotation,
+  type ApiOffer,
+} from "@/lib/commerce-api";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
-import { ErrorState, formatMoney, LoadingState } from "./common";
+import {
+  buttonClass,
+  ErrorState,
+  formatMoney,
+  inputClass,
+  LoadingState,
+} from "./common";
 import PrivateOfferGallery from "./PrivateOfferGallery";
 
 export default function OfferDetailWorkspace({
@@ -20,13 +30,35 @@ export default function OfferDetailWorkspace({
   const { id } = React.use(params);
   const { hasPermission } = useAuth();
   const canTransition = hasPermission(Permission.OFFERS_TRANSITION);
+  const canWrite = hasPermission(Permission.OFFERS_WRITE);
   const [offer, setOffer] = useState<ApiOffer | null>(null);
+  const [quotations, setQuotations] = useState<ApiCustomerQuotation[]>([]);
   const [error, setError] = useState("");
   const [changing, setChanging] = useState(false);
+  const [showQuotation, setShowQuotation] = useState(false);
+  const [quotationForm, setQuotationForm] = useState({
+    dossierId: "",
+    priceBasis: "CIF",
+    vehicleAmount: "",
+    freightAmount: "0",
+    insuranceAmount: "0",
+    customsAmount: "0",
+    transitAmount: "0",
+    otherCostsAmount: "0",
+    marginAmount: "0",
+    currency: "USD",
+    expiresAt: "",
+    paymentConditions: "",
+  });
   const load = useCallback(async () => {
     setError("");
     try {
-      setOffer(await commerceApi.offers.get(id));
+      const [offerResult, quotationPage] = await Promise.all([
+        commerceApi.offers.get(id),
+        commerceApi.quotations.list({ sourceOfferId: id, limit: 100 }),
+      ]);
+      setOffer(offerResult);
+      setQuotations(quotationPage.items);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Chargement impossible",
@@ -47,6 +79,44 @@ export default function OfferDetailWorkspace({
       setError(
         caught instanceof Error ? caught.message : "Transition impossible",
       );
+    } finally {
+      setChanging(false);
+    }
+  };
+  const createQuotation = async (event: FormEvent) => {
+    event.preventDefault();
+    setChanging(true);
+    setError("");
+    try {
+      const amountKeys = [
+        "vehicleAmount",
+        "freightAmount",
+        "insuranceAmount",
+        "customsAmount",
+        "transitAmount",
+        "otherCostsAmount",
+        "marginAmount",
+      ] as const;
+      const amounts = Object.fromEntries(
+        amountKeys.map((key) => [key, Number(quotationForm[key] || 0)]),
+      );
+      const finalCustomerPrice = Object.values(amounts).reduce(
+        (sum, amount) => sum + amount,
+        0,
+      );
+      await commerceApi.quotations.create({
+        ...quotationForm,
+        ...amounts,
+        finalCustomerPrice,
+        sourceOfferId: id,
+        expiresAt: quotationForm.expiresAt
+          ? new Date(quotationForm.expiresAt).toISOString()
+          : undefined,
+      });
+      setShowQuotation(false);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Création impossible");
     } finally {
       setChanging(false);
     }
@@ -110,19 +180,31 @@ export default function OfferDetailWorkspace({
                     ))}
                   </div>
                 )}
+                {canWrite && (
+                  <button
+                    className={buttonClass}
+                    onClick={() => {
+                      const dossierId =
+                        offer.reservations?.find((item) => item.dossier)?.dossier
+                          ?.id ?? "";
+                      setQuotationForm((current) => ({
+                        ...current,
+                        dossierId,
+                        currency: offer.currency,
+                        vehicleAmount: String(offer.supplierPrice ?? ""),
+                      }));
+                      setShowQuotation(true);
+                    }}
+                  >
+                    <Plus className="mr-2 inline h-4 w-4" />
+                    Créer un devis
+                  </button>
+                )}
               </div>
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-3">
                 <Info
                   label="Prix fournisseur"
                   value={formatMoney(offer.supplierPrice, offer.currency)}
-                />
-                <Info
-                  label="Prix CIF"
-                  value={formatMoney(offer.cifPrice, offer.currency)}
-                />
-                <Info
-                  label="Prix DDP"
-                  value={formatMoney(offer.ddpPrice, offer.currency)}
                 />
                 <Info
                   label="Disponible"
@@ -200,10 +282,10 @@ export default function OfferDetailWorkspace({
                       key={revision.id}
                       className="border-b py-2 text-sm last:border-0"
                     >
-                      <b>v{revision.version}</b> ·{" "}
+                      <b>v{revision.revisionNumber}</b> ·{" "}
                       {formatMoney(revision.supplierPrice, revision.currency)}
                       <span className="block text-xs text-muted">
-                        {revision.changeReason}
+                        {revision.reason}
                       </span>
                     </div>
                   ))
@@ -232,9 +314,160 @@ export default function OfferDetailWorkspace({
                 )}
               </div>
             </section>
+            <section className="card p-5">
+              <h2 className="mb-3 font-semibold">Tarification / Devis client</h2>
+              {!quotations.length ? (
+                <p className="text-sm text-muted">
+                  Aucun prix client n’est enregistré sur l’offre fournisseur.
+                  Affectez l’offre à un dossier puis créez un devis CIF ou DDP.
+                </p>
+              ) : (
+                <div className="divide-y">
+                  {quotations.map((quotation) => (
+                    <div
+                      key={quotation.id}
+                      className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
+                    >
+                      <span>
+                        <b>{quotation.quotationNumber}</b> · {quotation.priceBasis} ·{" "}
+                        {quotation.dossier?.reference}
+                      </span>
+                      <span>
+                        {formatMoney(
+                          quotation.currentRevision?.finalCustomerPrice,
+                          quotation.currency,
+                        )} · {quotation.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </>
         )}
       </main>
+      {showQuotation && offer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <form
+            onSubmit={createQuotation}
+            className="card max-h-[92vh] w-full max-w-3xl overflow-y-auto p-6"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Nouveau devis client</h2>
+              <button type="button" onClick={() => setShowQuotation(false)}>
+                <X />
+              </button>
+            </div>
+            <p className="mt-3 rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              Ce devis est indépendant du prix fournisseur et conserve chaque
+              révision de prix client.
+            </p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className="field-label">Dossier *</span>
+                <select
+                  required
+                  className={inputClass}
+                  value={quotationForm.dossierId}
+                  onChange={(event) =>
+                    setQuotationForm((current) => ({
+                      ...current,
+                      dossierId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Affecter d’abord l’offre à un dossier</option>
+                  {offer.reservations
+                    ?.filter((reservation) => reservation.dossier)
+                    .map((reservation) => (
+                      <option
+                        key={reservation.dossier!.id}
+                        value={reservation.dossier!.id}
+                      >
+                        {reservation.dossier!.reference}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Base tarifaire *</span>
+                <select
+                  className={inputClass}
+                  value={quotationForm.priceBasis}
+                  onChange={(event) =>
+                    setQuotationForm((current) => ({
+                      ...current,
+                      priceBasis: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="CIF">CIF</option>
+                  <option value="DDP">DDP</option>
+                </select>
+              </label>
+              {(
+                [
+                  ["vehicleAmount", "Base véhicule"],
+                  ["freightAmount", "Fret"],
+                  ["insuranceAmount", "Assurance"],
+                  ["customsAmount", "Douane"],
+                  ["transitAmount", "Transit"],
+                  ["otherCostsAmount", "Autres coûts"],
+                  ["marginAmount", "Marge"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key}>
+                  <span className="field-label">{label}</span>
+                  <input
+                    required
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    className={inputClass}
+                    value={quotationForm[key]}
+                    onChange={(event) =>
+                      setQuotationForm((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                <span className="field-label">Expiration</span>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={quotationForm.expiresAt}
+                  onChange={(event) =>
+                    setQuotationForm((current) => ({
+                      ...current,
+                      expiresAt: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="sm:col-span-2">
+                <span className="field-label">Conditions de paiement</span>
+                <textarea
+                  className={inputClass}
+                  value={quotationForm.paymentConditions}
+                  onChange={(event) =>
+                    setQuotationForm((current) => ({
+                      ...current,
+                      paymentConditions: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <button disabled={changing} className={`${buttonClass} mt-6 w-full`}>
+              {changing ? "Création…" : "Créer le devis"}
+            </button>
+          </form>
+        </div>
+      )}
     </>
   );
 }

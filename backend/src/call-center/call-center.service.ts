@@ -27,6 +27,7 @@ import type {
   NormalizedCallEvent,
   NormalizedMessageEvent,
 } from './providers/provider.interfaces';
+import { randomUUID } from 'node:crypto';
 import {
   assertCrmLeadTransition,
   legacyStatusProjection,
@@ -34,11 +35,14 @@ import {
 import type {
   AppointmentStatusDto,
   AssignCallDto,
+  CallHistoryQueryDto,
   CreateAppointmentDto,
   CreateChannelDto,
+  CreateManualCallDto,
   DispositionCallDto,
   ReplyWhatsappDto,
   TaskStatusDto,
+  UpdateManualCallDto,
 } from './dto/call-center.dto';
 
 const TERMINAL_CALL_STATES: CallState[] = [
@@ -148,6 +152,262 @@ export class CallCenterService {
     });
   }
 
+  async listCallHistory(
+    organizationId: string,
+    options: CallHistoryQueryDto,
+  ) {
+    const search = options.search?.trim();
+    const where: Prisma.CallSessionWhereInput = {
+      organizationId,
+      ...(options.state ? { state: options.state } : {}),
+      ...(options.direction ? { direction: options.direction } : {}),
+      ...(options.agentId
+        ? { handlingEmployeeId: options.agentId }
+        : {}),
+      ...(options.from || options.to
+        ? {
+            receivedAt: {
+              ...(options.from ? { gte: new Date(options.from) } : {}),
+              ...(options.to ? { lte: new Date(options.to) } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { externalNumber: { contains: search, mode: 'insensitive' } },
+              { subject: { contains: search, mode: 'insensitive' } },
+              { outcome: { contains: search, mode: 'insensitive' } },
+              { notes: { contains: search, mode: 'insensitive' } },
+              {
+                prospect: {
+                  is: {
+                    OR: [
+                      { firstName: { contains: search, mode: 'insensitive' } },
+                      { lastName: { contains: search, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              },
+              {
+                client: {
+                  is: {
+                    OR: [
+                      { firstName: { contains: search, mode: 'insensitive' } },
+                      { lastName: { contains: search, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? 20;
+    const [items, totalItems] = await Promise.all([
+      this.prisma.callSession.findMany({
+        where,
+        include: this.callInclude(),
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.callSession.count({ where }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
+  async createManualCall(
+    organizationId: string,
+    recordedById: string,
+    dto: CreateManualCallDto,
+  ) {
+    const [agent, owner, channel] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: dto.agentId, organizationId, status: 'active' },
+        select: { id: true },
+      }),
+      this.resolveManualOwner(organizationId, dto),
+      this.manualChannel(organizationId),
+    ]);
+    if (!agent) throw new NotFoundException('Agent not found');
+    await this.assertManualDossier(
+      organizationId,
+      dto.dossierId,
+      owner.clientId,
+    );
+    const callAt = new Date(dto.callAt);
+    const state = dto.state ?? CallState.COMPLETED;
+    const durationSeconds = dto.durationSeconds;
+    const completedAt = new Date(callAt.getTime() + durationSeconds * 1000);
+    const call = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.callSession.create({
+        data: {
+          organizationId,
+          channelId: channel.id,
+          providerKey: 'manual',
+          providerCallId: randomUUID(),
+          direction: dto.direction,
+          companyNumber: 'MANUAL',
+          externalNumber: owner.normalizedValue,
+          prospectId: owner.prospectId,
+          clientId: owner.clientId,
+          handlingEmployeeId: agent.id,
+          recordedById,
+          dossierId: dto.dossierId,
+          subject: dto.subject.trim(),
+          state,
+          receivedAt: callAt,
+          answeredAt: state === CallState.COMPLETED ? callAt : null,
+          completedAt,
+          durationSeconds,
+          waitingSeconds: 0,
+          outcome: dto.outcome.trim(),
+          notes: dto.notes?.trim() || null,
+          nextAction: dto.nextAction?.trim() || null,
+          nextActionAt: dto.followUpAt ? new Date(dto.followUpAt) : null,
+          dispositionedAt: new Date(),
+        },
+      });
+      await tx.callEvent.create({
+        data: {
+          callSessionId: created.id,
+          state,
+          actorUserId: recordedById,
+          occurredAt: callAt,
+          metadata: { manualRecord: true },
+        },
+      });
+      await this.syncManualFollowUp(tx, created, dto);
+      await this.touchContact(tx, owner.prospectId, owner.clientId, callAt);
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: recordedById,
+          action: 'call.manual.created',
+          entityType: 'CallSession',
+          entityId: created.id,
+          newValues: this.manualAuditSnapshot(created),
+        },
+      });
+      return created;
+    });
+    const hydrated = await this.getCall(organizationId, call.id);
+    this.gateway.emitOrganization(organizationId, 'call.updated', hydrated);
+    return hydrated;
+  }
+
+  async updateManualCall(
+    organizationId: string,
+    callId: string,
+    actorUserId: string,
+    dto: UpdateManualCallDto,
+  ) {
+    const current = await this.prisma.callSession.findFirst({
+      where: { id: callId, organizationId, providerKey: 'manual' },
+    });
+    if (!current) throw new NotFoundException('Manual call not found');
+    const agentId = dto.agentId ?? current.handlingEmployeeId;
+    if (!agentId) throw new BadRequestException('Agent is required');
+    const agent = await this.prisma.user.findFirst({
+      where: { id: agentId, organizationId, status: 'active' },
+      select: { id: true },
+    });
+    if (!agent) throw new NotFoundException('Agent not found');
+    const owner =
+      dto.phone || dto.clientId || dto.prospectId
+        ? await this.resolveManualOwner(organizationId, {
+            phone: dto.phone ?? current.externalNumber,
+            clientId: dto.clientId ?? undefined,
+            prospectId: dto.prospectId ?? undefined,
+            agentId,
+          })
+        : {
+            normalizedValue: current.externalNumber,
+            prospectId: current.prospectId,
+            clientId: current.clientId,
+          };
+    const dossierId = dto.dossierId ?? current.dossierId ?? undefined;
+    await this.assertManualDossier(organizationId, dossierId, owner.clientId);
+    const callAt = dto.callAt ? new Date(dto.callAt) : current.receivedAt;
+    const state = dto.state ?? current.state;
+    const durationSeconds = dto.durationSeconds ?? current.durationSeconds ?? 0;
+    const completedAt = new Date(callAt.getTime() + durationSeconds * 1000);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.callSession.update({
+        where: { id: current.id },
+        data: {
+          externalNumber: owner.normalizedValue,
+          prospectId: owner.prospectId,
+          clientId: owner.clientId,
+          handlingEmployeeId: agent.id,
+          dossierId,
+          ...(dto.subject !== undefined
+            ? { subject: dto.subject.trim() }
+            : {}),
+          ...(dto.direction !== undefined ? { direction: dto.direction } : {}),
+          state,
+          receivedAt: callAt,
+          answeredAt: state === CallState.COMPLETED ? callAt : null,
+          completedAt,
+          durationSeconds,
+          ...(dto.outcome !== undefined
+            ? { outcome: dto.outcome.trim() }
+            : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+          ...(dto.nextAction !== undefined
+            ? { nextAction: dto.nextAction.trim() || null }
+            : {}),
+          ...(dto.followUpAt !== undefined
+            ? {
+                nextActionAt: dto.followUpAt
+                  ? new Date(dto.followUpAt)
+                  : null,
+              }
+            : {}),
+        },
+      });
+      await tx.callEvent.create({
+        data: {
+          callSessionId: result.id,
+          state,
+          actorUserId,
+          occurredAt: new Date(),
+          metadata: { manualEdit: true },
+        },
+      });
+      await this.syncManualFollowUp(tx, result, dto);
+      await this.touchContact(tx, owner.prospectId, owner.clientId, callAt);
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorUserId,
+          action: 'call.manual.updated',
+          entityType: 'CallSession',
+          entityId: result.id,
+          oldValues: this.manualAuditSnapshot(current),
+          newValues: this.manualAuditSnapshot(result),
+        },
+      });
+      return result;
+    });
+    const hydrated = await this.getCall(organizationId, updated.id);
+    this.gateway.emitOrganization(organizationId, 'call.updated', hydrated);
+    return hydrated;
+  }
+
   async getCall(organizationId: string, id: string) {
     const call = await this.prisma.callSession.findFirst({
       where: { id, organizationId },
@@ -227,6 +487,12 @@ export class CallCenterService {
           'INBOUND_CALL',
           preferredAssigneeId,
         );
+        // A converted contact point intentionally retains Lead lineage while
+        // also belonging to the Client. Operational interactions have one
+        // canonical owner: prefer the Client and keep Lead history reachable
+        // through ProspectConversion/the unified timeline.
+        const clientId = resolved.clientId;
+        const prospectId = clientId ? null : resolved.prospectId;
         const queuedAt =
           event.state === CallState.RINGING ? null : event.occurredAt;
         call = await this.prisma.$transaction(async (tx) => {
@@ -239,8 +505,8 @@ export class CallCenterService {
               direction: CallDirection.INBOUND,
               companyNumber: channel.normalizedNumber,
               externalNumber: resolved.normalizedValue,
-              prospectId: resolved.prospectId,
-              clientId: resolved.clientId,
+              prospectId,
+              clientId,
               state:
                 event.state === CallState.RINGING
                   ? CallState.QUEUED
@@ -260,8 +526,8 @@ export class CallCenterService {
           });
           await this.touchContact(
             tx,
-            resolved.prospectId,
-            resolved.clientId,
+            prospectId,
+            clientId,
             event.occurredAt,
           );
           await this.notifyDispatchers(
@@ -614,18 +880,20 @@ export class CallCenterService {
         'WHATSAPP',
         preferredAssigneeId,
       );
+      const clientId = resolved.clientId;
+      const prospectId = clientId ? null : resolved.prospectId;
       const assigneeId =
         preferredAssigneeId ??
-        (resolved.prospectId
+        (prospectId
           ? (
               await this.prisma.prospect.findUnique({
-                where: { id: resolved.prospectId },
+                where: { id: prospectId },
                 select: { assignedTo: true },
               })
             )?.assignedTo
           : (
               await this.prisma.client.findUnique({
-                where: { id: resolved.clientId! },
+                where: { id: clientId! },
                 select: { assignedTo: true },
               })
             )?.assignedTo);
@@ -648,8 +916,8 @@ export class CallCenterService {
             channelId: channel.id,
             providerKey,
             externalNumber: resolved.normalizedValue,
-            prospectId: resolved.prospectId,
-            clientId: resolved.clientId,
+            prospectId,
+            clientId,
             assignedTo: assigneeId,
             lastMessageAt: event.occurredAt,
           },
@@ -670,8 +938,8 @@ export class CallCenterService {
         });
         await this.touchContact(
           tx,
-          resolved.prospectId,
-          resolved.clientId,
+          prospectId,
+          clientId,
           event.occurredAt,
         );
         if (assigneeId) {
@@ -1226,6 +1494,205 @@ export class CallCenterService {
     }
   }
 
+  private async resolveManualOwner(
+    organizationId: string,
+    input: {
+      phone: string;
+      agentId: string;
+      prospectId?: string;
+      clientId?: string;
+    },
+  ) {
+    if (input.prospectId && input.clientId) {
+      throw new BadRequestException('Choose either a Lead or a Client');
+    }
+    const normalizedValue = this.contacts.normalizePhone(input.phone);
+    if (input.clientId) {
+      const client = await this.prisma.client.findFirst({
+        where: {
+          id: input.clientId,
+          organizationId,
+          archivedAt: null,
+        },
+        select: { id: true, phoneNormalized: true },
+      });
+      if (!client) throw new NotFoundException('Client not found');
+      if (client.phoneNormalized && client.phoneNormalized !== normalizedValue) {
+        throw new ConflictException('Phone does not belong to selected Client');
+      }
+      return {
+        normalizedValue: client.phoneNormalized ?? normalizedValue,
+        prospectId: null,
+        clientId: client.id,
+      };
+    }
+    if (input.prospectId) {
+      const prospect = await this.prisma.prospect.findFirst({
+        where: {
+          id: input.prospectId,
+          organizationId,
+          archivedAt: null,
+        },
+        select: {
+          id: true,
+          phoneNormalized: true,
+          conversions: {
+            where: { organizationId },
+            select: { clientId: true },
+            take: 1,
+          },
+        },
+      });
+      if (!prospect) throw new NotFoundException('Lead not found');
+      if (
+        prospect.phoneNormalized &&
+        prospect.phoneNormalized !== normalizedValue
+      ) {
+        throw new ConflictException('Phone does not belong to selected Lead');
+      }
+      const canonicalClientId = prospect.conversions[0]?.clientId ?? null;
+      return {
+        normalizedValue: prospect.phoneNormalized ?? normalizedValue,
+        prospectId: canonicalClientId ? null : prospect.id,
+        clientId: canonicalClientId,
+      };
+    }
+    const resolved = await this.contacts.resolvePhone(
+      organizationId,
+      input.phone,
+      'INBOUND_CALL',
+      input.agentId,
+    );
+    if (resolved.matchState === 'AMBIGUOUS') {
+      throw new ConflictException({
+        code: 'PHONE_IDENTITY_AMBIGUOUS',
+        message: 'Phone is linked to multiple CRM records',
+        candidateIds: resolved.candidateIds,
+      });
+    }
+    return {
+      normalizedValue: resolved.normalizedValue,
+      prospectId: resolved.clientId ? null : resolved.prospectId,
+      clientId: resolved.clientId,
+    };
+  }
+
+  private async assertManualDossier(
+    organizationId: string,
+    dossierId: string | undefined,
+    clientId: string | null,
+  ) {
+    if (!dossierId) return;
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id: dossierId, organizationId },
+      select: { id: true, clientId: true },
+    });
+    if (!dossier) throw new NotFoundException('Dossier not found');
+    if (!clientId || dossier.clientId !== clientId) {
+      throw new ConflictException(
+        'Related dossier must belong to the canonical Client',
+      );
+    }
+  }
+
+  private manualChannel(organizationId: string) {
+    const normalizedNumber = `manual:${organizationId}`;
+    return this.prisma.companyChannel.upsert({
+      where: {
+        organizationId_channel_normalizedNumber: {
+          organizationId,
+          channel: CompanyChannelKind.VOICE,
+          normalizedNumber,
+        },
+      },
+      update: { active: true },
+      create: {
+        organizationId,
+        channel: CompanyChannelKind.VOICE,
+        displayName: 'Saisie manuelle',
+        normalizedNumber,
+        providerKey: 'manual',
+        active: true,
+        queueName: 'manual',
+        routingConfig: { externalProviderRequired: false },
+      },
+    });
+  }
+
+  private async syncManualFollowUp(
+    tx: Prisma.TransactionClient,
+    call: {
+      id: string;
+      organizationId: string;
+      recordedById: string | null;
+      handlingEmployeeId: string | null;
+      prospectId: string | null;
+      clientId: string | null;
+      dossierId: string | null;
+      externalNumber: string;
+    },
+    dto: { nextAction?: string; followUpAt?: string },
+  ) {
+    if (!dto.followUpAt) return;
+    const assignedTo = call.handlingEmployeeId ?? call.recordedById;
+    if (!assignedTo) return;
+    await tx.task.upsert({
+      where: { callbackForCallId: call.id },
+      update: {
+        assignedTo,
+        title: dto.nextAction?.trim() || `Relancer ${call.externalNumber}`,
+        dueDate: new Date(dto.followUpAt),
+        prospectId: call.prospectId,
+        clientId: call.clientId,
+        dossierId: call.dossierId,
+        status: 'todo',
+      },
+      create: {
+        organizationId: call.organizationId,
+        assignedTo,
+        createdBy: call.recordedById ?? assignedTo,
+        title: dto.nextAction?.trim() || `Relancer ${call.externalNumber}`,
+        type: 'follow_up',
+        status: 'todo',
+        dueDate: new Date(dto.followUpAt),
+        relatedType: 'call',
+        relatedId: call.id,
+        callbackForCallId: call.id,
+        prospectId: call.prospectId,
+        clientId: call.clientId,
+        dossierId: call.dossierId,
+      },
+    });
+  }
+
+  private manualAuditSnapshot(call: {
+    direction: CallDirection;
+    state: CallState;
+    receivedAt: Date;
+    durationSeconds: number | null;
+    subject: string | null;
+    outcome: string | null;
+    prospectId: string | null;
+    clientId: string | null;
+    dossierId: string | null;
+    handlingEmployeeId: string | null;
+    externalNumber: string;
+  }): Prisma.InputJsonObject {
+    return {
+      direction: call.direction,
+      state: call.state,
+      callAt: call.receivedAt.toISOString(),
+      durationSeconds: call.durationSeconds,
+      subject: call.subject,
+      outcome: call.outcome,
+      prospectId: call.prospectId,
+      clientId: call.clientId,
+      dossierId: call.dossierId,
+      agentId: call.handlingEmployeeId,
+      phoneLast4: call.externalNumber.slice(-4),
+    } as Prisma.InputJsonObject;
+  }
+
   private async resolveChannel(
     providerKey: string,
     kind: CompanyChannelKind,
@@ -1266,6 +1733,8 @@ export class CallCenterService {
       handlingEmployee: {
         select: { id: true, firstName: true, lastName: true },
       },
+      recordedBy: { select: { id: true, firstName: true, lastName: true } },
+      dossier: { select: { id: true, reference: true, clientId: true } },
       channel: true,
     } as const;
   }

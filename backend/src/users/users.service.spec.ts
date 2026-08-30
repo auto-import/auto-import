@@ -19,10 +19,8 @@ interface PrismaMock {
   office: { findFirst: MockFn };
   role: { findMany: MockFn };
   userRole: { count: MockFn };
-  $transaction: jest.Mock<
-    Promise<unknown>,
-    [(transaction: PrismaMock) => unknown]
-  >;
+  refreshSession: { updateMany: MockFn };
+  $transaction: jest.Mock;
 }
 
 describe('UsersService', () => {
@@ -54,16 +52,15 @@ describe('UsersService', () => {
       office: { findFirst: mockAsync() },
       role: { findMany: mockAsync() },
       userRole: { count: mockAsync() },
-      $transaction: jest.fn<
-        Promise<unknown>,
-        [(transaction: PrismaMock) => unknown]
-      >(),
+      refreshSession: { updateMany: mockAsync() },
+      $transaction: jest.fn(),
     };
-    prisma.$transaction = jest.fn<
-      Promise<unknown>,
-      [(transaction: PrismaMock) => unknown]
-    >((callback: (transaction: PrismaMock) => unknown) =>
-      Promise.resolve(callback(prisma)),
+    prisma.$transaction = jest.fn((input: unknown) =>
+      Promise.resolve(
+        typeof input === 'function'
+          ? (input as (transaction: PrismaMock) => unknown)(prisma)
+          : input,
+      ),
     );
     service = new UsersService(prisma as unknown as PrismaService);
   });
@@ -212,5 +209,30 @@ describe('UsersService', () => {
         limited,
       ),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('deactivates an account and revokes sessions without deleting audit history', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'user-a',
+      email: 'user@a.test',
+      status: 'active',
+      userRoles: [],
+    });
+    prisma.user.update.mockResolvedValue({ id: 'user-a', status: 'inactive' });
+    prisma.refreshSession.updateMany.mockResolvedValue({ count: 2 });
+
+    await expect(
+      service.remove('user-a', 'org-a', 'admin-a'),
+    ).resolves.toEqual({ message: 'User deactivated successfully' });
+
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-a' },
+      data: { status: 'inactive' },
+    });
+    expect(prisma.refreshSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-a', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
   });
 });

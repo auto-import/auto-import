@@ -20,6 +20,7 @@ import type {
   ResolveSupplierIncidentDto,
   TransitionSupplierDto,
   UpdateSupplierScoreDto,
+  UpdateSupplierBankDto,
 } from './dto/supplier-v2.dto';
 
 const SUPPLIER_TRANSITIONS: Record<string, readonly string[]> = {
@@ -244,7 +245,7 @@ export class PartnersService {
   }
 
   async update(id: string, organizationId: string, dto: UpdatePartnerDto) {
-    await this.findOne(id, organizationId);
+    await this.requirePartner(id, organizationId);
 
     const updated = await this.prisma.partner.update({
       where: { id },
@@ -256,7 +257,7 @@ export class PartnersService {
   }
 
   async remove(id: string, organizationId: string) {
-    await this.findOne(id, organizationId);
+    await this.requirePartner(id, organizationId);
 
     const archived = await this.prisma.partner.update({
       where: { id },
@@ -430,6 +431,118 @@ export class PartnersService {
     });
   }
 
+  async updateBankAccount(
+    supplierId: string,
+    bankId: string,
+    organizationId: string,
+    userId: string,
+    dto: UpdateSupplierBankDto,
+  ) {
+    if (Object.values(dto).every((value) => value === undefined)) {
+      throw new ConflictException('At least one bank field must be changed');
+    }
+    const current = await this.prisma.supplierBankAccount.findFirst({
+      where: { id: bankId, supplierId, organizationId, archivedAt: null },
+    });
+    if (!current)
+      throw new NotFoundException('Supplier bank account not found');
+    const accountReference = dto.details
+      ? [dto.details.accountNumber, dto.details.iban]
+          .find((value): value is string => typeof value === 'string')
+          ?.replace(/\s/g, '')
+      : undefined;
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.supplierBankAccount.update({
+        where: { id: bankId },
+        data: {
+          label: dto.label,
+          bankName: dto.bankName,
+          currency: dto.currency?.toUpperCase(),
+          ...(dto.details
+            ? {
+                encryptedDetails: this.sensitive.encrypt(
+                  JSON.stringify(dto.details),
+                  'pii',
+                ),
+                lastFour: accountReference?.slice(-4),
+              }
+            : {}),
+          updatedBy: userId,
+        },
+        select: {
+          id: true,
+          label: true,
+          bankName: true,
+          currency: true,
+          lastFour: true,
+          status: true,
+          updatedAt: true,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_BANK_UPDATED',
+          entityType: 'partner',
+          entityId: supplierId,
+          oldValues: {
+            bankAccountId: bankId,
+            currency: current.currency,
+            lastFour: current.lastFour,
+          },
+          newValues: {
+            bankAccountId: bankId,
+            currency: updated.currency,
+            lastFour: updated.lastFour,
+            sensitiveDetailsChanged: Boolean(dto.details),
+          },
+        },
+      });
+      return updated;
+    });
+  }
+
+  async archiveBankAccount(
+    supplierId: string,
+    bankId: string,
+    organizationId: string,
+    userId: string,
+    reason: string,
+  ) {
+    const current = await this.prisma.supplierBankAccount.findFirst({
+      where: { id: bankId, supplierId, organizationId, archivedAt: null },
+      select: { id: true },
+    });
+    if (!current)
+      throw new NotFoundException('Supplier bank account not found');
+    return this.prisma.$transaction(async (tx) => {
+      const archived = await tx.supplierBankAccount.update({
+        where: { id: bankId },
+        data: {
+          status: 'ARCHIVED',
+          archivedAt: new Date(),
+          updatedBy: userId,
+        },
+        select: { id: true, status: true, archivedAt: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_BANK_ARCHIVED',
+          entityType: 'partner',
+          entityId: supplierId,
+          newValues: {
+            bankAccountId: bankId,
+            reasonRecorded: Boolean(reason.trim()),
+          },
+        },
+      });
+      return archived;
+    });
+  }
+
   async revealBankAccount(
     supplierId: string,
     bankId: string,
@@ -469,14 +582,31 @@ export class PartnersService {
     dto: CreateSupplierIncidentDto,
   ) {
     await this.requireSupplier(supplierId, organizationId);
-    return this.prisma.supplierIncident.create({
-      data: {
-        ...dto,
-        occurredAt: new Date(dto.occurredAt),
-        organizationId,
-        supplierId,
-        reportedBy: userId,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const incident = await tx.supplierIncident.create({
+        data: {
+          ...dto,
+          occurredAt: new Date(dto.occurredAt),
+          organizationId,
+          supplierId,
+          reportedBy: userId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_INCIDENT_CREATED',
+          entityType: 'partner',
+          entityId: supplierId,
+          newValues: {
+            incidentId: incident.id,
+            severity: incident.severity,
+            type: incident.type,
+          },
+        },
+      });
+      return incident;
     });
   }
 
@@ -492,14 +622,27 @@ export class PartnersService {
     });
     if (!incident) throw new NotFoundException('Supplier incident not found');
     if (incident.status === 'RESOLVED') return incident;
-    return this.prisma.supplierIncident.update({
-      where: { id: incidentId },
-      data: {
-        status: 'RESOLVED',
-        resolvedAt: new Date(),
-        resolvedBy: userId,
-        resolution: dto.resolution,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const resolved = await tx.supplierIncident.update({
+        where: { id: incidentId },
+        data: {
+          status: 'RESOLVED',
+          resolvedAt: new Date(),
+          resolvedBy: userId,
+          resolution: dto.resolution,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_INCIDENT_RESOLVED',
+          entityType: 'partner',
+          entityId: supplierId,
+          newValues: { incidentId, resolutionRecorded: true },
+        },
+      });
+      return resolved;
     });
   }
 
@@ -571,5 +714,18 @@ export class PartnersService {
     });
     if (!supplier) throw new NotFoundException('Supplier not found');
     return supplier;
+  }
+
+  private async requirePartner(id: string, organizationId: string) {
+    const partner = await this.prisma.partner.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+    if (!partner) {
+      throw new NotFoundException(
+        `Partner with ID ${id} not found in your organization`,
+      );
+    }
+    return partner;
   }
 }

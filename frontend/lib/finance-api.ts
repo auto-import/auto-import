@@ -145,6 +145,7 @@ export interface ApiSupplierPayment {
   supplierId: string;
   purchaseId: string;
   amount: string | number;
+  paymentKind: "DEPOSIT" | "COMPLEMENT" | "BALANCE";
   currency: string;
   paymentMethod?: string | null;
   reference?: string | null;
@@ -157,7 +158,26 @@ export interface ApiSupplierPayment {
   notes?: string | null;
   createdAt: string;
   supplier?: { id: string; name: string; country?: string | null };
-  purchase?: { id: string; purchaseNumber: string; status: string };
+  purchase?: {
+    id: string;
+    purchaseNumber: string;
+    status: string;
+    purchasePrice?: string | number;
+    currency?: string;
+  };
+  purchasePaid?: string | number;
+  purchaseRemaining?: string | number;
+}
+
+export interface ApiPurchaseForPayment {
+  id: string;
+  purchaseNumber: string;
+  supplierId: string;
+  purchasePrice: string | number;
+  currency: string;
+  status: string;
+  supplier: { id: string; name: string };
+  dossier?: { id: string; reference: string } | null;
 }
 
 export interface ApiCost {
@@ -518,6 +538,7 @@ export async function fetchSupplierPayments(params: {
 export async function createSupplierPayment(data: {
   supplierId: string;
   purchaseId: string;
+  paymentKind: "DEPOSIT" | "COMPLEMENT" | "BALANCE";
   amount: number;
   currency: string;
   paymentMethod?: string;
@@ -534,12 +555,22 @@ export async function createSupplierPayment(data: {
 
 export async function confirmSupplierPayment(
   id: string,
+  data: { treasuryAccountId?: string; supportingDocumentId?: string } = {},
 ): Promise<ApiSupplierPayment> {
   return apiRequest<ApiSupplierPayment>(
     `/finance/supplier-payments/${id}/confirm`,
     {
       method: "POST",
+      body: JSON.stringify(data),
     },
+  );
+}
+
+export async function fetchPurchasesForPayment(): Promise<
+  PaginatedData<ApiPurchaseForPayment>
+> {
+  return apiRequest<PaginatedData<ApiPurchaseForPayment>>(
+    "/purchases?page=1&limit=100",
   );
 }
 
@@ -573,6 +604,7 @@ export async function fetchCosts(params: {
 
 export async function createCost(data: {
   type: string;
+  costScope?: "DIRECT" | "OPERATING";
   amount: number;
   currency: string;
   dossierId?: string;
@@ -581,6 +613,8 @@ export async function createCost(data: {
   shipmentId?: string;
   customsFileId?: string;
   description?: string;
+  treasuryAccountId?: string;
+  supportingDocumentId?: string;
   occurredAt?: string;
 }): Promise<ApiCost> {
   return apiRequest<ApiCost>("/finance/costs", {
