@@ -8,6 +8,7 @@ import Image from "next/image";
 import { CarFront, Eye, Plus, Search, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { useAuth } from "@/components/AuthProvider";
+import { ApiError } from "@/lib/api";
 import {
   OFFER_STATUS_LABELS_API,
   Permission,
@@ -31,8 +32,10 @@ const empty = {
   supplierId: "",
   brand: "",
   model: "",
+  version: "",
   year: "",
   condition: "new",
+  mileage: "",
   supplierPrice: "",
   supplierReference: "",
   incoterm: "FOB",
@@ -45,6 +48,50 @@ const empty = {
   validUntil: "",
   availableQuantity: "1",
 };
+
+function validateOfferForm(form: typeof empty): string | null {
+  if (!form.supplierId) return "Sélectionnez un fournisseur actif.";
+  if (!form.brand.trim()) return "La marque est obligatoire.";
+  if (!form.model.trim()) return "Le modèle est obligatoire.";
+
+  const supplierPrice = Number(form.supplierPrice);
+  if (!Number.isFinite(supplierPrice) || supplierPrice <= 0)
+    return "Le prix fournisseur doit être supérieur à zéro.";
+
+  const quantity = Number(form.availableQuantity);
+  if (!Number.isInteger(quantity) || quantity < 1)
+    return "La quantité doit être un nombre entier supérieur ou égal à 1.";
+
+  if (form.year) {
+    const year = Number(form.year);
+    if (!Number.isInteger(year) || year < 1900 || year > 2100)
+      return "L’année doit être comprise entre 1900 et 2100.";
+  }
+  if (form.mileage) {
+    const mileage = Number(form.mileage);
+    if (!Number.isInteger(mileage) || mileage < 0)
+      return "Le kilométrage doit être un nombre entier positif.";
+  }
+  if (form.leadTimeDays) {
+    const delay = Number(form.leadTimeDays);
+    if (!Number.isInteger(delay) || delay < 0)
+      return "Le délai doit être un nombre entier positif.";
+  }
+
+  const validFrom = Date.parse(form.validFrom);
+  const validUntil = Date.parse(form.validUntil);
+  if (!Number.isFinite(validFrom) || !Number.isFinite(validUntil))
+    return "Les dates de validité sont obligatoires.";
+  if (validUntil < validFrom)
+    return "La date de fin de validité doit être postérieure à la date de début.";
+  return null;
+}
+
+function offerErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiError && cause.details.length > 0)
+    return `${cause.message} : ${cause.details.join(" · ")}`;
+  return cause instanceof Error ? cause.message : "Création impossible";
+}
 
 export default function OffersChinaPolished() {
   const { hasPermission } = useAuth();
@@ -129,11 +176,11 @@ export default function OffersChinaPolished() {
     setSaving(true);
     setError("");
     try {
+      const validationMessage = validateOfferForm(form);
+      if (validationMessage) throw new Error(validationMessage);
       const selectedPhotos = photos.filter((photo): photo is File =>
         Boolean(photo),
       );
-      if (selectedPhotos.length !== 3)
-        throw new Error("Les trois photos distinctes sont obligatoires.");
       if (
         selectedPhotos.some(
           (photo) =>
@@ -156,32 +203,36 @@ export default function OffersChinaPolished() {
           ).join("");
         }),
       );
-      if (new Set(checksums).size !== 3) {
+      if (new Set(checksums).size !== selectedPhotos.length) {
         throw new Error(
-          "Les trois photos doivent contenir des images distinctes.",
+          "Les photos sélectionnées doivent contenir des images distinctes.",
         );
       }
-      await commerceApi.offers.createWithPhotos(
-        {
-          ...form,
-          year: form.year ? Number(form.year) : undefined,
-          supplierPrice: Number(form.supplierPrice),
-          leadTimeDays: form.leadTimeDays
-            ? Number(form.leadTimeDays)
-            : undefined,
-          availableQuantity: Number(form.availableQuantity),
-          specification: {},
-          validFrom: new Date(form.validFrom).toISOString(),
-          validUntil: new Date(form.validUntil).toISOString(),
-        },
-        selectedPhotos,
-      );
+      const payload = {
+        ...form,
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        version: form.version.trim() || undefined,
+        year: form.year ? Number(form.year) : undefined,
+        mileage: form.mileage ? Number(form.mileage) : undefined,
+        supplierPrice: Number(form.supplierPrice),
+        leadTimeDays: form.leadTimeDays
+          ? Number(form.leadTimeDays)
+          : undefined,
+        availableQuantity: Number(form.availableQuantity),
+        specification: {},
+        validFrom: new Date(form.validFrom).toISOString(),
+        validUntil: new Date(form.validUntil).toISOString(),
+      };
+      if (selectedPhotos.length > 0)
+        await commerceApi.offers.createWithPhotos(payload, selectedPhotos);
+      else await commerceApi.offers.create(payload);
       setShowForm(false);
       setForm(empty);
       setPhotos([null, null, null]);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Création impossible");
+      setError(offerErrorMessage(cause));
     } finally {
       setSaving(false);
     }
@@ -416,12 +467,49 @@ export default function OffersChinaPolished() {
                 historique. La tarification client CIF/DDP est établie dans un
                 devis distinct lié au dossier.
               </p>
+              <label>
+                <span className="field-label">État du véhicule *</span>
+                <select
+                  required
+                  className={inputClass}
+                  value={form.condition}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      condition: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="new">Neuf</option>
+                  <option value="used">Occasion</option>
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Devise *</span>
+                <select
+                  required
+                  className={inputClass}
+                  value={form.currency}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      currency: event.target.value,
+                    }))
+                  }
+                >
+                  {['USD', 'CNY', 'EUR', 'DZD'].map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+              </label>
               {Object.entries({
                 supplierId: "Fournisseur *",
                 supplierReference: "Référence fournisseur",
                 brand: "Marque *",
                 model: "Modèle *",
+                version: "Version",
                 year: "Année",
+                mileage: "Kilométrage",
                 supplierPrice: "Prix fournisseur *",
                 incoterm: "Incoterm",
                 location: "Localisation",
@@ -472,6 +560,7 @@ export default function OffersChinaPolished() {
                           : [
                                 "brand",
                                 "model",
+                                "version",
                                 "supplierReference",
                                 "incoterm",
                                 "location",
@@ -481,6 +570,19 @@ export default function OffersChinaPolished() {
                             ? "text"
                             : "number"
                       }
+                      min={
+                        key === "year"
+                          ? 1900
+                          : key === "supplierPrice"
+                            ? 0.01
+                            : ["mileage", "leadTimeDays"].includes(key)
+                              ? 0
+                              : key === "availableQuantity"
+                                ? 1
+                                : undefined
+                      }
+                      max={key === "year" ? 2100 : undefined}
+                      step={key === "supplierPrice" ? "0.01" : "1"}
                       className={inputClass}
                       value={form[key as keyof typeof form]}
                       onChange={(event) =>
@@ -495,7 +597,9 @@ export default function OffersChinaPolished() {
               )}
             </div>
             <fieldset className="mt-5">
-              <legend className="field-label">Trois photos ordonnées *</legend>
+              <legend className="field-label">
+                Jusqu’à trois photos ordonnées (optionnel)
+              </legend>
               <div className="grid gap-3 sm:grid-cols-3">
                 {photos.map((photo, index) => (
                   <label
@@ -508,7 +612,6 @@ export default function OffersChinaPolished() {
                         : `Photo ${index + 1}`}
                     </span>
                     <input
-                      required
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       className="mt-2 w-full text-xs"

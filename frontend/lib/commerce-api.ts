@@ -432,6 +432,11 @@ export const commerceApi = {
     list: (filters: Record<string, string | number | undefined> = {}) =>
       apiRequest<PaginatedData<ApiOffer>>(`/offers${queryString(filters)}`),
     get: (id: string) => apiRequest<ApiOffer>(`/offers/${id}`),
+    create: (data: Record<string, unknown>) =>
+      apiRequest<ApiOffer>("/offers", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     createWithPhotos: (data: Record<string, unknown>, photos: File[]) => {
       const body = new FormData();
       for (const [key, value] of Object.entries(data)) {

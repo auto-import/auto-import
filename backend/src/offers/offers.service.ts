@@ -50,8 +50,10 @@ export class OffersService {
     organizationId: string,
     files: UploadedBufferFile[],
   ) {
-    if (files.length !== 3)
-      throw new BadRequestException('Exactly three offer photos are required');
+    if (files.length < 1 || files.length > 3)
+      throw new BadRequestException(
+        'Offer galleries accept between one and three photos',
+      );
     const stored: StoredFileResult[] = [];
     try {
       for (const file of files) {
@@ -74,9 +76,11 @@ export class OffersService {
           ),
         );
       }
-      if (new Set(stored.map(({ checksum }) => checksum)).size !== 3)
+      if (
+        new Set(stored.map(({ checksum }) => checksum)).size !== stored.length
+      )
         throw new BadRequestException(
-          'The three offer photos must be distinct',
+          'Offer photos must be distinct',
         );
       return stored;
     } catch (error) {

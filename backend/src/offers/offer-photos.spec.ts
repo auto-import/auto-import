@@ -11,17 +11,68 @@ const photo = (name: string, marker: number): UploadedBufferFile => ({
 });
 
 describe('OffersService ordered private photos', () => {
-  it('rejects any offer gallery that is not exactly three files before database writes', async () => {
-    const storage = { assertAllowedMime: jest.fn(), saveBuffer: jest.fn() };
+  it('accepts an optional partial gallery with one to three distinct photos', async () => {
+    const storage = {
+      assertAllowedMime: jest.fn().mockReturnValue('image/png'),
+      saveBuffer: jest
+        .fn()
+        .mockImplementation((_org: string, _category: string, name: string) =>
+          Promise.resolve({
+            storageKey: `private/${name}`,
+            originalName: name,
+            mimeType: 'image/png',
+            size: 5n,
+            checksum: `checksum-${name}`,
+            absolutePath: name,
+          }),
+        ),
+      delete: jest.fn(),
+    };
     const service = new OffersService(
       {} as PrismaService,
       storage as unknown as StorageProvider,
     );
 
-    await expect(
-      service.createWithPhotos({} as never, 'org-a', 'user-a', [
+    const result = await (
+      service as unknown as {
+        storePhotos: (
+          organizationId: string,
+          files: UploadedBufferFile[],
+        ) => Promise<unknown[]>;
+      }
+    ).storePhotos('org-a', [
         photo('one.png', 1),
         photo('two.png', 2),
+      ]);
+
+    expect(result).toHaveLength(2);
+    expect(storage.saveBuffer).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an empty or oversized multipart gallery before database writes', async () => {
+    const storage = { assertAllowedMime: jest.fn(), saveBuffer: jest.fn() };
+    const service = new OffersService(
+      {} as PrismaService,
+      storage as unknown as StorageProvider,
+    );
+    const storePhotos = (
+      service as unknown as {
+        storePhotos: (
+          organizationId: string,
+          files: UploadedBufferFile[],
+        ) => Promise<unknown[]>;
+      }
+    ).storePhotos.bind(service);
+
+    await expect(storePhotos('org-a', [])).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(
+      storePhotos('org-a', [
+        photo('one.png', 1),
+        photo('two.png', 2),
+        photo('three.png', 3),
+        photo('four.png', 4),
       ]),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(storage.saveBuffer).not.toHaveBeenCalled();

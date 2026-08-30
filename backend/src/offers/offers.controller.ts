@@ -7,7 +7,6 @@ import {
   Patch,
   Post,
   Query,
-  BadRequestException,
   UploadedFiles,
   UseInterceptors,
   Res,
@@ -45,11 +44,7 @@ export class OffersController {
   @Post()
   @RequirePermission(Permission.OFFERS_WRITE)
   create(@Body() dto: CreateOfferDto, @CurrentUser() user: AuthenticatedUser) {
-    void dto;
-    void user;
-    throw new BadRequestException(
-      'Offer creation requires exactly three photos; use /offers/with-photos',
-    );
+    return this.offers.create(dto, user.organizationId, user.id);
   }
 
   @Post('with-photos')
