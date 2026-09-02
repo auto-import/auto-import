@@ -32,12 +32,29 @@ export default function ClientProfileWorkspace({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("overview");
+  const [identitySaving, setIdentitySaving] = useState(false);
+  const [identityDocument, setIdentityDocument] = useState<File | null>(null);
+  const [identityForm, setIdentityForm] = useState({
+    identityDocumentType: "" as "" | "PASSPORT" | "NATIONAL_ID",
+    passportNumber: "",
+    nin: "",
+    identityIssueCountry: "",
+    identityIssueDate: "",
+    passportExpiry: "",
+  });
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const clientResult = await crmApi.getClient(id);
       setClient(clientResult);
+      setIdentityForm((current) => ({
+        ...current,
+        identityDocumentType: clientResult.identityDocumentType ?? "",
+        identityIssueCountry: clientResult.identityIssueCountry ?? "",
+        identityIssueDate: clientResult.identityIssueDate?.slice(0, 10) ?? "",
+        passportExpiry: clientResult.passportExpiry?.slice(0, 10) ?? "",
+      }));
       if (clientResult.access?.interactions) {
         setTimeline((await crmApi.timeline("client", id)).items);
       } else setTimeline([]);
@@ -75,6 +92,35 @@ export default function ClientProfileWorkspace({
       setError(
         caught instanceof Error ? caught.message : "Archivage impossible",
       );
+    }
+  }
+  async function saveIdentity(event: React.FormEvent) {
+    event.preventDefault();
+    setIdentitySaving(true);
+    setError("");
+    try {
+      const payload = Object.fromEntries(
+        Object.entries(identityForm).map(([key, value]) => [
+          key,
+          value.trim() || undefined,
+        ]),
+      ) as Record<string, string | undefined>;
+      await crmApi.updateClientIdentity(id, payload, identityDocument);
+      setIdentityDocument(null);
+      setIdentityForm((current) => ({
+        ...current,
+        passportNumber: "",
+        nin: "",
+      }));
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Identité non enregistrée",
+      );
+    } finally {
+      setIdentitySaving(false);
     }
   }
   return (
@@ -232,6 +278,16 @@ export default function ClientProfileWorkspace({
               <section className="card space-y-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <Info
+                    label="Type de document"
+                    value={
+                      client.identityDocumentType === "PASSPORT"
+                        ? "Passeport"
+                        : client.identityDocumentType === "NATIONAL_ID"
+                          ? "Carte d’identité / NIN"
+                          : "À compléter"
+                    }
+                  />
+                  <Info
                     label="NIN"
                     value={client.ninMasked ?? "Non renseigné"}
                   />
@@ -240,6 +296,123 @@ export default function ClientProfileWorkspace({
                     value={client.passportNumberMasked ?? "Non renseigné"}
                   />
                 </div>
+                {client.access?.identityWrite && (
+                  <form
+                    onSubmit={saveIdentity}
+                    className="grid gap-3 rounded-card border border-border p-4 md:grid-cols-2"
+                  >
+                    <h2 className="font-semibold md:col-span-2">
+                      Compléter les informations d’identité
+                    </h2>
+                    <select
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      value={identityForm.identityDocumentType}
+                      onChange={(event) =>
+                        setIdentityForm({
+                          ...identityForm,
+                          identityDocumentType: event.target.value as
+                            | ""
+                            | "PASSPORT"
+                            | "NATIONAL_ID",
+                        })
+                      }
+                    >
+                      <option value="">Type de document (facultatif)</option>
+                      <option value="PASSPORT">Passeport</option>
+                      <option value="NATIONAL_ID">
+                        Carte d’identité nationale / NIN
+                      </option>
+                    </select>
+                    {identityForm.identityDocumentType === "PASSPORT" ? (
+                      <>
+                        <input
+                          className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                          placeholder="Numéro de passeport"
+                          value={identityForm.passportNumber}
+                          onChange={(event) =>
+                            setIdentityForm({
+                              ...identityForm,
+                              passportNumber: event.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                          placeholder="Pays d’émission"
+                          value={identityForm.identityIssueCountry}
+                          onChange={(event) =>
+                            setIdentityForm({
+                              ...identityForm,
+                              identityIssueCountry: event.target.value,
+                            })
+                          }
+                        />
+                        <label className="text-xs text-muted">
+                          Date d’émission
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded-input border border-border bg-background px-3 py-2 text-sm"
+                            value={identityForm.identityIssueDate}
+                            onChange={(event) =>
+                              setIdentityForm({
+                                ...identityForm,
+                                identityIssueDate: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="text-xs text-muted">
+                          Date d’expiration
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded-input border border-border bg-background px-3 py-2 text-sm"
+                            value={identityForm.passportExpiry}
+                            onChange={(event) =>
+                              setIdentityForm({
+                                ...identityForm,
+                                passportExpiry: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : identityForm.identityDocumentType === "NATIONAL_ID" ? (
+                      <input
+                        className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                        inputMode="numeric"
+                        pattern="[0-9]{18}"
+                        maxLength={18}
+                        placeholder="NIN / numéro de carte"
+                        value={identityForm.nin}
+                        onChange={(event) =>
+                          setIdentityForm({
+                            ...identityForm,
+                            nin: event.target.value,
+                          })
+                        }
+                      />
+                    ) : null}
+                    {identityForm.identityDocumentType && (
+                      <label className="text-xs text-muted">
+                        Document privé (facultatif)
+                        <input
+                          type="file"
+                          accept="application/pdf,image/jpeg,image/png"
+                          className="mt-1 block w-full"
+                          onChange={(event) =>
+                            setIdentityDocument(event.target.files?.[0] ?? null)
+                          }
+                        />
+                      </label>
+                    )}
+                    <button
+                      disabled={identitySaving}
+                      className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50 md:col-span-2"
+                    >
+                      {identitySaving ? "Enregistrement…" : "Enregistrer l’identité"}
+                    </button>
+                  </form>
+                )}
                 <h2 className="font-semibold">Documents d’identité</h2>
                 <EntityList
                   items={client.documents}

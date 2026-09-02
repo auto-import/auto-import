@@ -12,11 +12,39 @@ describe('V2 CRM lead workflow', () => {
       NEW: ['CONTACTED'],
       CONTACTED: ['QUALIFIED'],
       QUALIFIED: ['APPOINTMENT'],
-      APPOINTMENT: ['CONTRACT'],
-      CONTRACT: ['DEPOSIT'],
-      DEPOSIT: ['CONVERTED'],
+      APPOINTMENT: ['CONVERTED'],
       CONVERTED: [],
     });
+  });
+
+  it('accepts the full authoritative sequence', () => {
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.NEW, CrmLeadStatus.CONTACTED),
+    ).not.toThrow();
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.CONTACTED, CrmLeadStatus.QUALIFIED),
+    ).not.toThrow();
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.QUALIFIED, CrmLeadStatus.APPOINTMENT),
+    ).not.toThrow();
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.APPOINTMENT, CrmLeadStatus.CONVERTED),
+    ).not.toThrow();
+  });
+
+  it('rejects removed statuses CONTRACT and DEPOSIT', () => {
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.APPOINTMENT, 'CONTRACT' as any),
+    ).toThrow(ConflictException);
+    expect(() =>
+      assertCrmLeadTransition(CrmLeadStatus.APPOINTMENT, 'DEPOSIT' as any),
+    ).toThrow(ConflictException);
+    expect(() =>
+      assertCrmLeadTransition('CONTRACT', CrmLeadStatus.APPOINTMENT),
+    ).toThrow(ConflictException);
+    expect(() =>
+      assertCrmLeadTransition('DEPOSIT', CrmLeadStatus.CONVERTED),
+    ).toThrow(ConflictException);
   });
 
   it('accepts the next transition and rejects skipping a stage', () => {
@@ -35,7 +63,10 @@ describe('V2 CRM lead workflow', () => {
   });
 
   it('keeps the legacy status as a read-only compatibility projection', () => {
-    expect(legacyStatusProjection(CrmLeadStatus.DEPOSIT)).toBe('won');
+    expect(legacyStatusProjection(CrmLeadStatus.NEW)).toBe('new');
+    expect(legacyStatusProjection(CrmLeadStatus.CONTACTED)).toBe('contacted');
+    expect(legacyStatusProjection(CrmLeadStatus.QUALIFIED)).toBe('qualified');
+    expect(legacyStatusProjection(CrmLeadStatus.APPOINTMENT)).toBe('qualified');
     expect(legacyStatusProjection(CrmLeadStatus.CONVERTED)).toBe('converted');
   });
 });

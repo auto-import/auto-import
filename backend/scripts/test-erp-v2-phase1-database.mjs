@@ -72,7 +72,7 @@ async function main() {
 
   const conversionLeadId = `${prefix}-conversion-lead`;
   await pool.query(
-    `INSERT INTO "Prospect" (id,"organizationId","firstName","lastName",status,"crmStatus",qualification,"createdAt","updatedAt") VALUES ($1,$2,'Convert','Once','won','DEPOSIT','HOT',now(),now())`,
+    `INSERT INTO "Prospect" (id,"organizationId","firstName","lastName",status,"crmStatus",qualification,"createdAt","updatedAt") VALUES ($1,$2,'Convert','Once','qualified','APPOINTMENT','HOT',now(),now())`,
     [conversionLeadId, organizationId],
   );
   for (const suffix of ['a', 'b']) {

@@ -19,6 +19,7 @@ import {
   CheckSquare,
   DollarSign,
   PhoneCall,
+  PackageCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
@@ -55,6 +56,7 @@ const ICON_MAP: Record<string, ReactNode> = {
   LayoutDashboard: <LayoutDashboard className="w-5 h-5" />,
   Car: <Car className="w-5 h-5" />,
   PackageSearch: <PackageSearch className="w-5 h-5" />,
+  PackageCheck: <PackageCheck className="w-5 h-5" />,
   FolderOpen: <FolderOpen className="w-5 h-5" />,
   Handshake: <Handshake className="w-5 h-5" />,
   Ship: <Ship className="w-5 h-5" />,
@@ -75,6 +77,7 @@ const ROUTE_PERMISSIONS: Record<string, ApiPermission> = {
   "/crm": Permission.PROSPECTS_READ,
   "/crm/call-center": Permission.CALL_CENTER_ACCESS,
   "/offres": Permission.OFFERS_READ,
+  "/catalogue": Permission.VEHICLES_READ,
   "/dossiers": Permission.DOSSIERS_READ,
   "/vehicules": Permission.VEHICLES_READ,
   "/fournisseurs": Permission.PARTNERS_READ,

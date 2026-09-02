@@ -31,8 +31,6 @@ const stages = [
   CrmLeadStatus.CONTACTED,
   CrmLeadStatus.QUALIFIED,
   CrmLeadStatus.APPOINTMENT,
-  CrmLeadStatus.CONTRACT,
-  CrmLeadStatus.DEPOSIT,
   CrmLeadStatus.CONVERTED,
 ] as const;
 const qualificationClass: Record<string, string> = {
@@ -311,6 +309,11 @@ export default function LeadsWorkspace() {
                           className={`rounded-full px-2 py-1 ${qualificationClass[lead.qualification]}`}
                         >
                           {lead.qualification}
+                        </span>
+                        <span className="rounded-full bg-surface px-2 py-1">
+                          {lead.needType === "SHIPPING"
+                            ? "Shipping / Expédition"
+                            : "Véhicule"}
                         </span>
                         {lead.assignee && (
                           <span className="flex items-center gap-1 rounded-full bg-surface px-2 py-1">

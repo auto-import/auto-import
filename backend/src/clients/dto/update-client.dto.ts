@@ -4,6 +4,7 @@ import {
   IsEmail,
   IsDateString,
   IsUUID,
+  IsIn,
 } from 'class-validator';
 
 export class UpdateClientDto {
@@ -26,6 +27,14 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   passportNumber?: string;
+
+  @IsOptional()
+  @IsIn(['PASSPORT', 'NATIONAL_ID'])
+  identityDocumentType?: 'PASSPORT' | 'NATIONAL_ID';
+
+  @IsOptional()
+  @IsString()
+  identityIssueCountry?: string;
 
   @IsOptional()
   @IsString()

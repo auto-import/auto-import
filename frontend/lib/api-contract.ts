@@ -222,16 +222,17 @@ export const CRM_LEAD_STATUS_LABELS: Record<ApiCrmLeadStatus, string> = {
   [CrmLeadStatus.CONTACTED]: "Contacté",
   [CrmLeadStatus.QUALIFIED]: "Qualifié",
   [CrmLeadStatus.APPOINTMENT]: "Rendez-vous",
-  [CrmLeadStatus.CONTRACT]: "Contrat",
-  [CrmLeadStatus.DEPOSIT]: "Acompte",
   [CrmLeadStatus.CONVERTED]: "Converti",
 };
 
 export const OFFER_STATUS_LABELS_API: Record<ApiOfferStatus, string> = {
-  [OfferStatus.AVAILABLE]: "Disponible",
+  [OfferStatus.RECEIVED]: "Reçue",
+  [OfferStatus.UNDER_VERIFICATION]: "En vérification",
+  [OfferStatus.VALIDATED]: "Validée",
   [OfferStatus.RESERVED]: "Réservée",
-  [OfferStatus.SOLD]: "Vendue",
+  [OfferStatus.PURCHASED]: "Achetée",
   [OfferStatus.EXPIRED]: "Expirée",
+  [OfferStatus.LOST_DEAL]: "Deal perdu",
 };
 
 export const PAYMENT_STATUS_LABELS_API: Record<ApiPaymentStatus, string> = {

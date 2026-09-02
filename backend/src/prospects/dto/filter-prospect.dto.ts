@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEnum,
   IsOptional,
+  IsIn,
   IsUUID,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -11,6 +12,10 @@ import { CrmLeadStatus } from '@auto-import/contracts';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class FilterProspectDto extends PaginationDto {
+  @IsOptional()
+  @IsIn(['VEHICLE', 'SHIPPING'])
+  needType?: 'VEHICLE' | 'SHIPPING';
+
   @IsOptional()
   @IsEnum(CrmLeadStatus)
   status?: string;

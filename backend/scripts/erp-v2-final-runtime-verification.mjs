@@ -220,8 +220,6 @@ try {
     'CONTACTED',
     'QUALIFIED',
     'APPOINTMENT',
-    'CONTRACT',
-    'DEPOSIT',
   ]) {
     await request(`/prospects/${lead.id}/transition`, {
       method: 'POST',

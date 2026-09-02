@@ -61,23 +61,46 @@ export class ClientsService {
     userId: string,
     passportScan: UploadedBufferFile,
   ) {
+    return this.createWithIdentityDocument(
+      { ...dto, identityDocumentType: dto.identityDocumentType ?? 'PASSPORT' },
+      organizationId,
+      userId,
+      passportScan,
+    );
+  }
+
+  async createWithIdentityDocument(
+    dto: CreateClientDto,
+    organizationId: string,
+    userId: string,
+    identityDocument: UploadedBufferFile,
+  ) {
     if (!this.documents) throw new Error('Documents service unavailable');
+    if (!identityDocument) {
+      throw new BadRequestException('Identity document file is required');
+    }
     const client = await this.create(dto, organizationId, userId, true);
     if ('created' in client && client.created === false) {
       throw new ConflictException(
-        'Passport upload cannot target an existing matched client',
+          'Identity upload cannot target an existing matched client',
       );
     }
     try {
       const document = await this.documents.uploadDossierDocument(
         organizationId,
         userId,
-        passportScan,
+        identityDocument,
         {
           clientId: client.id,
           kind: 'DOSSIER_DOCUMENT',
-          documentType: 'PASSPORT_SCAN',
-          title: 'Passport scan',
+          documentType:
+            dto.identityDocumentType === 'NATIONAL_ID'
+              ? 'NATIONAL_ID_SCAN'
+              : 'PASSPORT_SCAN',
+          title:
+            dto.identityDocumentType === 'NATIONAL_ID'
+              ? 'National identity document'
+              : 'Passport scan',
         },
       );
       return { client, document };
@@ -89,7 +112,7 @@ export class ClientsService {
             status: 'archived',
             archivedAt: new Date(),
             archivedById: userId,
-            archiveReason: 'Passport upload failed during creation',
+            archiveReason: 'Identity document upload failed during creation',
           },
         });
         await tx.auditLog.create({
@@ -104,6 +127,44 @@ export class ClientsService {
       });
       throw error;
     }
+  }
+
+  async attachIdentityDocument(
+    id: string,
+    dto: UpdateClientDto,
+    organizationId: string,
+    userId: string,
+    identityDocument: UploadedBufferFile,
+  ) {
+    if (!this.documents) throw new Error('Documents service unavailable');
+    if (!identityDocument) {
+      throw new BadRequestException('Identity document file is required');
+    }
+    const client = await this.update(
+      id,
+      organizationId,
+      dto,
+      userId,
+      true,
+    );
+    const document = await this.documents.uploadDossierDocument(
+      organizationId,
+      userId,
+      identityDocument,
+      {
+        clientId: id,
+        kind: 'DOSSIER_DOCUMENT',
+        documentType:
+          dto.identityDocumentType === 'NATIONAL_ID'
+            ? 'NATIONAL_ID_SCAN'
+            : 'PASSPORT_SCAN',
+        title:
+          dto.identityDocumentType === 'NATIONAL_ID'
+            ? 'National identity document'
+            : 'Passport scan',
+      },
+    );
+    return { client, document };
   }
 
   async create(
@@ -263,11 +324,12 @@ export class ClientsService {
     organizationId: string,
     page: number = 1,
     limit: number = 20,
-    filters?: { search?: string },
+    filters?: { search?: string; convertedOnly?: boolean },
   ) {
     const skip = (page - 1) * limit;
 
     const where: Prisma.ClientWhereInput = { organizationId, archivedAt: null };
+    if (filters?.convertedOnly) where.conversions = { some: {} };
     if (filters?.search) {
       const search = filters.search.trim();
       const identityHashes: Prisma.ClientWhereInput[] = [];
@@ -305,6 +367,21 @@ export class ClientsService {
           prospect: {
             select: { id: true, crmStatus: true, convertedAt: true },
           },
+          conversions: {
+            select: {
+              convertedAt: true,
+              prospect: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  marketingSource: { select: { code: true, labelFr: true } },
+                },
+              },
+            },
+            orderBy: { convertedAt: 'desc' },
+            take: 1,
+          },
           dossiers: {
             where: { organizationId },
             select: {
@@ -338,7 +415,18 @@ export class ClientsService {
     ]);
 
     return paginate(
-      clients.map((client) => this.maskClient(client)),
+      clients.map((client) => {
+        const masked = this.maskClient(client);
+        return {
+          ...masked,
+          conversion: client.conversions[0] ?? null,
+          identityCompletionStatus:
+            masked.identityConfigured.nin ||
+            masked.identityConfigured.passport
+              ? 'COMPLETE'
+              : 'MISSING',
+        };
+      }),
       total,
       page,
       limit,
@@ -930,13 +1018,20 @@ export class ClientsService {
   private assertIdentityPermission(
     dto: Pick<
       CreateClientDto,
-      'nin' | 'passportNumber' | 'identityIssueDate' | 'passportExpiry'
+      | 'nin'
+      | 'passportNumber'
+      | 'identityDocumentType'
+      | 'identityIssueCountry'
+      | 'identityIssueDate'
+      | 'passportExpiry'
     >,
     canWriteIdentity: boolean,
   ) {
     const requested = Boolean(
       dto.nin ||
       dto.passportNumber ||
+      dto.identityDocumentType ||
+      dto.identityIssueCountry ||
       dto.identityIssueDate ||
       dto.passportExpiry,
     );

@@ -331,8 +331,6 @@ describe('ERP V2 Phase 1 authenticated release gate', () => {
       CrmLeadStatus.CONTACTED,
       CrmLeadStatus.QUALIFIED,
       CrmLeadStatus.APPOINTMENT,
-      CrmLeadStatus.CONTRACT,
-      CrmLeadStatus.DEPOSIT,
     ]) {
       const transitionResponse = await request(app.getHttpServer())
         .post(`/api/prospects/${leadId}/transition`)

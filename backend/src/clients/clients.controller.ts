@@ -15,12 +15,12 @@ import { ClientsService } from './clients.service';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { PaginationDto } from '../common/dto/pagination.dto';
 import { CreateClientDto } from './dto/create-client.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { Permission } from '@auto-import/contracts';
 import type { UploadedBufferFile } from '../documents/documents.service';
 import { ArchiveClientDto } from './dto/archive-client.dto';
+import { FilterClientDto } from './dto/filter-client.dto';
 
 @Controller('clients')
 export class ClientsController {
@@ -55,10 +55,30 @@ export class ClientsController {
     );
   }
 
+  @Post('with-identity-document')
+  @RequirePermission(Permission.CLIENTS_IDENTITY_WRITE)
+  @UseInterceptors(
+    FileInterceptor('identityDocument', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  createWithIdentityDocument(
+    @Body() dto: CreateClientDto,
+    @UploadedFile() identityDocument: UploadedBufferFile,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.createWithIdentityDocument(
+      dto,
+      user.organizationId,
+      user.id,
+      identityDocument,
+    );
+  }
+
   @Get()
   @RequirePermission('clients:read')
   findAll(
-    @Query() pagination: PaginationDto,
+    @Query() pagination: FilterClientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.clientsService.findAll(
@@ -76,6 +96,28 @@ export class ClientsController {
       id,
       user.organizationId,
       user.permissions,
+    );
+  }
+
+  @Post(':id/identity-document')
+  @RequirePermission(Permission.CLIENTS_IDENTITY_WRITE)
+  @UseInterceptors(
+    FileInterceptor('identityDocument', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  attachIdentityDocument(
+    @Param('id') id: string,
+    @Body() dto: UpdateClientDto,
+    @UploadedFile() identityDocument: UploadedBufferFile,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clientsService.attachIdentityDocument(
+      id,
+      dto,
+      user.organizationId,
+      user.id,
+      identityDocument,
     );
   }
 

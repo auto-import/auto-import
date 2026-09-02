@@ -5,6 +5,7 @@ import {
   IsEmail,
   IsUUID,
   IsEnum,
+  IsIn,
   ValidateNested,
 } from 'class-validator';
 import { LeadQualification } from '@prisma/client';
@@ -53,6 +54,12 @@ export class UpdateProspectDto {
   nextActionAt?: string;
 
   @IsOptional() @IsString() nextAction?: string;
+
+  @IsOptional() @IsIn(['VEHICLE', 'SHIPPING']) needType?: 'VEHICLE' | 'SHIPPING';
+  @IsOptional() @IsString() shippingDescription?: string;
+  @IsOptional() @IsString() shippingCargoType?: string;
+  @IsOptional() @IsString() shippingDestination?: string;
+  @IsOptional() @IsString() shippingRequirements?: string;
 
   @IsOptional()
   @ValidateNested()

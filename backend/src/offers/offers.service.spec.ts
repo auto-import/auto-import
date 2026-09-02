@@ -19,6 +19,7 @@ describe('OffersService', () => {
         aggregate: jest.fn().mockResolvedValue({ _max: { revisionNumber: 0 } }),
         create: jest.fn(),
       },
+      chinaOfferVehicle: { updateMany: jest.fn() },
       chinaOfferStatusHistory: { create: jest.fn() },
       supplierDossierLink: { upsert: jest.fn() },
       dossier: { findFirst: jest.fn() },

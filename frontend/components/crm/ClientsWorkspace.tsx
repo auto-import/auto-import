@@ -15,6 +15,7 @@ export default function ClientsWorkspace() {
   const router = useRouter();
   const [clients, setClients] = useState<ApiClient[]>([]);
   const [search, setSearch] = useState("");
+  const [convertedOnly, setConvertedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -22,7 +23,15 @@ export default function ClientsWorkspace() {
     setLoading(true);
     setError("");
     try {
-      setClients((await crmApi.listClients({ limit: 100, search })).items);
+      setClients(
+        (
+          await crmApi.listClients({
+            limit: 100,
+            search,
+            convertedOnly: convertedOnly ? "true" : undefined,
+          })
+        ).items,
+      );
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Chargement impossible",
@@ -30,7 +39,7 @@ export default function ClientsWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, convertedOnly]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 250);
     return () => window.clearTimeout(timer);
@@ -73,6 +82,20 @@ export default function ClientsWorkspace() {
             Ajouter un client
           </button>
         </div>
+        <nav className="flex gap-2 rounded-card border border-border bg-background p-2">
+          <button
+            className={`rounded-button px-4 py-2 text-sm ${!convertedOnly ? "bg-foreground text-white" : "hover:bg-surface"}`}
+            onClick={() => setConvertedOnly(false)}
+          >
+            Tous les clients
+          </button>
+          <button
+            className={`rounded-button px-4 py-2 text-sm ${convertedOnly ? "bg-foreground text-white" : "hover:bg-surface"}`}
+            onClick={() => setConvertedOnly(true)}
+          >
+            Clients convertis depuis Leads
+          </button>
+        </nav>
         {error && (
           <div className="rounded-card bg-status-red-bg p-4 text-status-red-text">
             <p>{error}</p>
@@ -99,6 +122,8 @@ export default function ClientsWorkspace() {
                   <th className="p-4">Client</th>
                   <th className="p-4">Contact</th>
                   <th className="p-4">Agent</th>
+                  <th className="p-4">Conversion / Lead source</th>
+                  <th className="p-4">Identité</th>
                   <th className="p-4">Dernière interaction</th>
                   <th className="p-4">Prochaine action</th>
                   <th className="p-4">Statut</th>
@@ -122,6 +147,36 @@ export default function ClientsWorkspace() {
                       {client.assignee
                         ? `${client.assignee.firstName} ${client.assignee.lastName}`
                         : "—"}
+                    </td>
+                    <td className="p-4">
+                      {client.conversion ? (
+                        <>
+                          <p>
+                            {new Date(
+                              client.conversion.convertedAt,
+                            ).toLocaleDateString(getRuntimeLocale())}
+                          </p>
+                          <p className="text-xs text-muted">
+                            {client.conversion.prospect.marketingSource
+                              ?.labelFr ?? "Lead CRM"}
+                          </p>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs ${
+                          client.identityCompletionStatus === "COMPLETE"
+                            ? "bg-status-green-bg text-status-green-text"
+                            : "bg-status-amber-bg text-status-amber-text"
+                        }`}
+                      >
+                        {client.identityCompletionStatus === "COMPLETE"
+                          ? "Informations complètes"
+                          : "Passeport/NIN à compléter"}
+                      </span>
                     </td>
                     <td className="p-4">
                       {formatDate(client.lastInteractionAt)}
@@ -170,11 +225,13 @@ function ClientForm({
     nationalityCountryId: "",
     nin: "",
     passportNumber: "",
+    identityDocumentType: "" as "" | "PASSPORT" | "NATIONAL_ID",
+    identityIssueCountry: "",
     identityIssueDate: "",
     passportExpiry: "",
   });
   const [countries, setCountries] = useState<ApiCrmReference[]>([]);
-  const [passportScan, setPassportScan] = useState<File | null>(null);
+  const [identityDocument, setIdentityDocument] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const input =
@@ -191,21 +248,21 @@ function ClientForm({
     event.preventDefault();
     setSaving(true);
     try {
-      if (passportScan) {
-        await crmApi.createClientWithPassport(
-          {
-            ...values,
-            phone: values.phone || undefined,
-            email: values.email || undefined,
-          },
-          passportScan,
+      const payload = Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          typeof value === "string" && value.trim() === ""
+            ? undefined
+            : value,
+        ]),
+      ) as Record<string, string | undefined>;
+      if (identityDocument) {
+        await crmApi.createClientWithIdentityDocument(
+          payload,
+          identityDocument,
         );
       } else {
-        await crmApi.createClient({
-          ...values,
-          phone: values.phone || undefined,
-          email: values.email || undefined,
-        });
+        await crmApi.createClient(payload);
       }
       onSaved();
     } catch (caught) {
@@ -290,6 +347,33 @@ function ClientForm({
           ))}
         </select>
         {canWriteIdentity && (
+          <select
+            className={input}
+            value={values.identityDocumentType}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                identityDocumentType: event.target.value as
+                  | ""
+                  | "PASSPORT"
+                  | "NATIONAL_ID",
+                nin:
+                  event.target.value === "PASSPORT" ? "" : values.nin,
+                passportNumber:
+                  event.target.value === "NATIONAL_ID"
+                    ? ""
+                    : values.passportNumber,
+              })
+            }
+          >
+            <option value="">Type de document d&apos;identité (facultatif)</option>
+            <option value="PASSPORT">Passeport</option>
+            <option value="NATIONAL_ID">
+              Carte d&apos;identité nationale / NIN
+            </option>
+          </select>
+        )}
+        {canWriteIdentity && values.identityDocumentType === "NATIONAL_ID" && (
           <input
             className={input}
             inputMode="numeric"
@@ -302,7 +386,7 @@ function ClientForm({
             }
           />
         )}
-        {canWriteIdentity && (
+        {canWriteIdentity && values.identityDocumentType === "PASSPORT" && (
           <input
             className={input}
             placeholder="Numéro de passeport"
@@ -312,7 +396,17 @@ function ClientForm({
             }
           />
         )}
-        {canWriteIdentity && (
+        {canWriteIdentity && values.identityDocumentType === "PASSPORT" && (
+          <input
+            className={input}
+            placeholder="Pays d’émission"
+            value={values.identityIssueCountry}
+            onChange={(event) =>
+              setValues({ ...values, identityIssueCountry: event.target.value })
+            }
+          />
+        )}
+        {canWriteIdentity && values.identityDocumentType === "PASSPORT" && (
           <label className="text-xs text-muted">
             Date d’émission
             <input
@@ -325,7 +419,7 @@ function ClientForm({
             />
           </label>
         )}
-        {canWriteIdentity && (
+        {canWriteIdentity && values.identityDocumentType === "PASSPORT" && (
           <label className="text-xs text-muted">
             Date d’expiration
             <input
@@ -338,15 +432,15 @@ function ClientForm({
             />
           </label>
         )}
-        {canWriteIdentity && (
+        {canWriteIdentity && values.identityDocumentType && (
           <label className="text-xs text-muted">
-            Scan passeport privé
+            Document d&apos;identité privé
             <input
               type="file"
               accept="application/pdf,image/jpeg,image/png"
               className="mt-1 w-full"
               onChange={(event) =>
-                setPassportScan(event.target.files?.[0] ?? null)
+                setIdentityDocument(event.target.files?.[0] ?? null)
               }
             />
           </label>

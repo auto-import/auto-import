@@ -29,6 +29,11 @@ export default function LeadFormDialog({
     model: "",
     requirements: "",
     notes: "",
+    needType: "VEHICLE" as "VEHICLE" | "SHIPPING",
+    shippingDescription: "",
+    shippingCargoType: "",
+    shippingDestination: "",
+    shippingRequirements: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -95,8 +100,26 @@ export default function LeadFormDialog({
         notes: values.notes || undefined,
         nextAction: values.nextAction || undefined,
         nextActionAt: values.nextActionAt || undefined,
+        needType: values.needType,
+        shippingDescription:
+          values.needType === "SHIPPING"
+            ? values.shippingDescription || undefined
+            : undefined,
+        shippingCargoType:
+          values.needType === "SHIPPING"
+            ? values.shippingCargoType || undefined
+            : undefined,
+        shippingDestination:
+          values.needType === "SHIPPING"
+            ? values.shippingDestination || undefined
+            : undefined,
+        shippingRequirements:
+          values.needType === "SHIPPING"
+            ? values.shippingRequirements || undefined
+            : undefined,
         requirement:
-          values.brand || values.model || values.requirements
+          values.needType === "VEHICLE" &&
+          (values.brand || values.model || values.requirements)
             ? {
                 brand: values.brand || undefined,
                 model: values.model || undefined,
@@ -265,31 +288,89 @@ export default function LeadFormDialog({
           <legend className="px-2 text-sm font-medium">
             Véhicule / besoin client
           </legend>
-          <input
-            className={input}
-            placeholder="Marque"
-            value={values.brand}
-            onChange={(event) =>
-              setValues({ ...values, brand: event.target.value })
-            }
-          />
-          <input
-            className={input}
-            placeholder="Modèle"
-            value={values.model}
-            onChange={(event) =>
-              setValues({ ...values, model: event.target.value })
-            }
-          />
-          <textarea
-            className={`${input} md:col-span-2`}
-            rows={2}
-            placeholder="Exigences"
-            value={values.requirements}
-            onChange={(event) =>
-              setValues({ ...values, requirements: event.target.value })
-            }
-          />
+          <label className="md:col-span-2">
+            <span className="mb-1 block text-xs text-muted">Type de besoin *</span>
+            <select
+              required
+              className={input}
+              value={values.needType}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  needType: event.target.value as "VEHICLE" | "SHIPPING",
+                })
+              }
+            >
+              <option value="VEHICLE">Véhicule</option>
+              <option value="SHIPPING">Shipping / Expédition</option>
+            </select>
+          </label>
+          {values.needType === "VEHICLE" ? (
+            <>
+              <input
+                className={input}
+                placeholder="Marque"
+                value={values.brand}
+                onChange={(event) =>
+                  setValues({ ...values, brand: event.target.value })
+                }
+              />
+              <input
+                className={input}
+                placeholder="Modèle"
+                value={values.model}
+                onChange={(event) =>
+                  setValues({ ...values, model: event.target.value })
+                }
+              />
+              <textarea
+                className={`${input} md:col-span-2`}
+                rows={2}
+                placeholder="Exigences / notes"
+                value={values.requirements}
+                onChange={(event) =>
+                  setValues({ ...values, requirements: event.target.value })
+                }
+              />
+            </>
+          ) : (
+            <>
+              <input
+                className={input}
+                placeholder="Type de marchandise / véhicule"
+                value={values.shippingCargoType}
+                onChange={(event) =>
+                  setValues({ ...values, shippingCargoType: event.target.value })
+                }
+              />
+              <input
+                className={input}
+                placeholder="Destination"
+                value={values.shippingDestination}
+                onChange={(event) =>
+                  setValues({ ...values, shippingDestination: event.target.value })
+                }
+              />
+              <textarea
+                className={`${input} md:col-span-2`}
+                rows={2}
+                placeholder="Description du besoin"
+                value={values.shippingDescription}
+                onChange={(event) =>
+                  setValues({ ...values, shippingDescription: event.target.value })
+                }
+              />
+              <textarea
+                className={`${input} md:col-span-2`}
+                rows={2}
+                placeholder="Exigences shipping / notes"
+                value={values.shippingRequirements}
+                onChange={(event) =>
+                  setValues({ ...values, shippingRequirements: event.target.value })
+                }
+              />
+            </>
+          )}
         </fieldset>
         <div className="grid gap-3 md:grid-cols-2">
           <input

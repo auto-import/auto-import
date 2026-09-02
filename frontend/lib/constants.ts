@@ -676,6 +676,7 @@ export const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: "CRM / Clients", href: "/crm", icon: "Users" },
   { label: "Call Center", href: "/crm/call-center", icon: "PhoneCall" },
   { label: "Offres Chine", href: "/offres", icon: "PackageSearch" },
+  { label: "Catalogue", href: "/catalogue", icon: "PackageCheck" },
   { label: "Dossiers", href: "/dossiers", icon: "FolderOpen" },
   { label: "Véhicules", href: "/vehicules", icon: "Car" },
   { label: "Achats / Suppliers", href: "/fournisseurs", icon: "Handshake" },

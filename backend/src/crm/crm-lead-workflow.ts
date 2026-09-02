@@ -9,9 +9,7 @@ export const CRM_LEAD_TRANSITIONS: Readonly<Record<Status, readonly Status[]>> =
     [CrmLeadStatus.NEW]: [CrmLeadStatus.CONTACTED],
     [CrmLeadStatus.CONTACTED]: [CrmLeadStatus.QUALIFIED],
     [CrmLeadStatus.QUALIFIED]: [CrmLeadStatus.APPOINTMENT],
-    [CrmLeadStatus.APPOINTMENT]: [CrmLeadStatus.CONTRACT],
-    [CrmLeadStatus.CONTRACT]: [CrmLeadStatus.DEPOSIT],
-    [CrmLeadStatus.DEPOSIT]: [CrmLeadStatus.CONVERTED],
+    [CrmLeadStatus.APPOINTMENT]: [CrmLeadStatus.CONVERTED],
     [CrmLeadStatus.CONVERTED]: [],
   };
 
@@ -38,8 +36,6 @@ export function legacyStatusProjection(status: Status): string {
     CONTACTED: 'contacted',
     QUALIFIED: 'qualified',
     APPOINTMENT: 'qualified',
-    CONTRACT: 'won',
-    DEPOSIT: 'won',
     CONVERTED: 'converted',
   }[status];
 }

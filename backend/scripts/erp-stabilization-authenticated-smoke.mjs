@@ -97,8 +97,6 @@ for (const status of [
   'CONTACTED',
   'QUALIFIED',
   'APPOINTMENT',
-  'CONTRACT',
-  'DEPOSIT',
 ]) {
   const transitioned = await api(`/prospects/${lead.id}/transition`, {
     token,
@@ -198,7 +196,6 @@ const onePixelPng = Buffer.from(
 const offerForm = new FormData();
 for (const [key, value] of Object.entries({
   supplierId: supplier.id,
-  supplierReference: `CN-${nonce}`,
   brand: 'BYD',
   model: 'Seal',
   version: 'Comfort',

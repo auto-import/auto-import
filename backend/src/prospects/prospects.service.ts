@@ -128,7 +128,9 @@ export class ProspectsService {
                 crmStatus: CrmLeadStatus.NEW,
                 status: legacyStatusProjection(CrmLeadStatus.NEW),
                 nextActionAt: nextActionAt ? new Date(nextActionAt) : undefined,
-                vehicleRequests: requirement
+                needType: leadData.needType ?? 'VEHICLE',
+                vehicleRequests:
+                  requirement && (leadData.needType ?? 'VEHICLE') === 'VEHICLE'
                   ? { create: { ...requirement, organizationId, assignedTo } }
                   : undefined,
               },
@@ -228,6 +230,7 @@ export class ProspectsService {
     if (filters?.marketingSourceId)
       where.marketingSourceId = filters.marketingSourceId;
     if (filters?.qualification) where.qualification = filters.qualification;
+    if (filters?.needType) where.needType = filters.needType;
     if (filters?.overdue) {
       where.nextActionAt = { lt: new Date() };
       where.crmStatus = { not: CrmLeadStatus.CONVERTED };
@@ -299,6 +302,7 @@ export class ProspectsService {
             assignedTo: true,
             archivedAt: true,
             countryId: true,
+            needType: true,
           },
         });
         if (!existing) throw new NotFoundException('Prospect not found');
@@ -365,7 +369,10 @@ export class ProspectsService {
             );
           }
         }
-        if (requirement) {
+        if (
+          requirement &&
+          (data.needType ?? existing.needType ?? 'VEHICLE') === 'VEHICLE'
+        ) {
           const openRequest = await transaction.vehicleRequest.findFirst({
             where: {
               organizationId,

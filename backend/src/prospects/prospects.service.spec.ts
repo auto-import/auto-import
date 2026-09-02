@@ -196,7 +196,7 @@ describe('ProspectsService concurrency guarantees', () => {
         findFirst: jest.fn().mockResolvedValue({
           id: 'lead-doc-1',
           organizationId: 'org-a',
-          crmStatus: 'DEPOSIT',
+          crmStatus: 'APPOINTMENT',
           firstName: 'Alice',
           lastName: 'Doc',
           phone: '+213551112233',

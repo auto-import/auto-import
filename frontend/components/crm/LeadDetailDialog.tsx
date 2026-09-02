@@ -17,8 +17,7 @@ const nextStatus: Partial<Record<ApiCrmLeadStatus, ApiCrmLeadStatus>> = {
   NEW: CrmLeadStatus.CONTACTED,
   CONTACTED: CrmLeadStatus.QUALIFIED,
   QUALIFIED: CrmLeadStatus.APPOINTMENT,
-  APPOINTMENT: CrmLeadStatus.CONTRACT,
-  CONTRACT: CrmLeadStatus.DEPOSIT,
+  APPOINTMENT: CrmLeadStatus.CONVERTED,
 };
 
 export default function LeadDetailDialog({
@@ -220,7 +219,20 @@ export default function LeadDetailDialog({
               onBlur={() => void update({ nextActionAt: current.nextActionAt })}
             />
           </label>
-          {current.vehicleRequests?.[0] && (
+          {current.needType === "SHIPPING" ? (
+            <div className="rounded-card border border-border p-3 text-sm md:col-span-2">
+              <p className="text-xs text-muted">Besoin Shipping / Expédition</p>
+              <p>{current.shippingDescription || "Description à compléter"}</p>
+              <p className="text-muted">
+                {[current.shippingCargoType, current.shippingDestination]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              {current.shippingRequirements && (
+                <p className="text-muted">{current.shippingRequirements}</p>
+              )}
+            </div>
+          ) : current.vehicleRequests?.[0] ? (
             <div className="rounded-card border border-border p-3 text-sm md:col-span-2">
               <p className="text-xs text-muted">Besoin véhicule</p>
               <p>
@@ -236,6 +248,11 @@ export default function LeadDetailDialog({
                   {current.vehicleRequests[0].requirements}
                 </p>
               )}
+            </div>
+          ) : (
+            <div className="rounded-card border border-border p-3 text-sm md:col-span-2">
+              <p className="text-xs text-muted">Besoin véhicule</p>
+              <p>Informations à compléter</p>
             </div>
           )}
         </div>
@@ -253,7 +270,7 @@ export default function LeadDetailDialog({
           >
             Ajouter
           </button>
-          {!current.client && current.crmStatus === CrmLeadStatus.DEPOSIT && (
+          {!current.client && current.crmStatus === CrmLeadStatus.APPOINTMENT && (
             <button
               disabled={saving}
               onClick={() => void convert()}

@@ -159,6 +159,42 @@ export interface ApiVehicle {
       checksum: string;
     };
   }>;
+  purchases?: Array<{
+    id: string;
+    purchaseNumber: string;
+    purchaseDate?: string | null;
+    status: string;
+    sourceOffer?: { id: string; reference: string; offerStatus?: string | null } | null;
+    sourceOfferVehicle?: { id: string; lineNumber: number; status: string } | null;
+  }>;
+}
+
+export interface ApiOfferVehicle {
+  id: string;
+  lineNumber: number;
+  brand: string;
+  model: string;
+  version?: string | null;
+  year?: number | null;
+  condition: string;
+  mileage?: number | null;
+  specification: Record<string, unknown>;
+  supplierPrice: string | number;
+  currency: string;
+  vin?: string | null;
+  quantity: number;
+  reservedQuantity: number;
+  purchasedQuantity: number;
+  status: string;
+  lostReason?: string | null;
+  purchasedAt?: string | null;
+  purchases?: Array<{
+    id: string;
+    purchaseNumber: string;
+    vehicleId: string;
+    purchaseDate?: string | null;
+    status: string;
+  }>;
 }
 
 export interface ApiOfferReservation {
@@ -205,6 +241,7 @@ export interface ApiOffer {
   status: string;
   notes?: string | null;
   reservations?: ApiOfferReservation[];
+  vehicles?: ApiOfferVehicle[];
   photos?: ApiVehicle["photos"];
   revisions?: Array<{
     id: string;
@@ -476,6 +513,20 @@ export const commerceApi = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    purchaseVehicle: (
+      offerId: string,
+      vehicleId: string,
+      data: Record<string, unknown>,
+    ) =>
+      apiRequest(`/offers/${offerId}/vehicles/${vehicleId}/purchase`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    loseVehicle: (offerId: string, vehicleId: string, reason: string) =>
+      apiRequest(`/offers/${offerId}/vehicles/${vehicleId}/lost`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
     archive: (id: string) =>
       apiRequest<ApiOffer>(`/offers/${id}`, { method: "DELETE" }),
     reserve: (
@@ -509,6 +560,12 @@ export const commerceApi = {
         availableQuantity: number;
         reservedQuantity: number;
       }>("/offers/statistics"),
+  },
+  catalogue: {
+    list: (filters: Record<string, string | number | undefined> = {}) =>
+      apiRequest<PaginatedData<ApiVehicle>>(
+        `/catalogue${queryString(filters)}`,
+      ),
   },
   quotations: {
     list: (filters: Record<string, string | number | undefined> = {}) =>

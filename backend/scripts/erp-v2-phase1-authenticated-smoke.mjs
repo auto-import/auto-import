@@ -128,8 +128,6 @@ try {
     'CONTACTED',
     'QUALIFIED',
     'APPOINTMENT',
-    'CONTRACT',
-    'DEPOSIT',
   ]) {
     const transitioned = await api(`/prospects/${leadId}/transition`, {
       method: 'POST',

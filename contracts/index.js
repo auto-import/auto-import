@@ -135,8 +135,6 @@ const CrmLeadStatus = Object.freeze({
   CONTACTED: "CONTACTED",
   QUALIFIED: "QUALIFIED",
   APPOINTMENT: "APPOINTMENT",
-  CONTRACT: "CONTRACT",
-  DEPOSIT: "DEPOSIT",
   CONVERTED: "CONVERTED",
 });
 
@@ -174,10 +172,13 @@ const AgentPresenceStatus = Object.freeze({
 });
 
 const OfferStatus = Object.freeze({
-  AVAILABLE: "available",
-  RESERVED: "reserved",
-  SOLD: "sold",
-  EXPIRED: "expired",
+  RECEIVED: "RECEIVED",
+  UNDER_VERIFICATION: "UNDER_VERIFICATION",
+  VALIDATED: "VALIDATED",
+  RESERVED: "RESERVED",
+  PURCHASED: "PURCHASED",
+  EXPIRED: "EXPIRED",
+  LOST_DEAL: "LOST_DEAL",
 });
 
 const PaymentStatus = Object.freeze({

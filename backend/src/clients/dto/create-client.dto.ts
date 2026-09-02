@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsIn,
 } from 'class-validator';
 
 export class CreateClientDto {
@@ -48,6 +49,14 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   passportNumber?: string;
+
+  @IsOptional()
+  @IsIn(['PASSPORT', 'NATIONAL_ID'])
+  identityDocumentType?: 'PASSPORT' | 'NATIONAL_ID';
+
+  @IsOptional()
+  @IsString()
+  identityIssueCountry?: string;
 
   @IsOptional()
   @IsDateString()

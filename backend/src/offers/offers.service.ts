@@ -17,6 +17,9 @@ import {
   MaterializeOfferDto,
   UpdateOfferDto,
   TransitionOfferDto,
+  PurchaseOfferVehicleDto,
+  LoseOfferVehicleDto,
+  type CreateOfferVehicleDto,
 } from './dto/offer.dto';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierStatus, DossierType } from '@auto-import/contracts';
@@ -29,11 +32,12 @@ import type { UploadedBufferFile } from '../documents/documents.service';
 type OfferRow = { id: string; currentRevisionId: string | null };
 
 const OFFER_TRANSITIONS: Record<string, readonly string[]> = {
-  RECEIVED: ['UNDER_VERIFICATION', 'REJECTED', 'EXPIRED'],
-  UNDER_VERIFICATION: ['VALIDATED', 'REJECTED', 'EXPIRED'],
-  VALIDATED: ['RESERVED', 'REJECTED', 'EXPIRED'],
-  RESERVED: ['VALIDATED', 'REJECTED', 'EXPIRED'],
-  REJECTED: [],
+  RECEIVED: ['UNDER_VERIFICATION', 'LOST_DEAL', 'EXPIRED'],
+  UNDER_VERIFICATION: ['VALIDATED', 'LOST_DEAL', 'EXPIRED'],
+  VALIDATED: ['RESERVED', 'LOST_DEAL', 'EXPIRED'],
+  RESERVED: ['VALIDATED', 'LOST_DEAL', 'EXPIRED'],
+  PURCHASED: [],
+  LOST_DEAL: [],
   EXPIRED: ['UNDER_VERIFICATION'],
 };
 
@@ -97,12 +101,15 @@ export class OffersService {
     validUntil: Date;
     availableQuantity: number;
     reservedQuantity: number;
+    offerStatus?: string | null;
   }): string {
     const now = new Date();
     if (offer.archivedAt) return 'archived';
+    if (offer.offerStatus === 'LOST_DEAL') return 'lost';
+    if (offer.offerStatus === 'PURCHASED') return 'purchased';
     if (offer.validFrom > now) return 'upcoming';
     if (offer.validUntil < now) return 'expired';
-    if (offer.availableQuantity <= 0) return 'sold';
+    if (offer.availableQuantity <= 0) return 'purchased';
     if (offer.reservedQuantity >= offer.availableQuantity) return 'reserved';
     return 'available';
   }
@@ -187,6 +194,87 @@ export class OffersService {
     return price;
   }
 
+  private vehicleLines(dto: CreateOfferDto): CreateOfferVehicleDto[] {
+    return dto.vehicles?.length
+      ? dto.vehicles
+      : [
+          {
+            brand: dto.brand,
+            model: dto.model,
+            version: dto.version,
+            year: dto.year,
+            condition: dto.condition,
+            mileage: dto.mileage,
+            specification: dto.specification,
+            supplierPrice: dto.supplierPrice,
+            currency: dto.currency,
+            vin: dto.vin,
+            quantity: dto.availableQuantity,
+          },
+        ];
+  }
+
+  private offerCreateData(
+    dto: CreateOfferDto,
+    organizationId: string,
+    reference: string,
+    validFrom: Date,
+    validUntil: Date,
+  ): Prisma.ChinaOfferCreateInput {
+    const lines = this.vehicleLines(dto);
+    const first = lines[0];
+    const availableQuantity = lines.reduce(
+      (sum, line) => sum + (line.quantity ?? 1),
+      0,
+    );
+    return {
+      organization: { connect: { id: organizationId } },
+      supplier: { connect: { id: dto.supplierId } },
+      reference,
+      brand: first.brand,
+      model: first.model,
+      version: first.version,
+      year: first.year,
+      condition: first.condition,
+      mileage: first.mileage,
+      specification: (first.specification ?? {}) as Prisma.InputJsonValue,
+      supplierPrice: first.supplierPrice,
+      purchasePrice: first.supplierPrice,
+      cifPrice: null,
+      ddpPrice: null,
+      currency: first.currency,
+      incoterm: dto.incoterm,
+      location: dto.location,
+      leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
+      paymentConditions: dto.paymentConditions,
+      vin: first.vin,
+      validFrom,
+      validUntil,
+      availableQuantity,
+      estimatedDelayDays: dto.estimatedDelayDays,
+      offerStatus: 'RECEIVED',
+      notes: dto.notes,
+      vehicles: {
+        create: lines.map((line, index) => ({
+          organization: { connect: { id: organizationId } },
+          lineNumber: index + 1,
+          brand: line.brand,
+          model: line.model,
+          version: line.version,
+          year: line.year,
+          condition: line.condition,
+          mileage: line.mileage,
+          specification: (line.specification ?? {}) as Prisma.InputJsonValue,
+          supplierPrice: line.supplierPrice,
+          currency: line.currency,
+          vin: line.vin,
+          quantity: line.quantity ?? 1,
+          status: 'RECEIVED',
+        })),
+      },
+    };
+  }
+
   private async appendRevision(
     tx: Prisma.TransactionClient,
     offer: {
@@ -260,23 +348,16 @@ export class OffersService {
       const validFrom = new Date(dto.validFrom);
       const validUntil = new Date(dto.validUntil);
       this.validateDates(validFrom, validUntil);
-      const supplierPrice = this.supplierPrice(dto);
+      this.supplierPrice(dto);
       const offer = await tx.chinaOffer.create({
-        data: {
-          ...dto,
-          supplierPrice,
-          purchasePrice: supplierPrice,
-          cifPrice: null,
-          ddpPrice: null,
-          leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
-          offerStatus: 'RECEIVED',
-          specification: dto.specification as Prisma.InputJsonValue,
+        data: this.offerCreateData(
+          dto,
+          organizationId,
+          await this.nextReference(tx, organizationId),
           validFrom,
           validUntil,
-          organizationId,
-          reference: await this.nextReference(tx, organizationId),
-        },
-        include: { supplier: true },
+        ),
+        include: { supplier: true, vehicles: { orderBy: { lineNumber: 'asc' } } },
       });
       if (userId) await this.appendRevision(tx, offer, userId, 'Offre reçue');
       return this.present(offer);
@@ -296,22 +377,15 @@ export class OffersService {
         const validFrom = new Date(dto.validFrom);
         const validUntil = new Date(dto.validUntil);
         this.validateDates(validFrom, validUntil);
-        const supplierPrice = this.supplierPrice(dto);
+        this.supplierPrice(dto);
         const offer = await tx.chinaOffer.create({
-          data: {
-            ...dto,
-            supplierPrice,
-            purchasePrice: supplierPrice,
-            cifPrice: null,
-            ddpPrice: null,
-            leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
-            offerStatus: 'RECEIVED',
-            specification: dto.specification as Prisma.InputJsonValue,
+          data: this.offerCreateData(
+            dto,
+            organizationId,
+            await this.nextReference(tx, organizationId),
             validFrom,
             validUntil,
-            organizationId,
-            reference: await this.nextReference(tx, organizationId),
-          },
+          ),
         });
         await this.appendRevision(tx, offer, userId, 'Offre reçue');
         for (const [sortOrder, item] of stored.entries()) {
@@ -341,6 +415,7 @@ export class OffersService {
           where: { id: offer.id },
           include: {
             supplier: true,
+            vehicles: { orderBy: { lineNumber: 'asc' } },
             photos: { include: { file: true }, orderBy: { sortOrder: 'asc' } },
           },
         });
@@ -491,6 +566,7 @@ export class OffersService {
           where,
           include: {
             supplier: true,
+            vehicles: { orderBy: { lineNumber: 'asc' } },
             _count: { select: { reservations: true } },
             photos: { where: { isPrimary: true }, include: { file: true } },
           },
@@ -526,7 +602,15 @@ export class OffersService {
       archived: Prisma.sql`o."archivedAt" IS NOT NULL`,
       expired: Prisma.sql`o."archivedAt" IS NULL AND o."validUntil" < ${now}`,
       upcoming: Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" > ${now}`,
-      sold: Prisma.sql`${active} AND o."availableQuantity" <= 0`,
+      purchased: Prisma.sql`(o."offerStatus" = 'PURCHASED' OR EXISTS (SELECT 1 FROM "Purchase" p WHERE p."sourceOfferId" = o."id" AND p."status" <> 'cancelled'))`,
+      PURCHASED: Prisma.sql`(o."offerStatus" = 'PURCHASED' OR EXISTS (SELECT 1 FROM "Purchase" p WHERE p."sourceOfferId" = o."id" AND p."status" <> 'cancelled'))`,
+      lost: Prisma.sql`o."offerStatus" = 'LOST_DEAL'`,
+      LOST_DEAL: Prisma.sql`o."offerStatus" = 'LOST_DEAL'`,
+      RECEIVED: Prisma.sql`coalesce(o."offerStatus", 'RECEIVED') = 'RECEIVED'`,
+      UNDER_VERIFICATION: Prisma.sql`o."offerStatus" = 'UNDER_VERIFICATION'`,
+      VALIDATED: Prisma.sql`o."offerStatus" = 'VALIDATED'`,
+      RESERVED: Prisma.sql`o."offerStatus" = 'RESERVED'`,
+      EXPIRED: Prisma.sql`(o."offerStatus" = 'EXPIRED' OR (o."archivedAt" IS NULL AND o."validUntil" < ${now}))`,
       reserved: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" >= o."availableQuantity"`,
       available: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" < o."availableQuantity"`,
     };
@@ -549,6 +633,7 @@ export class OffersService {
           where: { id: { in: idRows.map(({ id }) => id) } },
           include: {
             supplier: true,
+            vehicles: { orderBy: { lineNumber: 'asc' } },
             _count: { select: { reservations: true } },
             photos: { where: { isPrimary: true }, include: { file: true } },
           },
@@ -569,6 +654,21 @@ export class OffersService {
       where: { id, organizationId },
       include: {
         supplier: true,
+        vehicles: {
+          include: {
+            purchases: {
+              where: { organizationId, status: { not: 'cancelled' } },
+              select: {
+                id: true,
+                purchaseNumber: true,
+                vehicleId: true,
+                purchaseDate: true,
+                status: true,
+              },
+            },
+          },
+          orderBy: { lineNumber: 'asc' },
+        },
         revisions: {
           orderBy: { revisionNumber: 'desc' },
           include: {
@@ -800,7 +900,13 @@ export class OffersService {
             OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           },
           include: {
-            offer: { include: { supplier: true, photos: true } },
+            offer: {
+              include: {
+                supplier: true,
+                photos: true,
+                vehicles: { orderBy: { lineNumber: 'asc' } },
+              },
+            },
             sourceOfferRevision: true,
             dossier: true,
           },
@@ -813,6 +919,16 @@ export class OffersService {
         if (reservation.quantity !== 1) {
           throw new ConflictException(
             'Materialize quantity reservations one vehicle at a time',
+          );
+        }
+        const sourceOfferVehicle = reservation.offer.vehicles.find(
+          (line) =>
+            !['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(line.status) &&
+            line.purchasedQuantity < line.quantity,
+        );
+        if (!sourceOfferVehicle) {
+          throw new ConflictException(
+            'No purchasable vehicle remains on this offer',
           );
         }
         if (reservation.dossier) {
@@ -939,6 +1055,7 @@ export class OffersService {
             offerReservationId: reservation.id,
             sourceOfferId: reservation.offer.id,
             sourceOfferRevisionId: reservation.sourceOfferRevisionId,
+            sourceOfferVehicleId: sourceOfferVehicle.id,
             supplierSnapshot: {
               id: reservation.offer.supplier.id,
               name: reservation.offer.supplier.name,
@@ -957,13 +1074,51 @@ export class OffersService {
           where: { id: reservation.id },
           data: { status: 'consumed' },
         });
+        const purchasedQuantity = sourceOfferVehicle.purchasedQuantity + 1;
+        await tx.chinaOfferVehicle.update({
+          where: { id: sourceOfferVehicle.id },
+          data: {
+            purchasedQuantity,
+            reservedQuantity: Math.max(
+              0,
+              sourceOfferVehicle.reservedQuantity - reservation.quantity,
+            ),
+            status:
+              purchasedQuantity >= sourceOfferVehicle.quantity
+                ? 'PURCHASED'
+                : 'VALIDATED',
+            purchasedAt: purchase.purchaseDate,
+          },
+        });
+        const remainingOfferQuantity = Math.max(
+          0,
+          reservation.offer.availableQuantity - reservation.quantity,
+        );
         await tx.chinaOffer.update({
           where: { id: reservation.offerId },
           data: {
             reservedQuantity: { decrement: reservation.quantity },
             availableQuantity: { decrement: reservation.quantity },
+            ...(remainingOfferQuantity === 0
+              ? { offerStatus: 'PURCHASED', status: 'purchased' }
+              : {}),
           },
         });
+        if (
+          remainingOfferQuantity === 0 &&
+          reservation.offer.offerStatus !== 'PURCHASED'
+        ) {
+          await tx.chinaOfferStatusHistory.create({
+            data: {
+              organizationId,
+              offerId: reservation.offerId,
+              fromStatus: reservation.offer.offerStatus,
+              toStatus: 'PURCHASED',
+              reason: `All offered vehicles purchased; last purchase ${purchase.purchaseNumber}`,
+              actorId: userId,
+            },
+          });
+        }
         return purchase;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -1013,6 +1168,11 @@ export class OffersService {
     if (!offer) throw new NotFoundException('Offer not found');
     const current = offer.offerStatus ?? 'RECEIVED';
     if (current === dto.status) return this.present(offer);
+    if (dto.status === 'PURCHASED') {
+      throw new ConflictException(
+        'Purchase a specific offer vehicle to reach PURCHASED',
+      );
+    }
     if (!OFFER_TRANSITIONS[current]?.includes(dto.status)) {
       throw new ConflictException({
         code: 'OFFER_INVALID_TRANSITION',
@@ -1023,6 +1183,19 @@ export class OffersService {
       const updated = await tx.chinaOffer.update({
         where: { id },
         data: { offerStatus: dto.status },
+      });
+      await tx.chinaOfferVehicle.updateMany({
+        where: {
+          organizationId,
+          offerId: id,
+          status: { notIn: ['PURCHASED', 'LOST_DEAL'] },
+        },
+        data: {
+          status: dto.status,
+          ...(dto.status === 'LOST_DEAL'
+            ? { lostReason: dto.reason ?? 'Deal marked as lost' }
+            : {}),
+        },
       });
       await tx.chinaOfferStatusHistory.create({
         data: {
@@ -1172,16 +1345,272 @@ export class OffersService {
     );
   }
 
+  async purchaseOfferVehicle(
+    offerId: string,
+    offerVehicleId: string,
+    dto: PurchaseOfferVehicleDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const line = await tx.chinaOfferVehicle.findFirst({
+          where: { id: offerVehicleId, offerId, organizationId },
+          include: {
+            offer: {
+              include: {
+                supplier: true,
+                photos: { orderBy: { sortOrder: 'asc' } },
+              },
+            },
+          },
+        });
+        if (!line) throw new NotFoundException('Offer vehicle not found');
+        if (line.offer.validUntil < new Date() || line.offer.offerStatus === 'EXPIRED') {
+          throw new ConflictException('Expired offers cannot be purchased');
+        }
+        if (line.offer.offerStatus === 'LOST_DEAL' || line.status === 'LOST_DEAL') {
+          throw new ConflictException('Lost deals cannot be purchased');
+        }
+        if (!['VALIDATED', 'RESERVED'].includes(line.status)) {
+          throw new ConflictException(
+            'The offer vehicle must be validated or reserved before purchase',
+          );
+        }
+        if (line.purchasedQuantity >= line.quantity) {
+          throw new ConflictException('All units on this offer line are purchased');
+        }
+        if (
+          line.offer.availableQuantity - line.offer.reservedQuantity <=
+          0
+        ) {
+          throw new ConflictException('No unreserved offer quantity remains');
+        }
+        if (dto.currentLocationId) {
+          const location = await tx.warehouseLocation.findFirst({
+            where: {
+              id: dto.currentLocationId,
+              warehouse: { organizationId },
+            },
+          });
+          if (!location)
+            throw new NotFoundException('Warehouse location not found');
+        }
+        const vin = dto.vin?.trim() || line.vin?.trim() || null;
+        if (vin) {
+          const duplicate = await tx.vehicle.findUnique({ where: { vin } });
+          if (duplicate) {
+            throw new ConflictException('A vehicle with this VIN already exists');
+          }
+        }
+        const purchasePrice = dto.purchasePrice ?? line.supplierPrice.toNumber();
+        const specification =
+          typeof line.specification === 'object' &&
+          line.specification !== null &&
+          !Array.isArray(line.specification)
+            ? line.specification
+            : {};
+        const vehicle = await tx.vehicle.create({
+          data: {
+            organizationId,
+            vin,
+            brand: line.brand,
+            model: line.model,
+            year: line.year,
+            mileage: line.mileage,
+            condition: line.condition,
+            trim: line.version,
+            purchasePrice,
+            currency: line.currency,
+            acquisitionType: 'chinaOffer',
+            supplierId: line.offer.supplierId,
+            currentLocationId: dto.currentLocationId,
+            status: 'available',
+            acquiredAt: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
+            specs: {
+              create: {
+                engine:
+                  typeof specification.engine === 'string'
+                    ? specification.engine
+                    : undefined,
+                fuelType:
+                  typeof specification.fuelType === 'string'
+                    ? specification.fuelType
+                    : undefined,
+                transmission:
+                  typeof specification.transmission === 'string'
+                    ? specification.transmission
+                    : undefined,
+                color:
+                  typeof specification.color === 'string'
+                    ? specification.color
+                    : undefined,
+                description:
+                  typeof specification.description === 'string'
+                    ? specification.description
+                    : undefined,
+              },
+            },
+          },
+          include: { specs: true },
+        });
+        for (const photo of line.offer.photos) {
+          await tx.vehiclePhoto.create({
+            data: {
+              vehicleId: vehicle.id,
+              fileId: photo.fileId,
+              sortOrder: photo.sortOrder,
+              isPrimary: photo.isPrimary,
+            },
+          });
+        }
+        const year = new Date().getUTCFullYear();
+        const sequence = await tx.commerceSequence.upsert({
+          where: {
+            organizationId_key: { organizationId, key: `purchase:${year}` },
+          },
+          create: { organizationId, key: `purchase:${year}`, value: 1 },
+          update: { value: { increment: 1 } },
+        });
+        const purchase = await tx.purchase.create({
+          data: {
+            organizationId,
+            purchaseNumber: `PUR-${year}-${String(sequence.value).padStart(5, '0')}`,
+            supplierId: line.offer.supplierId,
+            vehicleId: vehicle.id,
+            purchasePrice,
+            currency: line.currency,
+            status: 'confirmed',
+            purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
+            confirmedBy: userId,
+            sourceOfferId: offerId,
+            sourceOfferRevisionId: line.offer.currentRevisionId,
+            sourceOfferVehicleId: line.id,
+            supplierSnapshot: {
+              id: line.offer.supplier.id,
+              name: line.offer.supplier.name,
+              country: line.offer.supplier.country,
+            },
+            vehicleSnapshot: {
+              offerVehicleId: line.id,
+              vin,
+              brand: line.brand,
+              model: line.model,
+              version: line.version,
+              year: line.year,
+              specification,
+            },
+          },
+        });
+        const purchasedQuantity = line.purchasedQuantity + 1;
+        await tx.chinaOfferVehicle.update({
+          where: { id: line.id },
+          data: {
+            purchasedQuantity,
+            reservedQuantity: Math.max(0, line.reservedQuantity - 1),
+            status:
+              purchasedQuantity >= line.quantity ? 'PURCHASED' : 'VALIDATED',
+            purchasedAt: purchase.purchaseDate,
+          },
+        });
+        const remainingQuantity = Math.max(0, line.offer.availableQuantity - 1);
+        const nextOfferStatus =
+          remainingQuantity === 0 ? 'PURCHASED' : line.offer.offerStatus;
+        await tx.chinaOffer.update({
+          where: { id: offerId },
+          data: {
+            availableQuantity: remainingQuantity,
+            offerStatus: nextOfferStatus,
+            status: remainingQuantity === 0 ? 'purchased' : line.offer.status,
+          },
+        });
+        if (nextOfferStatus === 'PURCHASED' && line.offer.offerStatus !== 'PURCHASED') {
+          await tx.chinaOfferStatusHistory.create({
+            data: {
+              organizationId,
+              offerId,
+              fromStatus: line.offer.offerStatus,
+              toStatus: 'PURCHASED',
+              reason: `All offered vehicles purchased; last purchase ${purchase.purchaseNumber}`,
+              actorId: userId,
+            },
+          });
+        }
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            action: 'CHINA_OFFER_VEHICLE_PURCHASED',
+            entityType: 'ChinaOfferVehicle',
+            entityId: line.id,
+            newValues: {
+              purchaseId: purchase.id,
+              vehicleId: vehicle.id,
+              sourceOfferId: offerId,
+            },
+          },
+        });
+        return { purchase, vehicle };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  async loseOfferVehicle(
+    offerId: string,
+    offerVehicleId: string,
+    dto: LoseOfferVehicleDto,
+    userId: string,
+    organizationId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const line = await tx.chinaOfferVehicle.findFirst({
+        where: { id: offerVehicleId, offerId, organizationId },
+      });
+      if (!line) throw new NotFoundException('Offer vehicle not found');
+      if (line.purchasedQuantity >= line.quantity) {
+        throw new ConflictException('Purchased vehicles cannot become lost deals');
+      }
+      const updated = await tx.chinaOfferVehicle.update({
+        where: { id: line.id },
+        data: { status: 'LOST_DEAL', lostReason: dto.reason },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'CHINA_OFFER_VEHICLE_LOST',
+          entityType: 'ChinaOfferVehicle',
+          entityId: line.id,
+          newValues: { reason: dto.reason },
+        },
+      });
+      return updated;
+    });
+  }
+
   async statistics(organizationId: string) {
     await this.expireReservations(organizationId);
-    const offers = await this.prisma.chinaOffer.findMany({
-      where: { organizationId },
-    });
+    const [offers, purchasedVehicles, lostVehicles] = await Promise.all([
+      this.prisma.chinaOffer.findMany({ where: { organizationId } }),
+      this.prisma.purchase.count({
+        where: {
+          organizationId,
+          sourceOfferId: { not: null },
+          status: { not: 'cancelled' },
+        },
+      }),
+      this.prisma.chinaOfferVehicle.count({
+        where: { organizationId, status: 'LOST_DEAL' },
+      }),
+    ]);
     const byStatus: Record<string, number> = {};
     for (const offer of offers) {
       const status = this.derivedStatus(offer);
       byStatus[status] = (byStatus[status] ?? 0) + 1;
     }
+    byStatus.purchased = purchasedVehicles;
+    byStatus.lost = lostVehicles;
     return {
       total: offers.length,
       byStatus,

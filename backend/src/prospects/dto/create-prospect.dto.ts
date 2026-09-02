@@ -3,6 +3,7 @@ import {
   IsEmail,
   IsEnum,
   IsInt,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -62,6 +63,12 @@ export class CreateProspectDto {
 
   @IsOptional() @IsString() nextAction?: string;
   @IsOptional() @IsString() nextActionAt?: string;
+
+  @IsOptional() @IsIn(['VEHICLE', 'SHIPPING']) needType?: 'VEHICLE' | 'SHIPPING';
+  @IsOptional() @IsString() shippingDescription?: string;
+  @IsOptional() @IsString() shippingCargoType?: string;
+  @IsOptional() @IsString() shippingDestination?: string;
+  @IsOptional() @IsString() shippingRequirements?: string;
 
   @IsOptional()
   @ValidateNested()

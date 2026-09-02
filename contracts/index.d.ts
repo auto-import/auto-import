@@ -149,8 +149,6 @@ export const CrmLeadStatus: {
   readonly CONTACTED: "CONTACTED";
   readonly QUALIFIED: "QUALIFIED";
   readonly APPOINTMENT: "APPOINTMENT";
-  readonly CONTRACT: "CONTRACT";
-  readonly DEPOSIT: "DEPOSIT";
   readonly CONVERTED: "CONVERTED";
 };
 export type CrmLeadStatus = ValueOf<typeof CrmLeadStatus>;
@@ -194,10 +192,13 @@ export const AgentPresenceStatus: {
 export type AgentPresenceStatus = ValueOf<typeof AgentPresenceStatus>;
 
 export const OfferStatus: {
-  readonly AVAILABLE: "available";
-  readonly RESERVED: "reserved";
-  readonly SOLD: "sold";
-  readonly EXPIRED: "expired";
+  readonly RECEIVED: "RECEIVED";
+  readonly UNDER_VERIFICATION: "UNDER_VERIFICATION";
+  readonly VALIDATED: "VALIDATED";
+  readonly RESERVED: "RESERVED";
+  readonly PURCHASED: "PURCHASED";
+  readonly EXPIRED: "EXPIRED";
+  readonly LOST_DEAL: "LOST_DEAL";
 };
 export type OfferStatus = ValueOf<typeof OfferStatus>;
 

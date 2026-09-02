@@ -7,6 +7,9 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsArray,
+  ArrayMinSize,
+  ValidateNested,
   Max,
   Min,
 } from 'class-validator';
@@ -14,6 +17,21 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 
 const currencies = ['DZD', 'USD', 'CNY', 'EUR'] as const;
 const conditions = ['new', 'used'] as const;
+export const incoterms = ['FCA', 'FOB', 'CIF', 'CFR', 'DDP'] as const;
+
+export class CreateOfferVehicleDto {
+  @IsString() brand: string;
+  @IsString() model: string;
+  @IsOptional() @IsString() version?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1900) @Max(2100) year?: number;
+  @IsIn(conditions) condition: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) mileage?: number;
+  @IsOptional() @IsObject() specification?: Record<string, unknown>;
+  @Type(() => Number) @Min(0.01) supplierPrice: number;
+  @IsIn(currencies) currency: string;
+  @IsOptional() @IsString() vin?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) quantity = 1;
+}
 
 export class CreateOfferDto {
   @IsUUID() supplierId: string;
@@ -40,8 +58,7 @@ export class CreateOfferDto {
   specification: Record<string, unknown>;
   @Type(() => Number) @Min(0.01) supplierPrice: number;
   @IsIn(currencies) currency: string;
-  @IsOptional() @IsString() supplierReference?: string;
-  @IsOptional() @IsString() incoterm?: string;
+  @IsOptional() @IsIn(incoterms) incoterm?: string;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsString() paymentConditions?: string;
   @IsOptional() @IsString() vin?: string;
@@ -55,6 +72,21 @@ export class CreateOfferDto {
   estimatedDelayDays?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) leadTimeDays?: number;
   @IsOptional() @IsString() notes?: string;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }): unknown => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateOfferVehicleDto)
+  vehicles?: CreateOfferVehicleDto[];
 }
 
 export class UpdateOfferDto {
@@ -74,7 +106,7 @@ export class UpdateOfferDto {
   @IsOptional() @Type(() => Number) @Min(0) supplierPrice?: number;
   @IsOptional() @IsIn(currencies) currency?: string;
   @IsOptional() @IsString() supplierReference?: string;
-  @IsOptional() @IsString() incoterm?: string;
+  @IsOptional() @IsIn(incoterms) incoterm?: string;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsString() paymentConditions?: string;
   @IsOptional() @IsString() vin?: string;
@@ -118,12 +150,24 @@ export class TransitionOfferDto {
     'RECEIVED',
     'UNDER_VERIFICATION',
     'VALIDATED',
-    'REJECTED',
     'RESERVED',
+    'PURCHASED',
     'EXPIRED',
+    'LOST_DEAL',
   ])
   status: string;
   @IsOptional() @IsString() reason?: string;
+}
+
+export class PurchaseOfferVehicleDto {
+  @IsOptional() @IsString() vin?: string;
+  @IsOptional() @IsUUID() currentLocationId?: string;
+  @IsOptional() @Type(() => Number) @Min(0.01) purchasePrice?: number;
+  @IsOptional() @IsDateString() purchaseDate?: string;
+}
+
+export class LoseOfferVehicleDto {
+  @IsString() reason: string;
 }
 
 export class AssignOfferDto {

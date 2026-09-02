@@ -28,6 +28,7 @@ import { CustomsModule } from './customs/customs.module';
 import { DocumentsModule } from './documents/documents.module';
 import { Phase3Module } from './phase3/phase3.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { CatalogueModule } from './catalogue/catalogue.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
     DocumentsModule,
     Phase3Module,
     IntegrationsModule,
+    CatalogueModule,
   ],
   controllers: [AppController],
   providers: [

@@ -47,6 +47,11 @@ export interface ApiProspect {
   assignedTo?: string | null;
   assignee?: AgentSummary | null;
   notes?: string | null;
+  needType: "VEHICLE" | "SHIPPING";
+  shippingDescription?: string | null;
+  shippingCargoType?: string | null;
+  shippingDestination?: string | null;
+  shippingRequirements?: string | null;
   lastInteractionAt?: string | null;
   nextActionAt?: string | null;
   nextAction?: string | null;
@@ -93,6 +98,11 @@ export interface CreateLeadInput {
   qualification?: ApiLeadQualification;
   assignedTo?: string;
   notes?: string;
+  needType: "VEHICLE" | "SHIPPING";
+  shippingDescription?: string;
+  shippingCargoType?: string;
+  shippingDestination?: string;
+  shippingRequirements?: string;
   nextAction?: string;
   nextActionAt?: string;
   requirement?: Omit<LeadVehicleRequirement, "id">;
@@ -110,11 +120,23 @@ export interface ApiClient {
   passportNumberMasked?: string | null;
   identityIssueDate?: string | null;
   passportExpiry?: string | null;
+  identityDocumentType?: "PASSPORT" | "NATIONAL_ID" | null;
+  identityIssueCountry?: string | null;
   countryId?: string | null;
   nationalityCountryId?: string | null;
   country?: ApiCrmReference | null;
   nationalityCountry?: ApiCrmReference | null;
   identityConfigured?: { nin: boolean; passport: boolean };
+  identityCompletionStatus?: "COMPLETE" | "MISSING";
+  conversion?: {
+    convertedAt: string;
+    prospect: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      marketingSource?: { code: string; labelFr: string } | null;
+    };
+  } | null;
   address?: string | null;
   status: string;
   assignedTo?: string | null;
@@ -340,6 +362,27 @@ export const crmApi = {
       body: JSON.stringify(input),
     });
   },
+  updateClient(id: string, input: Record<string, string | undefined>) {
+    return apiRequest<ApiClient>(`/clients/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  },
+  updateClientIdentity(
+    id: string,
+    input: Record<string, string | undefined>,
+    identityDocument?: File | null,
+  ) {
+    if (!identityDocument) return this.updateClient(id, input);
+    const body = new FormData();
+    for (const [key, value] of Object.entries(input))
+      if (value) body.append(key, value);
+    body.append("identityDocument", identityDocument);
+    return apiUpload<{ client: ApiClient; document: Record<string, unknown> }>(
+      `/clients/${id}/identity-document`,
+      body,
+    );
+  },
   archiveClient(id: string, reason: string) {
     return apiRequest(`/clients/${id}/archive`, {
       method: "POST",
@@ -355,6 +398,19 @@ export const crmApi = {
       if (value) body.append(key, value);
     body.append("passportScan", passportScan);
     return apiUpload<{ client: ApiClient }>("/clients/with-passport", body);
+  },
+  createClientWithIdentityDocument(
+    input: Record<string, string | undefined>,
+    identityDocument: File,
+  ) {
+    const body = new FormData();
+    for (const [key, value] of Object.entries(input))
+      if (value) body.append(key, value);
+    body.append("identityDocument", identityDocument);
+    return apiUpload<{ client: ApiClient }>(
+      "/clients/with-identity-document",
+      body,
+    );
   },
   timeline(ownerType: "prospect" | "client", id: string, cursor?: string) {
     return apiRequest<{ items: TimelineItem[]; nextCursor: string | null }>(

@@ -37,7 +37,6 @@ const empty = {
   condition: "new",
   mileage: "",
   supplierPrice: "",
-  supplierReference: "",
   incoterm: "FOB",
   location: "",
   leadTimeDays: "",
@@ -47,6 +46,19 @@ const empty = {
   validFrom: new Date().toISOString().slice(0, 10),
   validUntil: "",
   availableQuantity: "1",
+};
+
+const emptyVehicleLine = {
+  brand: "",
+  model: "",
+  version: "",
+  year: "",
+  condition: "new",
+  mileage: "",
+  supplierPrice: "",
+  currency: "USD",
+  vin: "",
+  quantity: "1",
 };
 
 function validateOfferForm(form: typeof empty): string | null {
@@ -122,6 +134,9 @@ export default function OffersChinaPolished() {
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(empty);
+  const [additionalVehicles, setAdditionalVehicles] = useState<
+    Array<typeof emptyVehicleLine>
+  >([]);
   const [saving, setSaving] = useState(false);
   const [photos, setPhotos] = useState<Array<File | null>>([null, null, null]);
   const syncUrl = useCallback(() => {
@@ -178,6 +193,20 @@ export default function OffersChinaPolished() {
     try {
       const validationMessage = validateOfferForm(form);
       if (validationMessage) throw new Error(validationMessage);
+      for (const [index, vehicle] of additionalVehicles.entries()) {
+        if (!vehicle.brand.trim() || !vehicle.model.trim()) {
+          throw new Error(`Véhicule ${index + 2} : marque et modèle obligatoires.`);
+        }
+        if (
+          !Number.isFinite(Number(vehicle.supplierPrice)) ||
+          Number(vehicle.supplierPrice) <= 0
+        ) {
+          throw new Error(`Véhicule ${index + 2} : prix fournisseur invalide.`);
+        }
+        if (!Number.isInteger(Number(vehicle.quantity)) || Number(vehicle.quantity) < 1) {
+          throw new Error(`Véhicule ${index + 2} : quantité invalide.`);
+        }
+      }
       const selectedPhotos = photos.filter((photo): photo is File =>
         Boolean(photo),
       );
@@ -220,6 +249,34 @@ export default function OffersChinaPolished() {
           ? Number(form.leadTimeDays)
           : undefined,
         availableQuantity: Number(form.availableQuantity),
+        vehicles: [
+          {
+            brand: form.brand.trim(),
+            model: form.model.trim(),
+            version: form.version.trim() || undefined,
+            year: form.year ? Number(form.year) : undefined,
+            condition: form.condition,
+            mileage: form.mileage ? Number(form.mileage) : undefined,
+            supplierPrice: Number(form.supplierPrice),
+            currency: form.currency,
+            vin: form.vin.trim() || undefined,
+            quantity: Number(form.availableQuantity),
+            specification: {},
+          },
+          ...additionalVehicles.map((vehicle) => ({
+            brand: vehicle.brand.trim(),
+            model: vehicle.model.trim(),
+            version: vehicle.version.trim() || undefined,
+            year: vehicle.year ? Number(vehicle.year) : undefined,
+            condition: vehicle.condition,
+            mileage: vehicle.mileage ? Number(vehicle.mileage) : undefined,
+            supplierPrice: Number(vehicle.supplierPrice),
+            currency: vehicle.currency,
+            vin: vehicle.vin.trim() || undefined,
+            quantity: Number(vehicle.quantity),
+            specification: {},
+          })),
+        ],
         specification: {},
         validFrom: new Date(form.validFrom).toISOString(),
         validUntil: new Date(form.validUntil).toISOString(),
@@ -229,6 +286,7 @@ export default function OffersChinaPolished() {
       else await commerceApi.offers.create(payload);
       setShowForm(false);
       setForm(empty);
+      setAdditionalVehicles([]);
       setPhotos([null, null, null]);
       await load();
     } catch (cause) {
@@ -242,7 +300,8 @@ export default function OffersChinaPolished() {
         ["Total offres", stats.total, "text-neutral-900"],
         ["Disponibles", stats.byStatus.available ?? 0, "text-emerald-600"],
         ["Réservées", stats.byStatus.reserved ?? 0, "text-amber-600"],
-        ["Vendues", stats.byStatus.sold ?? 0, "text-blue-600"],
+        ["Achetées", stats.byStatus.purchased ?? 0, "text-blue-600"],
+        ["Deals perdus", stats.byStatus.lost ?? 0, "text-rose-600"],
         ["Expirées", stats.byStatus.expired ?? 0, "text-red-600"],
       ]
     : [];
@@ -253,7 +312,7 @@ export default function OffersChinaPolished() {
         subtitle="Catalogue véhicules fournisseurs chinois"
       />
       <main className="space-y-6 p-4 sm:p-8">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
           {cards.map(([label, value, color]) => (
             <section key={String(label)} className="card min-h-32">
               <p className="text-sm uppercase tracking-wide text-muted">
@@ -293,11 +352,13 @@ export default function OffersChinaPolished() {
               }
             >
               <option value="">Tous les statuts</option>
-              <option value="draft">Brouillon</option>
-              <option value="available">Disponible</option>
-              <option value="reserved">Réservé</option>
-              <option value="sold">Vendu</option>
-              <option value="expired">Expiré</option>
+              <option value="RECEIVED">Reçue</option>
+              <option value="UNDER_VERIFICATION">En vérification</option>
+              <option value="VALIDATED">Validée</option>
+              <option value="RESERVED">Réservée</option>
+              <option value="PURCHASED">Achetée</option>
+              <option value="LOST_DEAL">Deal perdu</option>
+              <option value="EXPIRED">Expirée</option>
             </select>
           <select
             aria-label="Condition"
@@ -502,16 +563,31 @@ export default function OffersChinaPolished() {
                   ))}
                 </select>
               </label>
+              <label>
+                <span className="field-label">Incoterm</span>
+                <select
+                  className={inputClass}
+                  value={form.incoterm}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      incoterm: event.target.value,
+                    }))
+                  }
+                >
+                  {['FCA', 'FOB', 'CIF', 'CFR', 'DDP'].map((incoterm) => (
+                    <option key={incoterm} value={incoterm}>{incoterm}</option>
+                  ))}
+                </select>
+              </label>
               {Object.entries({
                 supplierId: "Fournisseur *",
-                supplierReference: "Référence fournisseur",
                 brand: "Marque *",
                 model: "Modèle *",
                 version: "Version",
                 year: "Année",
                 mileage: "Kilométrage",
                 supplierPrice: "Prix fournisseur *",
-                incoterm: "Incoterm",
                 location: "Localisation",
                 leadTimeDays: "Délai (jours)",
                 paymentConditions: "Conditions de paiement",
@@ -561,8 +637,6 @@ export default function OffersChinaPolished() {
                                 "brand",
                                 "model",
                                 "version",
-                                "supplierReference",
-                                "incoterm",
                                 "location",
                                 "paymentConditions",
                                 "vin",
@@ -596,6 +670,105 @@ export default function OffersChinaPolished() {
                 ),
               )}
             </div>
+            <fieldset className="mt-5 rounded-card border border-border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <legend className="font-semibold">Véhicules supplémentaires</legend>
+                  <p className="text-xs text-muted">
+                    Une offre fournisseur peut contenir plusieurs modèles ou unités.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-button border border-border px-3 py-2 text-sm"
+                  onClick={() =>
+                    setAdditionalVehicles((current) => [
+                      ...current,
+                      { ...emptyVehicleLine, currency: form.currency },
+                    ])
+                  }
+                >
+                  <Plus className="mr-1 inline h-4 w-4" />
+                  Ajouter un véhicule
+                </button>
+              </div>
+              <div className="mt-4 space-y-4">
+                {additionalVehicles.map((vehicle, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-3 rounded-card bg-surface p-3 sm:grid-cols-3"
+                  >
+                    <div className="flex items-center justify-between sm:col-span-3">
+                      <strong>Véhicule {index + 2}</strong>
+                      <button
+                        type="button"
+                        aria-label={`Retirer le véhicule ${index + 2}`}
+                        onClick={() =>
+                          setAdditionalVehicles((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {(
+                      [
+                        ["brand", "Marque *"],
+                        ["model", "Modèle *"],
+                        ["version", "Version"],
+                        ["year", "Année"],
+                        ["mileage", "Kilométrage"],
+                        ["supplierPrice", "Prix fournisseur *"],
+                        ["vin", "VIN optionnel"],
+                        ["quantity", "Quantité *"],
+                      ] as Array<[keyof typeof emptyVehicleLine, string]>
+                    ).map(([key, label]) => (
+                      <label key={key}>
+                        <span className="field-label">{label}</span>
+                        <input
+                          className={inputClass}
+                          required={["brand", "model", "supplierPrice", "quantity"].includes(key)}
+                          type={["year", "mileage", "supplierPrice", "quantity"].includes(key) ? "number" : "text"}
+                          min={key === "year" ? 1900 : key === "supplierPrice" ? 0.01 : key === "quantity" ? 1 : key === "mileage" ? 0 : undefined}
+                          max={key === "year" ? 2100 : undefined}
+                          step={key === "supplierPrice" ? "0.01" : "1"}
+                          value={vehicle[key]}
+                          onChange={(event) =>
+                            setAdditionalVehicles((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, [key]: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                    ))}
+                    <label>
+                      <span className="field-label">État *</span>
+                      <select
+                        className={inputClass}
+                        value={vehicle.condition}
+                        onChange={(event) =>
+                          setAdditionalVehicles((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, condition: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="new">Neuf</option>
+                        <option value="used">Occasion</option>
+                      </select>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
             <fieldset className="mt-5">
               <legend className="field-label">
                 Jusqu’à trois photos ordonnées (optionnel)

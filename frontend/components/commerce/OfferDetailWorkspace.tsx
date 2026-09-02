@@ -31,6 +31,7 @@ export default function OfferDetailWorkspace({
   const { hasPermission } = useAuth();
   const canTransition = hasPermission(Permission.OFFERS_TRANSITION);
   const canWrite = hasPermission(Permission.OFFERS_WRITE);
+  const canPurchase = hasPermission(Permission.PURCHASES_WRITE);
   const [offer, setOffer] = useState<ApiOffer | null>(null);
   const [quotations, setQuotations] = useState<ApiCustomerQuotation[]>([]);
   const [error, setError] = useState("");
@@ -73,11 +74,48 @@ export default function OfferDetailWorkspace({
     setChanging(true);
     setError("");
     try {
-      await commerceApi.offers.transition(id, status);
+      const reason =
+        status === "LOST_DEAL"
+          ? window.prompt("Motif du deal perdu")?.trim()
+          : undefined;
+      if (status === "LOST_DEAL" && !reason) return;
+      await commerceApi.offers.transition(id, status, reason);
       await load();
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Transition impossible",
+      );
+    } finally {
+      setChanging(false);
+    }
+  };
+  const purchaseVehicle = async (vehicleId: string) => {
+    if (!window.confirm("Confirmer l’achat de ce véhicule et son entrée au Catalogue ?"))
+      return;
+    const vin = window.prompt("VIN (facultatif si non disponible)")?.trim();
+    setChanging(true);
+    setError("");
+    try {
+      await commerceApi.offers.purchaseVehicle(id, vehicleId, {
+        vin: vin || undefined,
+      });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Achat impossible");
+    } finally {
+      setChanging(false);
+    }
+  };
+  const loseVehicle = async (vehicleId: string) => {
+    const reason = window.prompt("Motif du deal perdu pour ce véhicule")?.trim();
+    if (!reason) return;
+    setChanging(true);
+    try {
+      await commerceApi.offers.loseVehicle(id, vehicleId, reason);
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Mise à jour impossible",
       );
     } finally {
       setChanging(false);
@@ -166,8 +204,9 @@ export default function OfferDetailWorkspace({
                     {[
                       "UNDER_VERIFICATION",
                       "VALIDATED",
-                      "REJECTED",
                       "RESERVED",
+                      "LOST_DEAL",
+                      "EXPIRED",
                     ].map((status) => (
                       <button
                         key={status}
@@ -212,6 +251,59 @@ export default function OfferDetailWorkspace({
                 />
                 <Info label="Statut" value={offer.status} />
               </div>
+            </section>
+            <section className="card p-5">
+              <h2 className="mb-3 font-semibold">Véhicules de l’offre</h2>
+              {!offer.vehicles?.length ? (
+                <p className="text-sm text-muted">Aucune ligne véhicule.</p>
+              ) : (
+                <div className="space-y-3">
+                  {offer.vehicles.map((vehicle) => (
+                    <article
+                      key={vehicle.id}
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-border p-4"
+                    >
+                      <div>
+                        <p className="font-semibold">
+                          #{vehicle.lineNumber} · {vehicle.brand} {vehicle.model}{" "}
+                          {vehicle.version}
+                        </p>
+                        <p className="text-sm text-muted">
+                          {vehicle.year ?? "—"} · {vehicle.vin || "VIN non renseigné"} ·{" "}
+                          {formatMoney(vehicle.supplierPrice, vehicle.currency)}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {vehicle.purchasedQuantity}/{vehicle.quantity} acheté(s) ·{" "}
+                          {vehicle.status}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        {canPurchase &&
+                          ["VALIDATED", "RESERVED"].includes(vehicle.status) &&
+                          vehicle.purchasedQuantity < vehicle.quantity && (
+                            <button
+                              disabled={changing}
+                              onClick={() => void purchaseVehicle(vehicle.id)}
+                              className={buttonClass}
+                            >
+                              Acheter / Confirmer l’achat
+                            </button>
+                          )}
+                        {canTransition &&
+                          !["PURCHASED", "LOST_DEAL"].includes(vehicle.status) && (
+                            <button
+                              disabled={changing}
+                              onClick={() => void loseVehicle(vehicle.id)}
+                              className="rounded-button border border-status-red-text px-3 py-2 text-sm text-status-red-text"
+                            >
+                              Marquer Deal perdu
+                            </button>
+                          )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
             <section className="grid gap-5 md:grid-cols-2">
               <div className="card p-5">

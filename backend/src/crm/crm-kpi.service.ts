@@ -144,7 +144,7 @@ export class CrmKpiService {
     const qualifiedLeads = prospects.filter(
       (prospect) =>
         ['HOT', 'WARM'].includes(prospect.qualification) ||
-        ['QUALIFIED', 'APPOINTMENT', 'CONTRACT', 'DEPOSIT', 'CONVERTED'].includes(
+        ['QUALIFIED', 'APPOINTMENT', 'CONVERTED'].includes(
           prospect.crmStatus ?? '',
         ),
     ).length;

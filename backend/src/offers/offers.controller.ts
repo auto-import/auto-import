@@ -28,6 +28,8 @@ import {
   ReserveOfferDto,
   UpdateOfferDto,
   TransitionOfferDto,
+  PurchaseOfferVehicleDto,
+  LoseOfferVehicleDto,
 } from './dto/offer.dto';
 import { OffersService } from './offers.service';
 
@@ -155,6 +157,40 @@ export class OffersController {
   ) {
     return this.offers.createPurchaseFromOffer(
       id,
+      dto,
+      user.id,
+      user.organizationId,
+    );
+  }
+
+  @Post(':id/vehicles/:vehicleId/purchase')
+  @RequirePermission(Permission.PURCHASES_WRITE)
+  purchaseOfferVehicle(
+    @Param('id') id: string,
+    @Param('vehicleId') vehicleId: string,
+    @Body() dto: PurchaseOfferVehicleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.purchaseOfferVehicle(
+      id,
+      vehicleId,
+      dto,
+      user.id,
+      user.organizationId,
+    );
+  }
+
+  @Post(':id/vehicles/:vehicleId/lost')
+  @RequirePermission(Permission.OFFERS_TRANSITION)
+  loseOfferVehicle(
+    @Param('id') id: string,
+    @Param('vehicleId') vehicleId: string,
+    @Body() dto: LoseOfferVehicleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.offers.loseOfferVehicle(
+      id,
+      vehicleId,
       dto,
       user.id,
       user.organizationId,
