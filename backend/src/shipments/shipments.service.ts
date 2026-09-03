@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import { Prisma, type CustomsFile } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import {
+  AddShipmentVehicleDto,
   CreateShipmentDto,
   FilterShipmentsDto,
   TransitionShipmentDto,
@@ -69,6 +71,9 @@ export class ShipmentsService {
           eta: dto.eta ? new Date(dto.eta) : undefined,
           status: 'pending',
           notes: dto.notes,
+          containerPresetId: dto.containerPresetId,
+          totalFreightCost: dto.totalFreightCost,
+          freightCurrency: dto.freightCurrency,
           statusHistory: {
             create: {
               toStatus: 'pending',
@@ -153,6 +158,18 @@ export class ShipmentsService {
           ? new Date(dto.actualArrivalDate)
           : shipment.actualArrivalDate,
         notes: dto.notes !== undefined ? dto.notes : shipment.notes,
+        containerPresetId:
+          dto.containerPresetId !== undefined
+            ? dto.containerPresetId
+            : shipment.containerPresetId,
+        totalFreightCost:
+          dto.totalFreightCost !== undefined
+            ? dto.totalFreightCost
+            : shipment.totalFreightCost,
+        freightCurrency:
+          dto.freightCurrency !== undefined
+            ? dto.freightCurrency
+            : shipment.freightCurrency,
       },
       include: {
         carrierPartner: true,
@@ -249,6 +266,91 @@ export class ShipmentsService {
     );
   }
 
+  async addVehicle(
+    shipmentId: string,
+    organizationId: string,
+    userId: string,
+    dto: AddShipmentVehicleDto,
+  ) {
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { id: shipmentId, organizationId },
+      include: {
+        containerPreset: true,
+        vehicles: { include: { vehicle: true } },
+      },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: dto.vehicleId, organizationId, archivedAt: null },
+    });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (shipment.vehicles.some((item) => item.vehicleId === vehicle.id)) {
+      throw new ConflictException('Vehicle is already assigned to this shipment');
+    }
+    const capacity = this.capacitySummary(shipment);
+    const nextVolume = this.vehicleVolume(vehicle);
+    const warnings: string[] = [];
+    if (shipment.containerPreset) {
+      const preset = shipment.containerPreset;
+      if (
+        vehicle.lengthCm &&
+        vehicle.widthCm &&
+        vehicle.heightCm &&
+        !this.physicallyFits(vehicle, preset)
+      ) {
+        warnings.push('PHYSICAL_DIMENSIONS_EXCEED_CONTAINER');
+      }
+      if (
+        nextVolume !== null &&
+        capacity.remainingVolumeM3 !== null &&
+        nextVolume > capacity.remainingVolumeM3
+      ) warnings.push('VOLUME_CAPACITY_EXCEEDED');
+      if (
+        vehicle.weightKg &&
+        capacity.remainingWeightKg !== null &&
+        Number(vehicle.weightKg) > capacity.remainingWeightKg
+      ) warnings.push('WEIGHT_CAPACITY_EXCEEDED');
+    }
+    if (
+      (!vehicle.lengthCm || !vehicle.widthCm || !vehicle.heightCm || !vehicle.weightKg)
+    ) warnings.push('VEHICLE_CAPACITY_DATA_INCOMPLETE');
+    const exceeds = warnings.some((warning) => warning.includes('EXCEED'));
+    if (exceeds && !dto.capacityOverride) {
+      throw new ConflictException({
+        code: 'SHIPMENT_CAPACITY_OVERRIDE_REQUIRED',
+        warnings,
+        capacity,
+        message: 'Capacity would be exceeded; explicit override is required.',
+      });
+    }
+    if (exceeds && !dto.overrideReason?.trim()) {
+      throw new BadRequestException('An override reason is required');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.shipmentVehicle.create({
+        data: {
+          shipmentId,
+          vehicleId: vehicle.id,
+          addedBy: userId,
+          capacityOverride: exceeds,
+          overrideReason: exceeds ? dto.overrideReason : undefined,
+        },
+      });
+      if (exceeds) {
+        await tx.shipmentStatusHistory.create({
+          data: {
+            shipmentId,
+            fromStatus: shipment.status,
+            toStatus: shipment.status,
+            changedBy: userId,
+            comment: `Capacity override for vehicle ${vehicle.vin ?? vehicle.id}: ${dto.overrideReason} (${warnings.join(', ')})`,
+          },
+        });
+      }
+    });
+    return this.findOne(shipmentId, organizationId);
+  }
+
   private async createCustomsFilesInTransaction(
     tx: Prisma.TransactionClient,
     shipmentId: string,
@@ -283,6 +385,7 @@ export class ShipmentsService {
     }
     const created: CustomsFile[] = [];
     const ambiguous: Array<{ vehicleId: string; dossierIds: string[] }> = [];
+    const dossierVehicles = new Map<string, { dossier: (typeof shipment.vehicles)[number]['vehicle']['dossierVehicles'][number]['dossier']; vehicleIds: string[] }>();
     for (const shipmentVehicle of shipment.vehicles) {
       const candidates = shipmentVehicle.vehicle.dossierVehicles
         .map((link) => link.dossier)
@@ -295,11 +398,14 @@ export class ShipmentsService {
         continue;
       }
       const dossier = candidates[0];
+      const group = dossierVehicles.get(dossier.id) ?? { dossier, vehicleIds: [] };
+      group.vehicleIds.push(shipmentVehicle.vehicleId);
+      dossierVehicles.set(dossier.id, group);
+    }
+    for (const { dossier, vehicleIds } of dossierVehicles.values()) {
       const existing = await tx.customsFile.findFirst({
         where: {
           organizationId,
-          shipmentId,
-          vehicleId: shipmentVehicle.vehicleId,
           dossierId: dossier.id,
         },
       });
@@ -323,7 +429,7 @@ export class ShipmentsService {
             organizationId,
             reference: `CUST-${year}-${String(sequence.value).padStart(5, '0')}`,
             shipmentId,
-            vehicleId: shipmentVehicle.vehicleId,
+            vehicleId: vehicleIds[0],
             dossierId: dossier.id,
             responsibleUserId,
             status: 'open',
@@ -345,6 +451,13 @@ export class ShipmentsService {
               },
             },
           },
+        });
+        await tx.customsFileVehicle.createMany({
+          data: vehicleIds.map((vehicleId) => ({
+            customsFileId: file.id,
+            vehicleId,
+          })),
+          skipDuplicates: true,
         });
         await tx.task.upsert({
           where: {
@@ -393,7 +506,6 @@ export class ShipmentsService {
           const canonical = await tx.customsFile.findFirst({
             where: {
               organizationId,
-              vehicleId: shipmentVehicle.vehicleId,
               dossierId: dossier.id,
               v2Status: { not: null },
             },
@@ -460,10 +572,20 @@ export class ShipmentsService {
         orderBy: { createdAt: 'desc' },
         include: {
           carrierPartner: { select: { id: true, name: true } },
+          containerPreset: true,
           vehicles: {
             include: {
               vehicle: {
-                select: { id: true, brand: true, model: true, vin: true },
+                select: {
+                  id: true,
+                  brand: true,
+                  model: true,
+                  vin: true,
+                  lengthCm: true,
+                  widthCm: true,
+                  heightCm: true,
+                  weightKg: true,
+                },
               },
             },
           },
@@ -474,7 +596,12 @@ export class ShipmentsService {
       this.prisma.shipment.count({ where }),
     ]);
 
-    return paginate(items, total, page, limit);
+    return paginate(
+      items.map((item) => ({ ...item, capacity: this.capacitySummary(item) })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async findOne(id: string, organizationId: string) {
@@ -482,13 +609,22 @@ export class ShipmentsService {
       where: { id, organizationId },
       include: {
         carrierPartner: true,
+        containerPreset: true,
         vehicles: {
           include: {
-            vehicle: true,
+            vehicle: {
+              include: {
+                supplier: true,
+                dossierVehicles: {
+                  include: { dossier: { include: { client: true } } },
+                },
+              },
+            },
             order: true,
           },
         },
         customsFiles: true,
+        documents: { include: { file: true, dossier: true } },
         costs: {
           include: {
             actorUser: {
@@ -507,6 +643,67 @@ export class ShipmentsService {
     });
 
     if (!shipment) throw new NotFoundException('Shipment not found');
-    return shipment;
+    return { ...shipment, capacity: this.capacitySummary(shipment) };
+  }
+
+  private vehicleVolume(vehicle: {
+    lengthCm: Prisma.Decimal | null;
+    widthCm: Prisma.Decimal | null;
+    heightCm: Prisma.Decimal | null;
+  }): number | null {
+    if (!vehicle.lengthCm || !vehicle.widthCm || !vehicle.heightCm) return null;
+    return (
+      (Number(vehicle.lengthCm) * Number(vehicle.widthCm) * Number(vehicle.heightCm)) /
+      1_000_000
+    );
+  }
+
+  private physicallyFits(
+    vehicle: { lengthCm: Prisma.Decimal | null; widthCm: Prisma.Decimal | null; heightCm: Prisma.Decimal | null },
+    preset: { internalLengthCm: Prisma.Decimal; internalWidthCm: Prisma.Decimal; internalHeightCm: Prisma.Decimal },
+  ) {
+    const length = Number(vehicle.lengthCm);
+    const width = Number(vehicle.widthCm);
+    const height = Number(vehicle.heightCm);
+    return (
+      height <= Number(preset.internalHeightCm) &&
+      ((length <= Number(preset.internalLengthCm) && width <= Number(preset.internalWidthCm)) ||
+        (width <= Number(preset.internalLengthCm) && length <= Number(preset.internalWidthCm)))
+    );
+  }
+
+  private capacitySummary(shipment: {
+    containerPreset?: { maxVolumeM3: Prisma.Decimal; maxPayloadKg: Prisma.Decimal } | null;
+    capacityVolumeM3?: Prisma.Decimal | null;
+    capacityWeightKg?: Prisma.Decimal | null;
+    vehicles: Array<{ vehicle: { lengthCm: Prisma.Decimal | null; widthCm: Prisma.Decimal | null; heightCm: Prisma.Decimal | null; weightKg: Prisma.Decimal | null } }>;
+  }) {
+    const totalVolume = shipment.capacityVolumeM3
+      ? Number(shipment.capacityVolumeM3)
+      : shipment.containerPreset
+        ? Number(shipment.containerPreset.maxVolumeM3)
+        : null;
+    const totalWeight = shipment.capacityWeightKg
+      ? Number(shipment.capacityWeightKg)
+      : shipment.containerPreset
+        ? Number(shipment.containerPreset.maxPayloadKg)
+        : null;
+    const usedVolumeM3 = shipment.vehicles.reduce(
+      (sum, item) => sum + (this.vehicleVolume(item.vehicle) ?? 0),
+      0,
+    );
+    const usedWeightKg = shipment.vehicles.reduce(
+      (sum, item) => sum + Number(item.vehicle.weightKg ?? 0),
+      0,
+    );
+    return {
+      usedVolumeM3,
+      remainingVolumeM3: totalVolume === null ? null : totalVolume - usedVolumeM3,
+      totalVolumeM3: totalVolume,
+      usedWeightKg,
+      remainingWeightKg: totalWeight === null ? null : totalWeight - usedWeightKg,
+      totalWeightKg: totalWeight,
+      vehicleCount: shipment.vehicles.length,
+    };
   }
 }

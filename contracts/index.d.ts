@@ -12,9 +12,11 @@ export const DossierStatus: {
   readonly CLIENT_CONFIRMED: "clientConfirmed";
   readonly CONTRACT_SIGNED: "contractSigned";
   readonly DEPOSIT_RECEIVED: "depositReceived";
+  readonly VEHICLE_BOOKING: "vehicleBooking";
   readonly PURCHASE_CONFIRMED: "purchaseConfirmed";
   readonly SUPPLIER_PAID: "supplierPaid";
   readonly INSPECTION: "inspection";
+  readonly SHIPMENT_BOOKING: "shipmentBooking";
   readonly BOOKING: "booking";
   readonly LOADING: "loading";
   readonly BILL_OF_LADING_ISSUED: "billOfLadingIssued";
@@ -42,6 +44,7 @@ export type DossierStatus = ValueOf<typeof DossierStatus>;
 
 export const VehicleStatus: {
   readonly PRE_PURCHASE: "prePurchase";
+  readonly REJECTED: "rejected";
   readonly AVAILABLE: "available";
   readonly RESERVED: "reserved";
   readonly IN_TRANSIT: "inTransit";

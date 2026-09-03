@@ -105,6 +105,15 @@ export interface ApiPartner {
   _count?: { suppliedVehicles: number; chinaOffers: number; purchases: number };
 }
 
+export interface ApiVehicleLookup {
+  id: string;
+  kind: "BRAND" | "MODEL" | "ENGINE" | "TRANSMISSION" | "FUEL_TYPE" | "COLOR" | "BODY_TYPE";
+  value: string;
+  parentId?: string | null;
+  active: boolean;
+  needsReview: boolean;
+}
+
 export interface ApiVehicleSpec {
   engine?: string | null;
   fuelType?: string | null;
@@ -137,6 +146,11 @@ export interface ApiVehicle {
   interiorColor?: string | null;
   warranty?: string | null;
   equipment?: Record<string, unknown> | null;
+  lengthCm?: string | number | null;
+  widthCm?: string | number | null;
+  heightCm?: string | number | null;
+  weightKg?: string | number | null;
+  rejectionReason?: string | null;
   eligibility?: { eligible: boolean; reason: string | null };
   supplierId?: string | null;
   supplier?: ApiPartner | null;
@@ -314,6 +328,14 @@ export interface ApiDossier {
   reference: string;
   type: ApiDossierType;
   status: ApiDossierStatus;
+  workflowVersion: number;
+  forwarderSupplierId?: string | null;
+  forwarderSupplier?: ApiPartner | null;
+  vehicleBookingVehicleId?: string | null;
+  vehicleBookingDate?: string | null;
+  cifPrice?: string | number | null;
+  ddpPrice?: string | number | null;
+  priceCurrency?: string | null;
   clientId: string;
   client: {
     id: string;
@@ -344,6 +366,19 @@ export interface ApiDossier {
     totalPayments: number;
     totalInvoiceAmount: number;
     isFullyPaid: boolean;
+  };
+  pricing?: {
+    available: boolean;
+    locked: boolean;
+    cifPrice?: number;
+    ddpPrice?: number;
+    currency?: string | null;
+    freightAllocation?: number;
+    allocationBasis?: "VOLUME" | "WEIGHT";
+    insurance?: number;
+    customsDuty?: number;
+    localDelivery?: number;
+    missing: string[];
   };
   sections?: {
     finance?: {
@@ -380,6 +415,31 @@ function queryString(
 }
 
 export const commerceApi = {
+  configuration: {
+    lookups: (filters: Record<string, string | undefined> = {}) =>
+      apiRequest<ApiVehicleLookup[]>(`/vehicle-lookups${queryString(filters)}`),
+    createLookup: (data: { kind: ApiVehicleLookup["kind"]; value: string; parentId?: string }) =>
+      apiRequest<ApiVehicleLookup>("/vehicle-lookups", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateLookup: (id: string, data: { value?: string; active?: boolean }) =>
+      apiRequest<ApiVehicleLookup>(`/vehicle-lookups/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    containerPresets: () => apiRequest<Array<Record<string, string | number>>>("/container-presets"),
+    pricingSettings: () => apiRequest<Record<string, unknown>>("/pricing-settings"),
+    updateInsurance: (insuranceRatePercent?: number) =>
+      apiRequest("/pricing-settings/insurance", {
+        method: "PUT",
+        body: JSON.stringify({ insuranceRatePercent }),
+      }),
+    upsertDuty: (data: Record<string, unknown>) =>
+      apiRequest("/pricing-settings/duties", { method: "PUT", body: JSON.stringify(data) }),
+    upsertDelivery: (data: Record<string, unknown>) =>
+      apiRequest("/pricing-settings/delivery", { method: "PUT", body: JSON.stringify(data) }),
+  },
   partners: {
     list: (filters: Record<string, string | number | undefined> = {}) =>
       apiRequest<PaginatedData<ApiPartner>>(`/partners${queryString(filters)}`),
@@ -604,10 +664,22 @@ export const commerceApi = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
-    transition: (id: string, status: string, comment?: string) =>
+    transition: (
+      id: string,
+      status: string,
+      payload?: string | Record<string, unknown>,
+    ) =>
       apiRequest<ApiDossier>(`/dossiers/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status, comment }),
+        body: JSON.stringify({
+          status,
+          ...(typeof payload === "string" ? { comment: payload } : payload),
+        }),
+      }),
+    upgradeToDdp: (id: string, reason?: string) =>
+      apiRequest<ApiDossier>(`/dossiers/${id}/upgrade-to-ddp`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
       }),
     allowed: (id: string) =>
       apiRequest<{ allowedTransitions: ApiDossierStatus[] }>(

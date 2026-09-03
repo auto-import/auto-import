@@ -29,6 +29,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { Phase3Module } from './phase3/phase3.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
+import { ConfigurationModule } from './configuration/configuration.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { CatalogueModule } from './catalogue/catalogue.module';
     Phase3Module,
     IntegrationsModule,
     CatalogueModule,
+    ConfigurationModule,
   ],
   controllers: [AppController],
   providers: [

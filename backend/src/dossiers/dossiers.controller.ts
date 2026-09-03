@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { DossiersService } from './dossiers.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
-import { UpdateStatusDto } from './dto/update-status.dto';
+import { UpdateStatusDto, UpgradeDossierDto } from './dto/update-status.dto';
 import { AdvanceStatusDto } from './dto/advance-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { AddDossierVehicleDto } from './dto/add-dossier-vehicle.dto';
@@ -152,5 +152,20 @@ export class DossiersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dossiersService.update(id, dto, user.id, user.organizationId);
+  }
+
+  @Post(':id/upgrade-to-ddp')
+  @RequirePermission(Permission.DOSSIERS_WRITE)
+  upgradeToDdp(
+    @Param('id') id: string,
+    @Body() dto: UpgradeDossierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dossiersService.upgradeToDdp(
+      id,
+      dto.reason,
+      user.id,
+      user.organizationId,
+    );
   }
 }

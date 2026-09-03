@@ -92,6 +92,9 @@ export class VehiclesService {
         'VIN is required outside the pre-purchase state',
       );
     }
+    if (dto.status === 'rejected' && !dto.rejectionReason?.trim()) {
+      throw new BadRequestException('A rejection reason is required');
+    }
     const stored = await this.storeVehiclePhotos(organizationId, files);
     try {
       return await this.prisma.$transaction(
@@ -228,6 +231,12 @@ export class VehiclesService {
       throw new ConflictException(
         'VIN is required outside the pre-purchase state',
       );
+    }
+    if (
+      createVehicleDto.status === 'rejected' &&
+      !createVehicleDto.rejectionReason?.trim()
+    ) {
+      throw new BadRequestException('A rejection reason is required');
     }
     const vehicle = await this.prisma.$transaction(
       async (transaction) => {
@@ -469,6 +478,7 @@ export class VehiclesService {
     id: string,
     organizationId: string,
     updateVehicleDto: UpdateVehicleDto,
+    userId?: string,
   ) {
     const vehicle = await this.prisma.$transaction(
       async (transaction) => {
@@ -477,6 +487,11 @@ export class VehiclesService {
         });
         if (!existingVehicle) throw new NotFoundException('Vehicle not found');
         const nextStatus = updateVehicleDto.status ?? existingVehicle.status;
+        if (nextStatus === 'rejected' && !updateVehicleDto.rejectionReason?.trim()) {
+          throw new BadRequestException(
+            'A rejection reason is required when rejecting a vehicle',
+          );
+        }
         const nextVin = updateVehicleDto.vin ?? existingVehicle.vin;
         if (!nextVin && nextStatus !== 'prePurchase') {
           throw new ConflictException(
@@ -500,10 +515,36 @@ export class VehiclesService {
           where: { id },
           data: {
             ...updateVehicleDto,
+            rejectedAt:
+              nextStatus === 'rejected' && existingVehicle.status !== 'rejected'
+                ? new Date()
+                : undefined,
+            rejectedBy:
+              nextStatus === 'rejected' && existingVehicle.status !== 'rejected'
+                ? userId
+                : undefined,
             equipment: updateVehicleDto.equipment as
               Prisma.InputJsonValue | undefined,
           },
           include: { specs: true, photos: true },
+        }).then(async (updated) => {
+          if (nextStatus === 'rejected' && existingVehicle.status !== 'rejected') {
+            await transaction.auditLog.create({
+              data: {
+                organizationId,
+                userId,
+                action: 'vehicle.rejected',
+                entityType: 'vehicle',
+                entityId: id,
+                oldValues: { status: existingVehicle.status },
+                newValues: {
+                  status: 'rejected',
+                  reason: updateVehicleDto.rejectionReason,
+                },
+              },
+            });
+          }
+          return updated;
         });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

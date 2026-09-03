@@ -303,9 +303,17 @@ export class DocumentsService {
       },
     });
 
-    if (!doc || !doc.file) {
+    if (!doc) {
       throw new NotFoundException('Document not found');
     }
+    if (!doc.file) {
+      throw new BadRequestException({
+        code: 'DOCUMENT_IS_EXTERNAL_LINK',
+        message: 'This document is an external link and has no downloadable file',
+      });
+    }
+    const file = doc.file;
+
     if (
       doc.gedDocument?.sensitivity?.startsWith('RESTRICTED_') &&
       !user.permissions.includes(Permission.GED_SENSITIVE_DOWNLOAD)
@@ -330,12 +338,12 @@ export class DocumentsService {
     }
 
     if (
-      doc.file.status !== 'active' ||
-      !(await this.storage.verify(doc.file.storageKey, doc.file.checksum))
+      file.status !== 'active' ||
+      !(await this.storage.verify(file.storageKey, file.checksum))
     ) {
       await this.prisma.$transaction(async (tx) => {
         await tx.fileAsset.update({
-          where: { id: doc.file.id },
+          where: { id: file.id },
           data: {
             integrityStatus: 'FAILED',
             integrityCheckedAt: new Date(),
@@ -360,13 +368,13 @@ export class DocumentsService {
         message: 'Document bytes are missing or invalid',
       });
     }
-    const stream = this.storage.getReadStream(doc.file.storageKey);
+    const stream = this.storage.getReadStream(file.storageKey);
 
     return {
       stream,
-      mimeType: doc.file.mimeType,
-      originalName: doc.file.originalName,
-      size: Number(doc.file.size),
+      mimeType: file.mimeType,
+      originalName: file.originalName,
+      size: Number(file.size),
     };
   }
 
@@ -415,6 +423,7 @@ export class DocumentsService {
       orderBy: { createdAt: 'desc' },
     });
     for (const document of documents) {
+      if (!document.file) continue;
       if (
         await this.storage.verify(
           document.file.storageKey,

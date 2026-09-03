@@ -19,6 +19,10 @@ export class FilterPartnerDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  supplierType?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

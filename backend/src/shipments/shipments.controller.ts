@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateShipmentDto,
+  AddShipmentVehicleDto,
   CreateCustomsFromShipmentDto,
   FilterShipmentsDto,
   TransitionShipmentDto,
@@ -72,6 +73,21 @@ export class ShipmentsController {
       user.organizationId,
       user.id,
       dto.responsibleUserId,
+    );
+  }
+
+  @Post(':id/vehicles')
+  @RequirePermission(Permission.SHIPMENTS_WRITE)
+  addVehicle(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: AddShipmentVehicleDto,
+  ) {
+    return this.shipments.addVehicle(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
     );
   }
 }

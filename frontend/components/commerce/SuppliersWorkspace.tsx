@@ -1055,7 +1055,7 @@ export default function SuppliersWorkspace() {
                   "averageLeadTimeDays",
                   "specialties",
                 ] as const
-              ).map((key) => (
+              ).filter((key) => key !== "supplierType").map((key) => (
                 <label
                   key={key}
                   className={
@@ -1101,6 +1101,14 @@ export default function SuppliersWorkspace() {
                   />
                 </label>
               ))}
+              <label>
+                <span className="field-label">Type fournisseur</span>
+                <select className={inputClass} value={form.supplierType} onChange={(event) => setForm((current) => ({ ...current, supplierType: event.target.value }))}>
+                  <option value="VEHICLE">Fournisseur véhicule</option>
+                  <option value="FORWARDER">Forwarder / transitaire</option>
+                  <option value="OTHER">Autre</option>
+                </select>
+              </label>
             </div>
             <label>
               <span className="field-label">Notes internes</span>

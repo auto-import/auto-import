@@ -10,6 +10,7 @@ import {
   INITIAL_STATUS_BY_TYPE,
   TERMINAL_STATUSES,
   LEGACY_STATUS_ALIASES,
+  LEGACY_WORKFLOW_STEPS_BY_TYPE,
 } from './dossier-workflow.constants';
 
 @Injectable()
@@ -40,8 +41,10 @@ export class DossierWorkflowService {
   /**
    * Get all ordered workflow steps for a dossier type
    */
-  getWorkflowSteps(type: DossierType): DossierStatus[] {
-    return WORKFLOW_STEPS_BY_TYPE[type] || [];
+  getWorkflowSteps(type: DossierType, workflowVersion = 2): DossierStatus[] {
+    return (workflowVersion >= 2
+      ? WORKFLOW_STEPS_BY_TYPE[type]
+      : LEGACY_WORKFLOW_STEPS_BY_TYPE[type]) || [];
   }
 
   /**
@@ -50,6 +53,7 @@ export class DossierWorkflowService {
   getAllowedTransitions(
     type: DossierType,
     currentStatus: string,
+    workflowVersion = 2,
   ): DossierStatus[] {
     const rawStatus = currentStatus || '';
 
@@ -58,7 +62,7 @@ export class DossierWorkflowService {
       return [];
     }
 
-    const steps = this.getWorkflowSteps(type);
+    const steps = this.getWorkflowSteps(type, workflowVersion);
     if (!steps || steps.length === 0) {
       return [];
     }
@@ -87,13 +91,14 @@ export class DossierWorkflowService {
   getNextStatus(
     type: DossierType,
     currentStatus: string,
+    workflowVersion = 2,
   ): DossierStatus | null {
     const rawStatus = currentStatus || '';
     if (this.isTerminalStatus(rawStatus)) {
       return null;
     }
 
-    const steps = this.getWorkflowSteps(type);
+    const steps = this.getWorkflowSteps(type, workflowVersion);
     const normalized = this.normalizeStatus(rawStatus);
     const currentIndex = steps.indexOf(normalized as DossierStatus);
 
@@ -111,6 +116,7 @@ export class DossierWorkflowService {
     type: DossierType,
     fromStatus: string,
     toStatus: string,
+    workflowVersion = 2,
   ): void {
     const from = this.normalizeStatus(fromStatus || '');
     const to = this.normalizeStatus(toStatus || '');
@@ -127,7 +133,7 @@ export class DossierWorkflowService {
       );
     }
 
-    const allowed = this.getAllowedTransitions(type, from);
+    const allowed = this.getAllowedTransitions(type, from, workflowVersion);
     const normalizedTo = this.normalizeStatus(to);
 
     const isDirectlyAllowed =

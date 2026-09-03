@@ -1,17 +1,18 @@
 import { DossierStatus, DossierType } from '@auto-import/contracts';
 
 /**
- * Sequential steps for VEHICLE_SALE_CIF workflow (14 steps)
+ * Sequential steps for new VEHICLE_SALE_CIF dossiers (15 steps)
  */
 export const DOSSIER_STATUSES_CIF: DossierStatus[] = [
   DossierStatus.OFFER_SELECTED,
   DossierStatus.CLIENT_CONFIRMED,
   DossierStatus.CONTRACT_SIGNED,
   DossierStatus.DEPOSIT_RECEIVED,
+  DossierStatus.VEHICLE_BOOKING,
   DossierStatus.PURCHASE_CONFIRMED,
   DossierStatus.SUPPLIER_PAID,
   DossierStatus.INSPECTION,
-  DossierStatus.BOOKING,
+  DossierStatus.SHIPMENT_BOOKING,
   DossierStatus.LOADING,
   DossierStatus.BILL_OF_LADING_ISSUED,
   DossierStatus.IN_TRANSIT,
@@ -21,17 +22,18 @@ export const DOSSIER_STATUSES_CIF: DossierStatus[] = [
 ];
 
 /**
- * Sequential steps for VEHICLE_SALE_DDP workflow (18 steps)
+ * Sequential steps for new VEHICLE_SALE_DDP dossiers (19 steps)
  */
 export const DOSSIER_STATUSES_DDP: DossierStatus[] = [
   DossierStatus.OFFER_SELECTED,
   DossierStatus.CLIENT_CONFIRMED,
   DossierStatus.CONTRACT_SIGNED,
   DossierStatus.DEPOSIT_RECEIVED,
+  DossierStatus.VEHICLE_BOOKING,
   DossierStatus.PURCHASE_CONFIRMED,
   DossierStatus.SUPPLIER_PAID,
   DossierStatus.INSPECTION,
-  DossierStatus.BOOKING,
+  DossierStatus.SHIPMENT_BOOKING,
   DossierStatus.LOADING,
   DossierStatus.BILL_OF_LADING_ISSUED,
   DossierStatus.IN_TRANSIT,
@@ -86,6 +88,21 @@ export const INITIAL_STATUS_BY_TYPE: Record<DossierType, DossierStatus> = {
 export const WORKFLOW_STEPS_BY_TYPE: Record<DossierType, DossierStatus[]> = {
   [DossierType.VEHICLE_SALE_CIF]: DOSSIER_STATUSES_CIF,
   [DossierType.VEHICLE_SALE_DDP]: DOSSIER_STATUSES_DDP,
+  [DossierType.SHIPPING_ONLY]: DOSSIER_STATUSES_SHIPPING,
+};
+
+/** Frozen v1 templates used by dossiers created before this migration. */
+export const LEGACY_WORKFLOW_STEPS_BY_TYPE: Record<DossierType, DossierStatus[]> = {
+  [DossierType.VEHICLE_SALE_CIF]: DOSSIER_STATUSES_CIF.filter(
+    (status) => status !== DossierStatus.VEHICLE_BOOKING,
+  ).map((status) =>
+    status === DossierStatus.SHIPMENT_BOOKING ? DossierStatus.BOOKING : status,
+  ),
+  [DossierType.VEHICLE_SALE_DDP]: DOSSIER_STATUSES_DDP.filter(
+    (status) => status !== DossierStatus.VEHICLE_BOOKING,
+  ).map((status) =>
+    status === DossierStatus.SHIPMENT_BOOKING ? DossierStatus.BOOKING : status,
+  ),
   [DossierType.SHIPPING_ONLY]: DOSSIER_STATUSES_SHIPPING,
 };
 

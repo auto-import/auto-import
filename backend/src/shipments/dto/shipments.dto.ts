@@ -5,7 +5,10 @@ import {
   IsOptional,
   IsString,
   IsIn,
+  IsBoolean,
+  IsPositive,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class CreateShipmentDto {
@@ -49,6 +52,10 @@ export class CreateShipmentDto {
   @IsArray()
   @IsString({ each: true })
   vehicleIds?: string[];
+
+  @IsOptional() @IsString() containerPresetId?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() totalFreightCost?: number;
+  @IsOptional() @IsString() freightCurrency?: string;
 }
 
 export class UpdateShipmentDto {
@@ -95,6 +102,16 @@ export class UpdateShipmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional() @IsString() containerPresetId?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() totalFreightCost?: number;
+  @IsOptional() @IsString() freightCurrency?: string;
+}
+
+export class AddShipmentVehicleDto {
+  @IsString() vehicleId: string;
+  @IsOptional() @IsBoolean() capacityOverride = false;
+  @IsOptional() @IsString() overrideReason?: string;
 }
 
 export class TransitionShipmentDto {

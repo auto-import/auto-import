@@ -15,6 +15,8 @@ import {
 import { formatDate, formatMontant } from "@/lib/constants";
 import type { Column } from "@/types";
 import { Search, Ship, Plus, RefreshCw } from "lucide-react";
+import ShipmentDetailDialog from "@/components/commerce/ShipmentDetailDialog";
+import { commerceApi } from "@/lib/commerce-api";
 
 export default function ExpeditionsPage() {
   const [activeTab, setActiveTab] = useState<"shipments" | "customs">(
@@ -46,6 +48,11 @@ export default function ExpeditionsPage() {
   const [newArrPort, setNewArrPort] = useState("Djen Djen (DZDJE)");
   const [newEtd, setNewEtd] = useState("");
   const [newEta, setNewEta] = useState("");
+  const [containerPresets, setContainerPresets] = useState<Array<Record<string, string | number>>>([]);
+  const [newContainerPresetId, setNewContainerPresetId] = useState("");
+  const [newFreightCost, setNewFreightCost] = useState("");
+  const [newFreightCurrency, setNewFreightCurrency] = useState("USD");
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -95,6 +102,9 @@ export default function ExpeditionsPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [activeTab, loadShipments, loadCustoms]);
+  useEffect(() => {
+    void commerceApi.configuration.containerPresets().then(setContainerPresets);
+  }, []);
 
   const handleTransitionShipment = async (id: string, nextStatus: string) => {
     setActionLoading(id);
@@ -157,6 +167,9 @@ export default function ExpeditionsPage() {
         arrivalPort: newArrPort || undefined,
         etd: newEtd || undefined,
         eta: newEta || undefined,
+        containerPresetId: newContainerPresetId || undefined,
+        totalFreightCost: newFreightCost ? Number(newFreightCost) : undefined,
+        freightCurrency: newFreightCost ? newFreightCurrency : undefined,
       });
       setShowShipmentModal(false);
       setNewContainer("");
@@ -317,10 +330,11 @@ export default function ExpeditionsPage() {
       key: "vehicles",
       header: "Véhicules",
       render: (row) => (
-        <span className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface border text-xs font-semibold">
+        <button type="button" onClick={() => setDetailId(row.id)} className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface border text-xs font-semibold">
           {row.vehicles?.length || 0} véhicule
           {row.vehicles && row.vehicles.length > 1 ? "s" : ""}
-        </span>
+          {row.capacity?.totalVolumeM3 ? ` · ${Math.max(0, Math.round((row.capacity.usedVolumeM3 / row.capacity.totalVolumeM3) * 100))}% vol.` : ""}
+        </button>
       ),
     },
     {
@@ -333,6 +347,7 @@ export default function ExpeditionsPage() {
       header: "Actions",
       render: (row) => (
         <div className="flex items-center gap-2">
+          <button onClick={() => setDetailId(row.id)} className="px-2 py-1 text-xs rounded-button border">Détails</button>
           {row.status === "pending" && (
             <button
               onClick={() => handleTransitionShipment(row.id, "booked")}
@@ -403,7 +418,7 @@ export default function ExpeditionsPage() {
       header: "VIN / Conteneur",
       render: (row) => (
         <div className="text-xs">
-          <b className="font-mono">{row.vehicle?.vin || "VIN manquant"}</b>
+          <b className="font-mono">{row.vehicles?.length ? `${row.vehicles.length} véhicule(s)` : row.vehicle?.vin || "VIN manquant"}</b>
           <p>{row.containerSnapshot || row.shipment?.shipmentNumber || "—"}</p>
           <p className="text-muted">
             {row.arrivalPortSnapshot || "Port non renseigné"}
@@ -685,6 +700,19 @@ export default function ExpeditionsPage() {
               Créer une expédition maritime
             </h3>
             <form onSubmit={handleCreateShipment} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Type conteneur</label>
+                  <select required value={newContainerPresetId} onChange={(event) => setNewContainerPresetId(event.target.value)} className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background">
+                    <option value="">Sélectionner</option>
+                    {containerPresets.map((preset) => <option key={String(preset.id)} value={String(preset.id)}>{String(preset.label)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Fret total</label>
+                  <div className="flex gap-2"><input type="number" min="0.01" step="0.01" value={newFreightCost} onChange={(event) => setNewFreightCost(event.target.value)} className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background" placeholder="Non renseigné" /><input value={newFreightCurrency} onChange={(event) => setNewFreightCurrency(event.target.value)} className="w-20 px-2 py-2 text-sm border border-border rounded-input bg-background" /></div>
+                </div>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-muted uppercase mb-1">
                   Numéro de Conteneur
@@ -794,6 +822,13 @@ export default function ExpeditionsPage() {
             </form>
           </div>
         </div>
+      )}
+      {detailId && (
+        <ShipmentDetailDialog
+          id={detailId}
+          close={() => setDetailId(null)}
+          changed={loadShipments}
+        />
       )}
     </>
   );

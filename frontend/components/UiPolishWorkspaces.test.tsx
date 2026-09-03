@@ -11,7 +11,7 @@ import Sidebar from "./Sidebar";
 import VehicleStockPolished from "./commerce/VehicleStockPolished";
 import { I18nProvider } from "./I18nProvider";
 
-const mocks = vi.hoisted(() => ({ listVehicles: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listVehicles: vi.fn(), listLookups: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/vehicules" }));
 vi.mock("@/components/Topbar", () => ({
   default: ({ title }: { title: string }) => <h1>{title}</h1>,
@@ -38,6 +38,10 @@ vi.mock("@/lib/commerce-api", () => ({
       saveSpecs: vi.fn(),
       photoBlob: vi.fn(),
     },
+    configuration: {
+      lookups: mocks.listLookups,
+      createLookup: vi.fn(),
+    },
   },
 }));
 
@@ -56,6 +60,16 @@ describe("UI polish navigation and vehicle photos", () => {
         hasPreviousPage: false,
       },
     });
+    mocks.listLookups.mockResolvedValue([
+      { id: "brand-byd", kind: "BRAND", value: "BYD", active: true },
+      {
+        id: "model-seal",
+        kind: "MODEL",
+        value: "Seal",
+        parentId: "brand-byd",
+        active: true,
+      },
+    ]);
   });
 
   it("keeps Audit out of normal navigation", () => {

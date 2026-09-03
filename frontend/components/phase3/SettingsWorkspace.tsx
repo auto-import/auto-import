@@ -12,6 +12,7 @@ import {
 import IntegrationsPanel from "./IntegrationsPanel";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
+import WorkflowSettingsPanel from "./WorkflowSettingsPanel";
 
 export default function SettingsWorkspace() {
   const { hasPermission } = useAuth();
@@ -212,6 +213,7 @@ export default function SettingsWorkspace() {
             </button>
           </div>
         </form>
+        <WorkflowSettingsPanel />
         {hasPermission(Permission.SETTINGS_INTEGRATIONS_MANAGE) && (
           <IntegrationsPanel />
         )}

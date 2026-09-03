@@ -8,6 +8,7 @@ import {
   Min,
   Max,
   IsObject,
+  IsPositive,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { VehicleStatus } from '@auto-import/contracts';
@@ -55,6 +56,11 @@ export class CreateVehicleDto {
   @IsOptional() @IsString() interiorColor?: string;
   @IsOptional() @IsString() warranty?: string;
   @IsOptional() @IsObject() equipment?: Record<string, unknown>;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() lengthCm?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() widthCm?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() heightCm?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() weightKg?: number;
+  @IsOptional() @IsString() rejectionReason?: string;
 
   @IsOptional()
   @Type(() => Number)

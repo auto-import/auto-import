@@ -753,6 +753,7 @@ export class VehicleRequestsService {
           request.dossier.type,
           request.dossier.status,
           DossierStatus.PURCHASE_CONFIRMED,
+          request.dossier.workflowVersion ?? 1,
         );
         await tx.dossierVehicle.upsert({
           where: {

@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
@@ -16,6 +17,7 @@ import { DossierStatus } from '@auto-import/contracts';
 import { Prisma } from '@prisma/client';
 import { UpdateDossierDto } from './dto/update-dossier.dto';
 import { DocumentsService } from '../documents/documents.service';
+import { ConfigurationService } from '../configuration/configuration.service';
 
 @Injectable()
 export class DossiersService {
@@ -25,6 +27,7 @@ export class DossiersService {
     private prisma: PrismaService,
     private workflowService: DossierWorkflowService,
     private documentsService: DocumentsService,
+    @Optional() private configurationService?: ConfigurationService,
   ) {}
 
   private async generateReference(
@@ -214,6 +217,7 @@ export class DossiersService {
           vehicleRequestId: createDossierDto.vehicleRequestId,
           orderId,
           status: initialStatus,
+          workflowVersion: 2,
           salesUserId: salesUserIdToUse,
           opsUserId,
           openedAt: new Date(),
@@ -612,6 +616,7 @@ export class DossiersService {
         offerReservation: {
           include: { offer: { include: { supplier: true } } },
         },
+        forwarderSupplier: true,
         purchases: {
           include: {
             supplier: true,
@@ -628,6 +633,7 @@ export class DossiersService {
         payments: {
           where: { status: 'CONFIRMED' },
         },
+        customerDeposits: true,
         documents: {
           include: { file: true },
         },
@@ -673,15 +679,30 @@ export class DossiersService {
     };
 
     const mapped = this.mapDossierWithVehicles(dossier);
+    const pricing = this.configurationService
+      ? await this.configurationService.refreshDossierPricing(
+          id,
+          dossier.organizationId,
+        )
+      : {
+          available: Boolean(dossier.cifPrice && dossier.ddpPrice),
+          locked: Boolean(dossier.priceLockedAt),
+          cifPrice: dossier.cifPrice ? Number(dossier.cifPrice) : undefined,
+          ddpPrice: dossier.ddpPrice ? Number(dossier.ddpPrice) : undefined,
+          currency: dossier.priceCurrency,
+          missing: [],
+        };
     return {
       ...mapped,
       stats,
+      pricing,
       sections: {
         finance: {
           invoices: dossier.invoices || [],
           paymentPlan:
             (dossier.paymentPlans && dossier.paymentPlans[0]) || null,
           payments: dossier.payments || [],
+          deposits: dossier.customerDeposits || [],
         },
         shipping:
           (dossier.customsFiles && dossier.customsFiles[0]?.shipment) || null,
@@ -711,7 +732,136 @@ export class DossiersService {
       dossier.type,
       currentStatus,
       status,
+      dossier.workflowVersion ?? 1,
     );
+
+    if (
+      status === DossierStatus.CUSTOMS_CLEARANCE ||
+      status === DossierStatus.CUSTOMS_RELEASED
+    ) {
+      throw new ConflictException({
+        code: 'CUSTOMS_IS_SOURCE_OF_TRUTH',
+        message:
+          'Dédouanement et Mainlevée sont pilotés depuis le dossier douane associé.',
+      });
+    }
+
+    if (status === DossierStatus.DEPOSIT_RECEIVED && !updateStatusDto.deposit) {
+      throw new BadRequestException({
+        code: 'DEPOSIT_DATA_REQUIRED',
+        message: 'Montant, devise, moyen et date de réception sont requis.',
+      });
+    }
+    if (
+      status === DossierStatus.VEHICLE_BOOKING &&
+      !updateStatusDto.vehicleBooking
+    ) {
+      throw new BadRequestException({
+        code: 'VEHICLE_BOOKING_DATA_REQUIRED',
+        message: 'Le véhicule/VIN et la date de réservation sont requis.',
+      });
+    }
+    if (status === DossierStatus.PURCHASE_CONFIRMED && !updateStatusDto.purchase) {
+      throw new BadRequestException({
+        code: 'PURCHASE_DATA_REQUIRED',
+        message: 'Les données de facturation fournisseur sont requises.',
+      });
+    }
+    if (
+      status === DossierStatus.INSPECTION &&
+      (!updateStatusDto.inspection ||
+        (!updateStatusDto.inspection.documentId && !updateStatusDto.inspection.url))
+    ) {
+      throw new BadRequestException({
+        code: 'INSPECTION_REPORT_REQUIRED',
+        message: "Un rapport d'inspection PDF ou un lien URL est requis.",
+      });
+    }
+    if (
+      status === DossierStatus.SHIPMENT_BOOKING &&
+      !updateStatusDto.shipmentBooking
+    ) {
+      throw new BadRequestException({
+        code: 'FORWARDER_REQUIRED',
+        message: 'Un transitaire doit être affecté.',
+      });
+    }
+    if (
+      status === DossierStatus.BILL_OF_LADING_ISSUED &&
+      !updateStatusDto.billOfLading
+    ) {
+      throw new BadRequestException({
+        code: 'BL_PDF_REQUIRED',
+        message: 'Le PDF du connaissement est requis.',
+      });
+    }
+
+    const dossierVehicles = dossier.vehicles ?? [];
+    const bookedVehicle = updateStatusDto.vehicleBooking
+      ? dossierVehicles.find(
+          (vehicle: { id: string }) =>
+            vehicle.id === updateStatusDto.vehicleBooking?.vehicleId,
+        )
+      : undefined;
+    if (updateStatusDto.vehicleBooking && !bookedVehicle) {
+      throw new BadRequestException('Vehicle is not attached to this dossier');
+    }
+    const purchaseVehicle =
+      dossierVehicles.find(
+        (vehicle: { id: string }) =>
+          vehicle.id === dossier.vehicleBookingVehicleId,
+      ) ?? dossierVehicles[0];
+    if (updateStatusDto.purchase && !purchaseVehicle) {
+      throw new BadRequestException('A dossier vehicle is required');
+    }
+    if (updateStatusDto.purchase) {
+      const supplier = await this.prisma.partner.findFirst({
+        where: {
+          id: updateStatusDto.purchase.supplierId,
+          organizationId: dossier.organizationId,
+          type: 'supplier',
+          status: 'active',
+        },
+      });
+      if (!supplier) throw new BadRequestException('Vehicle supplier not found');
+    }
+    if (updateStatusDto.shipmentBooking) {
+      const forwarder = await this.prisma.partner.findFirst({
+        where: {
+          id: updateStatusDto.shipmentBooking.forwarderSupplierId,
+          organizationId: dossier.organizationId,
+          type: { in: ['supplier', 'carrier', 'logistics'] },
+          status: 'active',
+        },
+      });
+      if (!forwarder) throw new BadRequestException('Forwarder not found');
+    }
+    const stepDocumentId =
+      updateStatusDto.inspection?.documentId ??
+      updateStatusDto.billOfLading?.documentId;
+    if (stepDocumentId) {
+      const document = await this.prisma.dossierDocumentAsset.findFirst({
+        where: {
+          id: stepDocumentId,
+          dossierId: id,
+          organizationId: dossier.organizationId,
+          status: 'valid',
+        },
+        include: { file: true },
+      });
+      if (!document?.file || document.file.mimeType !== 'application/pdf') {
+        throw new BadRequestException('A readable PDF document is required');
+      }
+    }
+    const shipmentLink = updateStatusDto.billOfLading
+      ? await this.prisma.shipmentVehicle.findFirst({
+          where: {
+            vehicle: { dossierVehicles: { some: { dossierId: id } } },
+            shipment: { organizationId: dossier.organizationId },
+          },
+          orderBy: { addedAt: 'desc' },
+        })
+      : null;
 
     if (status === DossierStatus.CONTRACT_SIGNED) {
       const contract = await this.documentsService.verifySignedContract(
@@ -813,12 +963,117 @@ export class DossiersService {
       status === DossierStatus.CANCELLED;
 
     await this.prisma.$transaction(async (prisma) => {
+      if (updateStatusDto.deposit) {
+        const payment = await prisma.payment.create({
+          data: {
+            organizationId: dossier.organizationId,
+            clientId: dossier.clientId,
+            dossierId: id,
+            amount: new Prisma.Decimal(updateStatusDto.deposit.amount),
+            allocatedAmount: new Prisma.Decimal(0),
+            unallocatedAmount: new Prisma.Decimal(updateStatusDto.deposit.amount),
+            currency: updateStatusDto.deposit.currency,
+            paymentMethod: updateStatusDto.deposit.paymentMethod,
+            reference: updateStatusDto.deposit.reference,
+            status: 'CONFIRMED',
+            paymentDate: new Date(updateStatusDto.deposit.receivedAt),
+            receivedAt: new Date(updateStatusDto.deposit.receivedAt),
+            confirmedAt: new Date(),
+            actorUserId: userId,
+            notes: updateStatusDto.deposit.note,
+          },
+        });
+        await prisma.customerDeposit.create({
+          data: {
+            organizationId: dossier.organizationId,
+            clientId: dossier.clientId,
+            dossierId: id,
+            paymentId: payment.id,
+            amount: payment.amount,
+            unappliedAmount: payment.amount,
+            currency: payment.currency,
+            paymentMethod: payment.paymentMethod,
+            reference: payment.reference,
+            paymentDate: payment.paymentDate,
+            notes: payment.notes,
+          },
+        });
+      }
+      if (updateStatusDto.purchase && purchaseVehicle) {
+        await prisma.purchase.create({
+          data: {
+            organizationId: dossier.organizationId,
+            purchaseNumber: updateStatusDto.purchase.invoiceNumber,
+            supplierId: updateStatusDto.purchase.supplierId,
+            vehicleId: purchaseVehicle.id,
+            dossierId: id,
+            purchasePrice: new Prisma.Decimal(updateStatusDto.purchase.amount),
+            currency: updateStatusDto.purchase.currency,
+            purchaseDate: new Date(updateStatusDto.purchase.invoiceDate),
+            status: 'confirmed',
+            confirmedBy: userId,
+          },
+        });
+        await prisma.vehicle.update({
+          where: { id: purchaseVehicle.id },
+          data: {
+            purchasePrice: new Prisma.Decimal(updateStatusDto.purchase.amount),
+            currency: updateStatusDto.purchase.currency,
+          },
+        });
+      }
+      if (updateStatusDto.inspection?.url) {
+        await prisma.dossierDocumentAsset.create({
+          data: {
+            organizationId: dossier.organizationId,
+            dossierId: id,
+            kind: 'DOSSIER_DOCUMENT',
+            documentType: 'rapport_inspection',
+            title: "Rapport d'inspection",
+            description: updateStatusDto.inspection.note,
+            externalUrl: updateStatusDto.inspection.url,
+            uploadedBy: userId,
+          },
+        });
+      }
+      if (updateStatusDto.inspection?.documentId) {
+        await prisma.dossierDocumentAsset.update({
+          where: { id: updateStatusDto.inspection.documentId },
+          data: {
+            kind: 'DOSSIER_DOCUMENT',
+            documentType: 'rapport_inspection',
+            title: "Rapport d'inspection",
+          },
+        });
+      }
+      if (updateStatusDto.billOfLading?.documentId) {
+        await prisma.dossierDocumentAsset.update({
+          where: { id: updateStatusDto.billOfLading.documentId },
+          data: {
+            kind: 'DOSSIER_DOCUMENT',
+            documentType: 'bl_final',
+            title: 'Bill of Lading',
+            shipmentId: shipmentLink?.shipmentId,
+          },
+        });
+      }
       // Update dossier status
       const updated = await prisma.dossier.update({
         where: { id },
         data: {
           status,
           closedAt: isClosing ? new Date() : undefined,
+          priceLockedAt:
+            status === DossierStatus.CONTRACT_SIGNED && !dossier.priceLockedAt
+              ? new Date()
+              : undefined,
+          vehicleBookingVehicleId: updateStatusDto.vehicleBooking?.vehicleId,
+          vehicleBookingDate: updateStatusDto.vehicleBooking
+            ? new Date(updateStatusDto.vehicleBooking.bookingDate)
+            : undefined,
+          vehicleBookingNote: updateStatusDto.vehicleBooking?.note,
+          forwarderSupplierId:
+            updateStatusDto.shipmentBooking?.forwarderSupplierId,
         },
         include: {
           client: true,
@@ -838,8 +1093,7 @@ export class DossiersService {
           fromStatus: currentStatus,
           toStatus: status,
           changedBy: userId || 'system',
-          comment:
-            comment || `Status changed from '${currentStatus}' to '${status}'`,
+          comment: this.transitionHistoryComment(updateStatusDto, currentStatus),
         },
       });
 
@@ -955,6 +1209,12 @@ export class DossiersService {
     });
 
     await this.documentsService.markEvidenceRelied(reliedEvidenceIds);
+    if (this.configurationService) {
+      await this.configurationService.refreshDossierPricing(
+        id,
+        dossier.organizationId,
+      );
+    }
 
     this.logger.log(
       `Dossier ${dossier.reference} status updated: ${currentStatus} -> ${status} (by ${userId})`,
@@ -972,6 +1232,14 @@ export class DossiersService {
       where: { id, organizationId },
     });
     if (!dossier) throw new NotFoundException('Dossier not found');
+    if (
+      dto.dutyOverrideAmount !== undefined &&
+      !dto.dutyOverrideJustification?.trim()
+    ) {
+      throw new BadRequestException(
+        'A justification is required for a customs duty override',
+      );
+    }
     const ids = [
       ...new Set([dto.salesUserId, dto.opsUserId].filter(Boolean)),
     ] as string[];
@@ -983,14 +1251,26 @@ export class DossiersService {
         throw new NotFoundException('Dossier team member not found');
     }
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.dossier.update({ where: { id }, data: dto });
+      const updated = await tx.dossier.update({
+        where: { id },
+        data: {
+          ...dto,
+          dutyOverrideAmount:
+            dto.dutyOverrideAmount === undefined
+              ? undefined
+              : new Prisma.Decimal(dto.dutyOverrideAmount),
+        },
+      });
       await tx.dossierStatusHistory.create({
         data: {
           dossierId: id,
           fromStatus: dossier.status,
           toStatus: dossier.status,
           changedBy: userId,
-          comment: 'Dossier team updated',
+          comment:
+            dto.dutyOverrideAmount !== undefined
+              ? `Customs duty override: ${dto.dutyOverrideAmount} — ${dto.dutyOverrideJustification}`
+              : 'Dossier team updated',
         },
       });
       return updated;
@@ -1007,6 +1287,7 @@ export class DossiersService {
     const nextStatus = this.workflowService.getNextStatus(
       dossier.type,
       dossier.status,
+      dossier.workflowVersion ?? 1,
     );
 
     if (!nextStatus) {
@@ -1031,6 +1312,7 @@ export class DossiersService {
     const allowed = this.workflowService.getAllowedTransitions(
       dossier.type,
       dossier.status,
+      dossier.workflowVersion ?? 1,
     );
 
     return {
@@ -1050,6 +1332,72 @@ export class DossiersService {
       where: { dossierId: id },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async upgradeToDdp(
+    id: string,
+    reason: string | undefined,
+    userId: string,
+    organizationId: string,
+  ) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id, organizationId },
+      include: { history: true },
+    });
+    if (!dossier) throw new NotFoundException('Dossier not found');
+    if (dossier.type !== DossierType.VEHICLE_SALE_CIF) {
+      throw new ConflictException('Only a CIF dossier can be upgraded to DDP');
+    }
+    if (
+      dossier.history.some(
+        (entry) => entry.toStatus === DossierStatus.DOCUMENTS_DELIVERED,
+      ) ||
+      this.workflowService.isTerminalStatus(dossier.status)
+    ) {
+      throw new ConflictException({
+        code: 'CIF_DDP_UPGRADE_WINDOW_CLOSED',
+        message: 'Upgrade is no longer possible after Documents remis.',
+      });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dossier.update({
+        where: { id },
+        data: {
+          type: DossierType.VEHICLE_SALE_DDP,
+          upgradedFromType: DossierType.VEHICLE_SALE_CIF,
+          upgradedAt: new Date(),
+        },
+      });
+      await tx.dossierStatusHistory.create({
+        data: {
+          dossierId: id,
+          fromStatus: dossier.status,
+          toStatus: dossier.status,
+          changedBy: userId,
+          comment: `Dossier upgraded from CIF to DDP${reason ? ` — ${reason}` : ''}`,
+        },
+      });
+    });
+    return this.findOne(id, organizationId);
+  }
+
+  private transitionHistoryComment(
+    dto: UpdateStatusDto,
+    currentStatus: string,
+  ): string {
+    if (dto.deposit)
+      return `Acompte reçu — ${dto.deposit.amount} ${dto.deposit.currency} — ${dto.deposit.receivedAt}${dto.deposit.reference ? ` — réf. ${dto.deposit.reference}` : ''}`;
+    if (dto.vehicleBooking)
+      return `Vehicle Booking — véhicule ${dto.vehicleBooking.vehicleId} — ${dto.vehicleBooking.bookingDate}${dto.vehicleBooking.note ? ` — ${dto.vehicleBooking.note}` : ''}`;
+    if (dto.purchase)
+      return `Achat confirmé — facture ${dto.purchase.invoiceNumber} — ${dto.purchase.amount} ${dto.purchase.currency} — ${dto.purchase.invoiceDate}`;
+    if (dto.inspection)
+      return `Inspection — rapport ${dto.inspection.documentId ? 'PDF' : 'URL'} enregistré${dto.inspection.note ? ` — ${dto.inspection.note}` : ''}`;
+    if (dto.shipmentBooking)
+      return `Shipment Booking — forwarder ${dto.shipmentBooking.forwarderSupplierId}${dto.shipmentBooking.note ? ` — ${dto.shipmentBooking.note}` : ''}`;
+    if (dto.billOfLading)
+      return `BL émis — PDF ${dto.billOfLading.documentId}`;
+    return dto.comment || `Status changed from '${currentStatus}' to '${dto.status}'`;
   }
 
   async getStatistics(organizationId: string) {

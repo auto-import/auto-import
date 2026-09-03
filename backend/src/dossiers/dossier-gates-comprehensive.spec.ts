@@ -24,6 +24,15 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
     paymentInstallment: {
       findMany: jest.fn(),
     },
+    partner: {
+      findFirst: jest.fn(),
+    },
+    purchase: {
+      create: jest.fn(),
+    },
+    vehicle: {
+      update: jest.fn(),
+    },
     dossierStatusHistory: {
       create: jest.fn(),
     },
@@ -43,6 +52,13 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       workflowService,
       documentsService as unknown as DocumentsService,
     );
+    mockPrisma.partner.findFirst.mockResolvedValue({
+      id: 'supplier-1',
+      type: 'supplier',
+      status: 'active',
+    });
+    mockPrisma.purchase.create.mockResolvedValue({ id: 'purchase-1' });
+    mockPrisma.vehicle.update.mockResolvedValue({ id: 'vehicle-1' });
   });
 
   describe('Gate 1: Upfront 30% Deposit Enforcement', () => {
@@ -52,7 +68,8 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         organizationId: 'org-1',
         type: DossierType.VEHICLE_SALE_CIF,
         status: DossierStatus.DEPOSIT_RECEIVED,
-        dossierVehicles: [],
+        dossierVehicles: [{ vehicleId: 'vehicle-1' }],
+        vehicles: [{ id: 'vehicle-1' }],
         payments: [],
         invoices: [],
       });
@@ -78,7 +95,16 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       await expect(
         dossiersService.updateStatus(
           'dos-1',
-          { status: DossierStatus.PURCHASE_CONFIRMED },
+          {
+            status: DossierStatus.PURCHASE_CONFIRMED,
+            purchase: {
+              invoiceNumber: 'SUP-INV-001',
+              amount: 1000000,
+              currency: 'DZD',
+              invoiceDate: '2026-09-02',
+              supplierId: 'supplier-1',
+            },
+          },
           'user-1',
           'org-1',
         ),
@@ -92,7 +118,8 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
           organizationId: 'org-1',
           type: DossierType.VEHICLE_SALE_CIF,
           status: DossierStatus.DEPOSIT_RECEIVED,
-          dossierVehicles: [],
+          dossierVehicles: [{ vehicleId: 'vehicle-1' }],
+          vehicles: [{ id: 'vehicle-1' }],
           payments: [{ amount: new Prisma.Decimal(300000) }],
           invoices: [],
         })
@@ -101,7 +128,8 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
           organizationId: 'org-1',
           type: DossierType.VEHICLE_SALE_CIF,
           status: DossierStatus.PURCHASE_CONFIRMED,
-          dossierVehicles: [],
+          dossierVehicles: [{ vehicleId: 'vehicle-1' }],
+          vehicles: [{ id: 'vehicle-1' }],
           payments: [{ amount: new Prisma.Decimal(300000) }],
           invoices: [],
         });
@@ -132,7 +160,16 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
 
       const result = await dossiersService.updateStatus(
         'dos-1',
-        { status: DossierStatus.PURCHASE_CONFIRMED },
+        {
+          status: DossierStatus.PURCHASE_CONFIRMED,
+          purchase: {
+            invoiceNumber: 'SUP-INV-001',
+            amount: 1000000,
+            currency: 'DZD',
+            invoiceDate: '2026-09-02',
+            supplierId: 'supplier-1',
+          },
+        },
         'user-1',
         'org-1',
       );

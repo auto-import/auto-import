@@ -48,13 +48,52 @@ export interface ApiShipment {
     | "delivered"
     | "cancelled";
   notes?: string | null;
+  containerPresetId?: string | null;
+  totalFreightCost?: string | number | null;
+  freightCurrency?: string | null;
+  containerPreset?: {
+    id: string;
+    code: string;
+    label: string;
+    internalLengthCm: string | number;
+    internalWidthCm: string | number;
+    internalHeightCm: string | number;
+    maxVolumeM3: string | number;
+    maxPayloadKg: string | number;
+  } | null;
+  capacity?: {
+    usedVolumeM3: number;
+    remainingVolumeM3: number | null;
+    totalVolumeM3: number | null;
+    usedWeightKg: number;
+    remainingWeightKg: number | null;
+    totalWeightKg: number | null;
+    vehicleCount: number;
+  };
   createdAt: string;
   updatedAt?: string;
   carrierPartner?: { id: string; name: string } | null;
   vehicles?: Array<{
     id: string;
     vehicleId: string;
-    vehicle?: { id: string; brand: string; model: string; vin?: string | null };
+    vehicle?: {
+      id: string;
+      brand: string;
+      model: string;
+      vin?: string | null;
+      lengthCm?: string | number | null;
+      widthCm?: string | number | null;
+      heightCm?: string | number | null;
+      weightKg?: string | number | null;
+      supplier?: { id: string; name: string } | null;
+      dossierVehicles?: Array<{
+        dossier: {
+          id: string;
+          reference: string;
+          client: { id: string; firstName: string; lastName: string };
+        };
+      }>;
+    };
   }>;
   customsFiles?: ApiCustomsFile[];
   costs?: ApiLogisticsCost[];
@@ -65,6 +104,13 @@ export interface ApiShipment {
     comment?: string | null;
     createdAt: string;
     user?: { id: string; firstName: string; lastName: string };
+  }>;
+  documents?: Array<{
+    id: string;
+    title?: string | null;
+    documentType?: string | null;
+    externalUrl?: string | null;
+    dossier?: { id: string; reference: string } | null;
   }>;
 }
 
@@ -111,6 +157,10 @@ export interface ApiCustomsFile {
     model: string;
     vin?: string | null;
   } | null;
+  vehicles?: Array<{
+    id: string;
+    vehicle: { id: string; brand: string; model: string; vin?: string | null };
+  }>;
   shipment?: { id: string; shipmentNumber: string; status: string } | null;
   documents?: ApiCustomsDocument[];
   statusHistory?: ApiLogisticsStatusHistory[];
@@ -149,8 +199,21 @@ export async function createShipment(data: {
   eta?: string;
   notes?: string;
   vehicleIds?: string[];
+  containerPresetId?: string;
+  totalFreightCost?: number;
+  freightCurrency?: string;
 }): Promise<ApiShipment> {
   return apiRequest<ApiShipment>("/shipments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function addShipmentVehicle(
+  id: string,
+  data: { vehicleId: string; capacityOverride?: boolean; overrideReason?: string },
+): Promise<ApiShipment> {
+  return apiRequest<ApiShipment>(`/shipments/${id}/vehicles`, {
     method: "POST",
     body: JSON.stringify(data),
   });

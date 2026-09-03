@@ -16,7 +16,8 @@ export interface ApiDossierDocument {
   id: string;
   dossierId?: string | null;
   clientId?: string | null;
-  fileId: string;
+  fileId?: string | null;
+  externalUrl?: string | null;
   kind:
     | "DOSSIER_DOCUMENT"
     | "PROOF"
@@ -33,7 +34,7 @@ export interface ApiDossierDocument {
   uploadedBy?: string | null;
   createdAt: string;
   updatedAt?: string;
-  file?: ApiFileAsset;
+  file?: ApiFileAsset | null;
   uploadedByUser?: { id: string; firstName: string; lastName: string } | null;
   dossier?: { id: string; reference: string; status: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;

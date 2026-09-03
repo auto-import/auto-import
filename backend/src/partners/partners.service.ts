@@ -90,6 +90,7 @@ export class PartnersService {
       else where.status = filters.status;
     }
     if (filters?.country) where.country = filters.country;
+    if (filters?.supplierType) where.supplierType = filters.supplierType;
 
     if (filters?.search) {
       where.OR = [

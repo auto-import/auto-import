@@ -138,6 +138,7 @@ export class VehiclesController {
       id,
       user.organizationId,
       updateVehicleDto,
+      user.id,
     );
   }
 

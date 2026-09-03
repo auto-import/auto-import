@@ -102,6 +102,10 @@ export class CustomsService {
         where: { id: dto.dossierId, organizationId },
       });
       if (!dossier) throw new NotFoundException('Dossier not found');
+      const existing = await this.prisma.customsFile.findFirst({
+        where: { organizationId, dossierId: dto.dossierId, v2Status: { not: null } },
+      });
+      if (existing) return this.findOne(existing.id, organizationId);
     }
 
     if (dto.responsibleUserId) {
@@ -127,7 +131,6 @@ export class CustomsService {
       const existing = await this.prisma.customsFile.findFirst({
         where: {
           organizationId,
-          vehicleId: dto.vehicleId,
           dossierId: dto.dossierId,
           v2Status: { not: null },
         },
@@ -234,6 +237,12 @@ export class CustomsService {
             },
           },
         });
+
+        if (dto.vehicleId) {
+          await tx.customsFileVehicle.create({
+            data: { customsFileId: customsFile.id, vehicleId: dto.vehicleId },
+          });
+        }
 
         return customsFile;
       });
@@ -385,6 +394,29 @@ export class CustomsService {
       });
     }
 
+    const parentDossier = file.dossierId
+      ? await this.prisma.dossier.findFirst({
+          where: { id: file.dossierId, organizationId },
+        })
+      : null;
+    if (parentDossier?.type === 'VEHICLE_SALE_DDP') {
+      if (
+        dto.status === 'CLEARANCE_IN_PROGRESS' &&
+        parentDossier.status !== 'arrivedAtPort'
+      ) {
+        throw new ConflictException({
+          code: 'DDP_DOSSIER_NOT_READY_FOR_CLEARANCE',
+          message: 'The parent DDP dossier must be at Arrivée au port.',
+        });
+      }
+      if (dto.status === 'RELEASE' && parentDossier.status !== 'customsClearance') {
+        throw new ConflictException({
+          code: 'DDP_DOSSIER_NOT_IN_CLEARANCE',
+          message: 'The parent DDP dossier must first enter Dédouanement.',
+        });
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.customsStatusHistory.create({
         data: {
@@ -429,6 +461,29 @@ export class CustomsService {
           },
         },
       });
+
+      const dossierStatus =
+        dto.status === 'CLEARANCE_IN_PROGRESS'
+          ? 'customsClearance'
+          : dto.status === 'RELEASE'
+            ? 'customsReleased'
+            : null;
+      if (dossierStatus && parentDossier?.type === 'VEHICLE_SALE_DDP') {
+        const fromStatus = parentDossier.status;
+        await tx.dossier.update({
+          where: { id: parentDossier.id },
+          data: { status: dossierStatus },
+        });
+        await tx.dossierStatusHistory.create({
+          data: {
+            dossierId: parentDossier.id,
+            fromStatus,
+            toStatus: dossierStatus,
+            changedBy: userId,
+            comment: `Progression pilotée par le dossier douane ${file.reference}${dto.comment ? ` — ${dto.comment}` : ''}`,
+          },
+        });
+      }
 
       if (dto.status === 'PORT_EXIT' && file.dossierId) {
         const dossier = await tx.dossier.findFirst({
@@ -538,6 +593,13 @@ export class CustomsService {
           vehicle: {
             select: { id: true, brand: true, model: true, vin: true },
           },
+          vehicles: {
+            include: {
+              vehicle: {
+                select: { id: true, brand: true, model: true, vin: true },
+              },
+            },
+          },
           shipment: {
             select: { id: true, shipmentNumber: true, status: true },
           },
@@ -560,6 +622,7 @@ export class CustomsService {
         },
         dossier: true,
         vehicle: true,
+        vehicles: { include: { vehicle: true } },
         shipment: true,
         costs: true,
         documents: {

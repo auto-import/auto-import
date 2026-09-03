@@ -151,7 +151,6 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
     it.each([
       ['inTransit', 'arrivedAtPort', 'ARRIVAL_AT_PORT'],
-      ['arrivedAtPort', 'customsClearance', 'CUSTOMS'],
       ['customsReleased', 'portExit', 'PORT_EXIT'],
       ['portExit', 'localTransport', 'LOCAL_TRANSPORT'],
     ] as const)(
@@ -180,6 +179,26 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         });
       },
     );
+
+    it('rejects direct customs progression because Customs is the source of truth', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'dos-ddp',
+        organizationId: mockOrgId,
+        type: DossierType.VEHICLE_SALE_DDP,
+        status: 'arrivedAtPort',
+      } as Awaited<ReturnType<DossiersService['findOne']>>);
+
+      await expect(
+        service.updateStatus(
+          'dos-ddp',
+          { status: 'customsClearance' },
+          'user-1',
+          mockOrgId,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'CUSTOMS_IS_SOURCE_OF_TRUTH' },
+      });
+    });
 
     it('does not apply DDP checkpoint categories to shipping-only arrival', async () => {
       jest.spyOn(service, 'findOne').mockResolvedValue({
@@ -319,7 +338,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   });
 
   describe('Workflow 2: VEHICLE_SALE_DDP', () => {
-    it('4. should allow DDP workflow to progress through customs and delivery', async () => {
+    it('4. should require DDP customs progression through the customs module', async () => {
       const mockDossier = {
         id: 'dos-ddp',
         reference: 'CA-2026-0002',
@@ -330,25 +349,17 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       };
 
       prisma.dossier.findFirst.mockResolvedValue(mockDossier);
-      prisma.dossier.update.mockResolvedValue({
-        ...mockDossier,
-        status: 'customsClearance',
+      await expect(
+        service.advanceStatus(
+          'dos-ddp',
+          'Vehicles entered customs',
+          'ops-user',
+          mockOrgId,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'CUSTOMS_IS_SOURCE_OF_TRUTH' },
       });
-
-      const res = await service.advanceStatus(
-        'dos-ddp',
-        'Vehicles entered customs',
-        'ops-user',
-        mockOrgId,
-      );
-
-      expect(prisma.dossier.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'customsClearance',
-          }),
-        }),
-      );
+      expect(prisma.dossier.update).not.toHaveBeenCalled();
     });
 
     it('5. should reject skipping mandatory intermediate steps in DDP', async () => {

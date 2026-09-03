@@ -19,6 +19,9 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     shipmentVehicle: {
       create: jest.fn(),
     },
+    customsFileVehicle: {
+      createMany: jest.fn(),
+    },
     customsFile: { findFirst: jest.fn(), create: jest.fn() },
     user: { findFirst: jest.fn() },
     task: { upsert: jest.fn() },
@@ -98,7 +101,7 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('creates one customs file per unambiguous shipment vehicle and is idempotent', async () => {
+  it('creates one customs file per sales dossier and is idempotent', async () => {
     mockPrisma.shipment.findFirst.mockResolvedValue({
       id: 'shp-1',
       organizationId: 'org-1',

@@ -32,7 +32,7 @@ import {
   type ApiDossierStatus,
 } from "@/lib/api-contract";
 import { adminApi, type User } from "@/lib/admin-api";
-import { commerceApi, type ApiDossier } from "@/lib/commerce-api";
+import { commerceApi, type ApiDossier, type ApiPartner } from "@/lib/commerce-api";
 import { ErrorState, LoadingState, inputClass } from "./common";
 import DossierEvidencePanel from "./DossierEvidencePanel";
 import { downloadDocument } from "@/lib/documents-api";
@@ -40,6 +40,9 @@ import {
   fetchDossierFinancialSummary,
   type DossierFinancialSummary,
 } from "@/lib/finance-api";
+import DossierTransitionDialog, {
+  DATA_ENTRY_STATUSES,
+} from "./DossierTransitionDialog";
 
 const workflows: Record<string, ApiDossierStatus[]> = {
   VEHICLE_SALE_CIF: [
@@ -47,10 +50,11 @@ const workflows: Record<string, ApiDossierStatus[]> = {
     "clientConfirmed",
     "contractSigned",
     "depositReceived",
+    "vehicleBooking",
     "purchaseConfirmed",
     "supplierPaid",
     "inspection",
-    "booking",
+    "shipmentBooking",
     "loading",
     "billOfLadingIssued",
     "inTransit",
@@ -63,10 +67,11 @@ const workflows: Record<string, ApiDossierStatus[]> = {
     "clientConfirmed",
     "contractSigned",
     "depositReceived",
+    "vehicleBooking",
     "purchaseConfirmed",
     "supplierPaid",
     "inspection",
-    "booking",
+    "shipmentBooking",
     "loading",
     "billOfLadingIssued",
     "inTransit",
@@ -93,6 +98,15 @@ const workflows: Record<string, ApiDossierStatus[]> = {
     "serviceCompleted",
   ],
 };
+const legacyWorkflows: Record<string, ApiDossierStatus[]> = {
+  VEHICLE_SALE_CIF: workflows.VEHICLE_SALE_CIF.filter(
+    (status) => status !== "vehicleBooking",
+  ).map((status) => status === "shipmentBooking" ? "booking" : status),
+  VEHICLE_SALE_DDP: workflows.VEHICLE_SALE_DDP.filter(
+    (status) => status !== "vehicleBooking",
+  ).map((status) => status === "shipmentBooking" ? "booking" : status),
+  SHIPPING_ONLY: workflows.SHIPPING_ONLY,
+};
 
 type Tab = "overview" | "finance" | "shipping" | "documents" | "history";
 
@@ -108,6 +122,8 @@ export default function DossierDetailExperience({
     useState<DossierFinancialSummary | null>(null);
   const [allowed, setAllowed] = useState<ApiDossierStatus[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [partners, setPartners] = useState<ApiPartner[]>([]);
+  const [pendingStatus, setPendingStatus] = useState<ApiDossierStatus | null>(null);
   const [salesUserId, setSalesUserId] = useState("");
   const [opsUserId, setOpsUserId] = useState("");
   const [comment, setComment] = useState("");
@@ -119,18 +135,20 @@ export default function DossierDetailExperience({
   const load = useCallback(async () => {
     setError("");
     try {
-      const [record, transitions, userPage, finance] = await Promise.all([
+      const [record, transitions, userPage, finance, partnerPage] = await Promise.all([
         commerceApi.dossiers.get(id),
         commerceApi.dossiers.allowed(id),
         adminApi.listUsers({ status: "active", limit: 100 }),
         hasPermission(Permission.FINANCE_READ)
           ? fetchDossierFinancialSummary(id)
           : Promise.resolve(null),
+        commerceApi.partners.list({ status: "active", limit: 100 }),
       ]);
       setDossier(record);
       setAllowed(transitions.allowedTransitions);
       setUsers(userPage.items);
       setFinancialSummary(finance);
+      setPartners(partnerPage.items);
       setSalesUserId(record.salesUserId ?? "");
       setOpsUserId(record.opsUserId ?? "");
     } catch (caught) {
@@ -153,6 +171,10 @@ export default function DossierDetailExperience({
   }, [load]);
 
   async function transition(status: ApiDossierStatus) {
+    if (DATA_ENTRY_STATUSES.has(status)) {
+      setPendingStatus(status);
+      return;
+    }
     setWorking(true);
     setError("");
     try {
@@ -163,6 +185,21 @@ export default function DossierDetailExperience({
       setError(
         caught instanceof Error ? caught.message : "Transition impossible",
       );
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function upgradeToDdp() {
+    const reason = window.prompt("Motif de l’upgrade CIF → DDP (facultatif)") ?? undefined;
+    if (reason === undefined) return;
+    setWorking(true);
+    setError("");
+    try {
+      await commerceApi.dossiers.upgradeToDdp(id, reason || undefined);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Upgrade impossible");
     } finally {
       setWorking(false);
     }
@@ -186,7 +223,9 @@ export default function DossierDetailExperience({
     }
   }
 
-  const workflow = dossier ? (workflows[dossier.type] ?? []) : [];
+  const workflow = dossier
+    ? ((dossier.workflowVersion >= 2 ? workflows : legacyWorkflows)[dossier.type] ?? [])
+    : [];
   const currentIndex = dossier ? workflow.indexOf(dossier.status) : -1;
   const salesUser = users.find((user) => user.id === dossier?.salesUserId);
   const opsUser = users.find((user) => user.id === dossier?.opsUserId);
@@ -255,6 +294,14 @@ export default function DossierDetailExperience({
               </div>
               {canWrite && (
                 <div className="flex flex-wrap gap-2">
+                  {dossier.type === "VEHICLE_SALE_CIF" &&
+                    dossier.status !== "documentsDelivered" &&
+                    dossier.status !== "closed" &&
+                    dossier.status !== "cancelled" && (
+                      <button type="button" disabled={working} onClick={() => void upgradeToDdp()} className="rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                        Upgrade to DDP
+                      </button>
+                    )}
                   {allowed
                     .filter((status) => status !== "cancelled")
                     .map((status) => (
@@ -312,6 +359,12 @@ export default function DossierDetailExperience({
                   "Non lié"
                 }
                 subvalue={dossier.offerReservation?.offer.reference || "—"}
+              />
+              <Info
+                icon={Ship}
+                label="Forwarder"
+                value={dossier.forwarderSupplier?.name || "Non affecté"}
+                subvalue={dossier.forwarderSupplier ? "Shipment Booking" : "À renseigner"}
               />
               <Info
                 icon={UsersRound}
@@ -442,6 +495,20 @@ export default function DossierDetailExperience({
             </div>
           </section>
         </div>
+        {pendingStatus && (
+          <DossierTransitionDialog
+            dossier={dossier}
+            status={pendingStatus}
+            partners={partners}
+            comment={comment || undefined}
+            onClose={() => setPendingStatus(null)}
+            onComplete={async () => {
+              setPendingStatus(null);
+              setComment("");
+              await load();
+            }}
+          />
+        )}
       </main>
     </>
   );
@@ -634,6 +701,26 @@ function Finance({
           icon={Check}
           label="Situation"
           value={summary ? stateLabels[summary.revenue.state] : "Non renseigné"}
+        />
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <Metric
+          icon={Ship}
+          label="Prix CIF"
+          value={
+            dossier.pricing?.available
+              ? `${Number(dossier.pricing.cifPrice).toLocaleString(getRuntimeLocale())} ${dossier.pricing.currency}`
+              : `En attente (${dossier.pricing?.missing.join(", ") || "données manquantes"})`
+          }
+        />
+        <Metric
+          icon={ReceiptText}
+          label="Prix DDP"
+          value={
+            dossier.pricing?.available
+              ? `${Number(dossier.pricing.ddpPrice).toLocaleString(getRuntimeLocale())} ${dossier.pricing.currency}${dossier.pricing.locked ? " · verrouillé" : ""}`
+              : "Calcul bloqué jusqu’à configuration complète"
+          }
         />
       </div>
       <h2 className="mt-7 font-bold">Échéancier</h2>
@@ -898,7 +985,13 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">
-                    {document.title || document.file?.originalName}
+                    {document.externalUrl ? (
+                      <a href={document.externalUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline">
+                        {document.title || "Lien externe"}
+                      </a>
+                    ) : (
+                      document.title || document.file?.originalName
+                    )}
                   </p>
                   <p className="text-xs uppercase tracking-wide text-muted">
                     {document.documentType || document.kind} · {document.status}

@@ -160,9 +160,11 @@ export const DOSSIER_STATUS_LABELS_API: Record<ApiDossierStatus, string> = {
   [DossierStatus.CLIENT_CONFIRMED]: "Client confirmé",
   [DossierStatus.CONTRACT_SIGNED]: "Contrat signé",
   [DossierStatus.DEPOSIT_RECEIVED]: "Acompte reçu",
+  [DossierStatus.VEHICLE_BOOKING]: "Vehicle Booking",
   [DossierStatus.PURCHASE_CONFIRMED]: "Achat confirmé",
   [DossierStatus.SUPPLIER_PAID]: "Fournisseur payé",
   [DossierStatus.INSPECTION]: "Inspection",
+  [DossierStatus.SHIPMENT_BOOKING]: "Shipment Booking",
   [DossierStatus.BOOKING]: "Booking",
   [DossierStatus.LOADING]: "Chargement",
   [DossierStatus.BILL_OF_LADING_ISSUED]: "BL émis",
@@ -189,6 +191,7 @@ export const DOSSIER_STATUS_LABELS_API: Record<ApiDossierStatus, string> = {
 
 export const VEHICLE_STATUS_LABELS_API: Record<ApiVehicleStatus, string> = {
   [VehicleStatus.PRE_PURCHASE]: "Pré-achat",
+  [VehicleStatus.REJECTED]: "Rejeté",
   [VehicleStatus.AVAILABLE]: "Disponible",
   [VehicleStatus.RESERVED]: "Réservé",
   [VehicleStatus.IN_TRANSIT]: "En transit",

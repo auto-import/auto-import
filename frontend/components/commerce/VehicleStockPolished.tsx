@@ -12,7 +12,7 @@ import {
   VehicleStatus,
   VEHICLE_STATUS_LABELS_API,
 } from "@/lib/api-contract";
-import { commerceApi, type ApiVehicle } from "@/lib/commerce-api";
+import { commerceApi, type ApiVehicle, type ApiVehicleLookup } from "@/lib/commerce-api";
 import {
   buttonClass,
   EmptyState,
@@ -43,6 +43,12 @@ const empty = {
   fuelType: "",
   transmission: "",
   color: "",
+  bodyType: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
+  weightKg: "",
+  rejectionReason: "",
   description: "",
 };
 
@@ -71,12 +77,17 @@ export default function VehicleStockPolished() {
   const [files, setFiles] = useState<Array<File | null>>([null, null, null]);
   const [saving, setSaving] = useState(false);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [lookups, setLookups] = useState<ApiVehicleLookup[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const page = await commerceApi.vehicles.list({ ...filters, limit: 12 });
+      const [page, lookupItems] = await Promise.all([
+        commerceApi.vehicles.list({ ...filters, limit: 12 }),
+        commerceApi.configuration.lookups(),
+      ]);
+      setLookups(lookupItems);
       setItems(page.items);
       setPagination({
         page: page.pagination.page,
@@ -142,6 +153,12 @@ export default function VehicleStockPolished() {
             fuelType: vehicle.specs?.fuelType ?? "",
             transmission: vehicle.specs?.transmission ?? "",
             color: vehicle.specs?.color ?? "",
+            bodyType: vehicle.bodyType ?? "",
+            lengthCm: String(vehicle.lengthCm ?? ""),
+            widthCm: String(vehicle.widthCm ?? ""),
+            heightCm: String(vehicle.heightCm ?? ""),
+            weightKg: String(vehicle.weightKg ?? ""),
+            rejectionReason: vehicle.rejectionReason ?? "",
             description: vehicle.specs?.description ?? "",
           }
         : empty,
@@ -181,6 +198,12 @@ export default function VehicleStockPolished() {
       currency: form.currency,
       status: form.status,
       acquisitionType: form.acquisitionType,
+      bodyType: form.bodyType || undefined,
+      lengthCm: form.lengthCm || undefined,
+      widthCm: form.widthCm || undefined,
+      heightCm: form.heightCm || undefined,
+      weightKg: form.weightKg || undefined,
+      rejectionReason: form.status === "rejected" ? form.rejectionReason : undefined,
     };
     try {
       const vehicle = editing
@@ -422,6 +445,8 @@ export default function VehicleStockPolished() {
           files={files}
           setFiles={setFiles}
           saving={saving}
+          lookups={lookups}
+          setLookups={setLookups}
           close={() => setFormOpen(false)}
           save={save}
         />
@@ -457,6 +482,7 @@ function VehicleDialog({
     return () => document.removeEventListener("keydown", handler);
   }, [close]);
   const specs = [
+    ["Statut", VEHICLE_STATUS_LABELS_API[vehicle.status]],
     ["État", vehicle.condition === "new" ? "Neuf" : "Occasion"],
     ["Carburant", vehicle.specs?.fuelType],
     ["Boîte de vitesses", vehicle.specs?.transmission],
@@ -472,6 +498,9 @@ function VehicleDialog({
     ["Conduite", vehicle.steeringSide],
     ["Couleur intérieure", vehicle.interiorColor],
     ["Garantie", vehicle.warranty],
+    ["Dimensions", vehicle.lengthCm && vehicle.widthCm && vehicle.heightCm ? `${vehicle.lengthCm} × ${vehicle.widthCm} × ${vehicle.heightCm} cm` : undefined],
+    ["Poids", vehicle.weightKg ? `${vehicle.weightKg} kg` : undefined],
+    ["Motif du rejet", vehicle.rejectionReason],
   ];
   return (
     <div
@@ -605,6 +634,8 @@ function VehicleForm({
   files,
   setFiles,
   saving,
+  lookups,
+  setLookups,
   close,
   save,
 }: {
@@ -614,6 +645,8 @@ function VehicleForm({
   files: Array<File | null>;
   setFiles: React.Dispatch<React.SetStateAction<Array<File | null>>>;
   saving: boolean;
+  lookups: ApiVehicleLookup[];
+  setLookups: React.Dispatch<React.SetStateAction<ApiVehicleLookup[]>>;
   close: () => void;
   save: (event: FormEvent) => void;
 }) {
@@ -649,7 +682,19 @@ function VehicleForm({
               ["transmission", "Transmission"],
               ["color", "Couleur"],
             ] as Array<[keyof typeof empty, string]>
-          ).map(([key, label]) => (
+          )
+            .filter(
+              ([key]) =>
+                ![
+                  "brand",
+                  "model",
+                  "engine",
+                  "fuelType",
+                  "transmission",
+                  "color",
+                ].includes(key),
+            )
+            .map(([key, label]) => (
             <label key={key}>
               <span className="field-label">{label}</span>
               <input
@@ -670,6 +715,16 @@ function VehicleForm({
               />
             </label>
           ))}
+          <ManagedLookupSelect kind="BRAND" label="Marque *" required value={form.brand} lookups={lookups} setLookups={setLookups} onChange={(brand) => setForm((current) => ({ ...current, brand, model: brand === current.brand ? current.model : "" }))} />
+          <ManagedLookupSelect kind="MODEL" label="Modèle *" required value={form.model} parentValue={form.brand} lookups={lookups} setLookups={setLookups} onChange={(model) => setForm((current) => ({ ...current, model }))} />
+          <ManagedLookupSelect kind="ENGINE" label="Moteur" value={form.engine} lookups={lookups} setLookups={setLookups} onChange={(engine) => setForm((current) => ({ ...current, engine }))} />
+          <ManagedLookupSelect kind="FUEL_TYPE" label="Carburant" value={form.fuelType} lookups={lookups} setLookups={setLookups} onChange={(fuelType) => setForm((current) => ({ ...current, fuelType }))} />
+          <ManagedLookupSelect kind="TRANSMISSION" label="Transmission" value={form.transmission} lookups={lookups} setLookups={setLookups} onChange={(transmission) => setForm((current) => ({ ...current, transmission }))} />
+          <ManagedLookupSelect kind="COLOR" label="Couleur" value={form.color} lookups={lookups} setLookups={setLookups} onChange={(color) => setForm((current) => ({ ...current, color }))} />
+          <ManagedLookupSelect kind="BODY_TYPE" label="Carrosserie" value={form.bodyType} lookups={lookups} setLookups={setLookups} onChange={(bodyType) => setForm((current) => ({ ...current, bodyType }))} />
+          {([['lengthCm', 'Longueur (cm)'], ['widthCm', 'Largeur (cm)'], ['heightCm', 'Hauteur (cm)'], ['weightKg', 'Poids (kg)']] as Array<[keyof typeof empty, string]>).map(([key, label]) => (
+            <label key={key}><span className="field-label">{label}</span><input type="number" min="0.01" step="0.01" className={inputClass} value={form[key]} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} /></label>
+          ))}
           <label>
             <span className="field-label">Statut</span>
             <select
@@ -689,6 +744,12 @@ function VehicleForm({
               ))}
             </select>
           </label>
+          {form.status === "rejected" && (
+            <label className="sm:col-span-2 lg:col-span-3">
+              <span className="field-label">Motif du rejet *</span>
+              <textarea required className={inputClass} value={form.rejectionReason} onChange={(event) => setForm((current) => ({ ...current, rejectionReason: event.target.value }))} />
+            </label>
+          )}
           <label>
             <span className="field-label">Source</span>
             <select
@@ -757,6 +818,61 @@ function VehicleForm({
         </div>
       </form>
     </div>
+  );
+}
+
+function ManagedLookupSelect({
+  kind,
+  label,
+  value,
+  parentValue,
+  required,
+  lookups,
+  setLookups,
+  onChange,
+}: {
+  kind: ApiVehicleLookup["kind"];
+  label: string;
+  value: string;
+  parentValue?: string;
+  required?: boolean;
+  lookups: ApiVehicleLookup[];
+  setLookups: React.Dispatch<React.SetStateAction<ApiVehicleLookup[]>>;
+  onChange: (value: string) => void;
+}) {
+  const parent = parentValue
+    ? lookups.find(
+        (item) => item.kind === "BRAND" && item.value === parentValue,
+      )
+    : undefined;
+  const options = lookups.filter(
+    (item) =>
+      item.kind === kind &&
+      item.active &&
+      (kind !== "MODEL" || item.parentId === parent?.id),
+  );
+  async function change(next: string) {
+    if (next !== "__add__") return onChange(next);
+    const entered = window.prompt(`Ajouter ${label.replace(" *", "").toLowerCase()}`)?.trim();
+    if (!entered) return;
+    if (kind === "MODEL" && !parent) return;
+    const created = await commerceApi.configuration.createLookup({
+      kind,
+      value: entered,
+      parentId: kind === "MODEL" ? parent?.id : undefined,
+    });
+    setLookups((current) => [...current.filter((item) => item.id !== created.id), created]);
+    onChange(created.value);
+  }
+  return (
+    <label>
+      <span className="field-label">{label}</span>
+      <select required={required} disabled={kind === "MODEL" && !parent} className={inputClass} value={value} onChange={(event) => void change(event.target.value)}>
+        <option value="">Sélectionner</option>
+        {options.map((item) => <option key={item.id} value={item.value}>{item.value}{item.needsReview ? " · à vérifier" : ""}</option>)}
+        <option value="__add__">+ Ajouter une valeur</option>
+      </select>
+    </label>
   );
 }
 
