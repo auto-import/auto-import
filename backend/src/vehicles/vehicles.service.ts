@@ -492,6 +492,26 @@ export class VehiclesService {
             'A rejection reason is required when rejecting a vehicle',
           );
         }
+        if (nextStatus !== existingVehicle.status) {
+          const activeDossier = await transaction.dossierVehicle.findFirst({
+            where: {
+              vehicleId: id,
+              dossier: {
+                status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+              },
+            },
+            select: {
+              dossier: { select: { id: true, reference: true, status: true } },
+            },
+          });
+          if (activeDossier && nextStatus !== 'rejected') {
+            throw new ConflictException({
+              code: 'VEHICLE_STATUS_MANAGED_BY_DOSSIER',
+              message: `Vehicle is attached to active dossier ${activeDossier.dossier.reference} (${activeDossier.dossier.status}); its status is managed by the dossier workflow.`,
+              dossierId: activeDossier.dossier.id,
+            });
+          }
+        }
         const nextVin = updateVehicleDto.vin ?? existingVehicle.vin;
         if (!nextVin && nextStatus !== 'prePurchase') {
           throw new ConflictException(

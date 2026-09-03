@@ -329,13 +329,22 @@ export default function ExpeditionsPage() {
     {
       key: "vehicles",
       header: "Véhicules",
-      render: (row) => (
-        <button type="button" onClick={() => setDetailId(row.id)} className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface border text-xs font-semibold">
-          {row.vehicles?.length || 0} véhicule
-          {row.vehicles && row.vehicles.length > 1 ? "s" : ""}
-          {row.capacity?.totalVolumeM3 ? ` · ${Math.max(0, Math.round((row.capacity.usedVolumeM3 / row.capacity.totalVolumeM3) * 100))}% vol.` : ""}
-        </button>
-      ),
+      render: (row) => {
+        const count = row.capacity?.vehicleCount ?? row.vehicles?.length ?? 0;
+        const used = row.capacity?.usedVolumeM3;
+        const total = row.capacity?.totalVolumeM3;
+        const usedKg = row.capacity?.usedWeightKg;
+        const totalKg = row.capacity?.totalWeightKg;
+        return (
+          <button type="button" onClick={() => setDetailId(row.id)} className="inline-flex flex-col items-start justify-center gap-0.5 px-2.5 py-1.5 rounded bg-surface border text-xs font-semibold">
+            <span>{count} véhicule{count !== 1 ? "s" : ""}</span>
+            <span className="font-normal text-muted">
+              {total != null ? `${(used ?? 0).toFixed(1)} / ${Number(total).toFixed(1)} m³` : `${(used ?? 0).toFixed(1)} m³`}
+              {totalKg != null ? ` · ${Math.round(usedKg ?? 0)} / ${Math.round(Number(totalKg))} kg` : ""}
+            </span>
+          </button>
+        );
+      },
     },
     {
       key: "status",

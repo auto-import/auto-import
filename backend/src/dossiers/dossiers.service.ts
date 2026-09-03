@@ -8,12 +8,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
+import { VehicleStatusSyncService } from './workflows/vehicle-status-sync.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { FilterDossierDto } from './dto/filter-dossier.dto';
 import { DossierType } from './dto/dossier-type.enum';
 import { paginate } from '../common/helpers/pagination.helper';
-import { DossierStatus } from '@auto-import/contracts';
+import { DossierStatus, VehicleStatus } from '@auto-import/contracts';
 import { Prisma } from '@prisma/client';
 import { UpdateDossierDto } from './dto/update-dossier.dto';
 import { DocumentsService } from '../documents/documents.service';
@@ -26,6 +27,7 @@ export class DossiersService {
   constructor(
     private prisma: PrismaService,
     private workflowService: DossierWorkflowService,
+    private vehicleStatusSync: VehicleStatusSyncService,
     private documentsService: DocumentsService,
     @Optional() private configurationService?: ConfigurationService,
   ) {}
@@ -964,6 +966,9 @@ export class DossiersService {
       status === DossierStatus.SERVICE_COMPLETED ||
       status === DossierStatus.CANCELLED;
 
+    // A rejected vehicle must not be silently advanced by the dossier workflow.
+    this.vehicleStatusSync.assertTransitionAllowed(dossierVehicles, status);
+
     await this.prisma.$transaction(async (prisma) => {
       if (updateStatusDto.deposit) {
         const payment = await prisma.payment.create({
@@ -1122,16 +1127,34 @@ export class DossiersService {
         });
       }
 
+      // ────────────────────────────────────────────────────────────────
+      // Vehicle status synchronization (single source of truth).
+      // Cancellation only releases reserved vehicles; every other milestone
+      // is driven by the authoritative dossier → vehicle status mapping.
+      // ────────────────────────────────────────────────────────────────
+      const syncVehicles = updated.dossierVehicles.map((dv) => dv.vehicle);
       if (status === DossierStatus.CANCELLED) {
-        const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
-        if (vehicleIds.length > 0) {
-          await prisma.vehicle.updateMany({
-            where: {
-              id: { in: vehicleIds },
+        for (const vehicle of syncVehicles) {
+          if (vehicle.status !== VehicleStatus.RESERVED) continue;
+          await prisma.vehicle.update({
+            where: { id: vehicle.id },
+            data: { status: VehicleStatus.AVAILABLE },
+          });
+          await prisma.auditLog.create({
+            data: {
               organizationId: updated.organizationId,
-              status: 'reserved',
+              userId: userId || 'system',
+              action: 'vehicle.status.synced',
+              entityType: 'vehicle',
+              entityId: vehicle.id,
+              oldValues: { status: vehicle.status },
+              newValues: {
+                status: VehicleStatus.AVAILABLE,
+                reason: `Dossier cancelled (${currentStatus})`,
+                dossierId: id,
+                dossierReference: updated.reference,
+              },
             },
-            data: { status: 'available' },
           });
         }
         if (updated.orderId) {
@@ -1171,39 +1194,42 @@ export class DossiersService {
             },
           });
         }
-      }
-
-      // Only a completed vehicle-sale dossier can mark its vehicles sold.
-      if (
-        status === DossierStatus.CLOSED &&
-        updated.type !== DossierType.SHIPPING_ONLY
-      ) {
-        const vehicleIds = updated.dossierVehicles.map((dv) => dv.vehicleId);
-        if (vehicleIds.length > 0) {
-          await prisma.vehicle.updateMany({
-            where: { id: { in: vehicleIds } },
-            data: { status: 'sold' },
-          });
-        }
-        const offerReservation = await prisma.offerReservation.findFirst({
-          where: {
-            dossierId: id,
-            organizationId: updated.organizationId,
-            status: 'active',
-          },
+      } else {
+        await this.vehicleStatusSync.syncForTransition(prisma, {
+          organizationId: updated.organizationId,
+          dossierId: id,
+          dossierReference: updated.reference,
+          fromStatus: currentStatus,
+          toStatus: status,
+          vehicles: syncVehicles,
+          userId: userId || 'system',
         });
-        if (offerReservation) {
-          await prisma.offerReservation.update({
-            where: { id: offerReservation.id },
-            data: { status: 'consumed' },
-          });
-          await prisma.chinaOffer.update({
-            where: { id: offerReservation.offerId },
-            data: {
-              reservedQuantity: { decrement: offerReservation.quantity },
-              availableQuantity: { decrement: offerReservation.quantity },
+
+        // Only a completed vehicle-sale dossier can mark its vehicles sold.
+        if (
+          status === DossierStatus.CLOSED &&
+          updated.type !== DossierType.SHIPPING_ONLY
+        ) {
+          const offerReservation = await prisma.offerReservation.findFirst({
+            where: {
+              dossierId: id,
+              organizationId: updated.organizationId,
+              status: 'active',
             },
           });
+          if (offerReservation) {
+            await prisma.offerReservation.update({
+              where: { id: offerReservation.id },
+              data: { status: 'consumed' },
+            });
+            await prisma.chinaOffer.update({
+              where: { id: offerReservation.offerId },
+              data: {
+                reservedQuantity: { decrement: offerReservation.quantity },
+                availableQuantity: { decrement: offerReservation.quantity },
+              },
+            });
+          }
         }
       }
 

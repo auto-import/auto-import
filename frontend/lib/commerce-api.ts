@@ -135,6 +135,12 @@ export interface ApiVehicle {
   condition?: string | null;
   purchasePrice?: string | number | null;
   sellingPrice?: string | number | null;
+  fobFcaPrice?: string | number | null;
+  shippingPrice?: string | number | null;
+  profitAmount?: string | number | null;
+  customsClearanceAmount?: string | number | null;
+  localTransportAmount?: string | number | null;
+  ddpPrice?: string | number | null;
   currency?: string | null;
   status: ApiVehicleStatus;
   acquisitionType: string;

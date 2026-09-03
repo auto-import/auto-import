@@ -7,6 +7,7 @@ import {
 import { DossiersService } from './dossiers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
+import { VehicleStatusSyncService } from './workflows/vehicle-status-sync.service';
 import { DossierType } from './dto/dossier-type.enum';
 import { DocumentsService } from '../documents/documents.service';
 
@@ -89,6 +90,12 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         create: jest.fn(),
         findMany: jest.fn(),
       },
+      notification: {
+        createMany: jest.fn(),
+      },
+      auditLog: {
+        create: jest.fn(),
+      },
       $transaction: jest.fn(async (callback) => {
         if (typeof callback === 'function') {
           return callback(prisma);
@@ -110,6 +117,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       providers: [
         DossiersService,
         DossierWorkflowService,
+        VehicleStatusSyncService,
         {
           provide: DocumentsService,
           useValue: documentsGate,
@@ -518,10 +526,20 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         mockOrgId,
       );
 
-      expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['veh-1'] } },
+      expect(prisma.vehicle.update).toHaveBeenCalledWith({
+        where: { id: 'veh-1' },
         data: { status: 'sold' },
       });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'vehicle.status.synced',
+            entityType: 'vehicle',
+            entityId: 'veh-1',
+            newValues: expect.objectContaining({ status: 'sold' }),
+          }),
+        }),
+      );
     });
   });
 });

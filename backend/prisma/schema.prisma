@@ -1296,6 +1296,12 @@ model Vehicle {
   equipment         Json?
   purchasePrice     Decimal?           @db.Decimal(12, 2)
   sellingPrice      Decimal?           @db.Decimal(12, 2)
+  fobFcaPrice       Decimal?           @db.Decimal(12, 2)
+  shippingPrice     Decimal?           @db.Decimal(12, 2)
+  profitAmount      Decimal?           @db.Decimal(12, 2)
+  customsClearanceAmount Decimal?      @db.Decimal(12, 2)
+  localTransportAmount   Decimal?      @db.Decimal(12, 2)
+  ddpPrice          Decimal?           @db.Decimal(12, 2)
   currency          String?
   status            String             @default("available")
   rejectionReason   String?

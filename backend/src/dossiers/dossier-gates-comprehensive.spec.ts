@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { DossierStatus } from '@auto-import/contracts';
 import { DossiersService } from './dossiers.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
+import { VehicleStatusSyncService } from './workflows/vehicle-status-sync.service';
 import { DossierType } from './dto/dossier-type.enum';
 import { DocumentsService } from '../documents/documents.service';
 
@@ -50,6 +51,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
     dossiersService = new DossiersService(
       mockPrisma,
       workflowService,
+      new VehicleStatusSyncService(),
       documentsService as unknown as DocumentsService,
     );
     mockPrisma.partner.findFirst.mockResolvedValue({
