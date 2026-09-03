@@ -78,6 +78,15 @@ export default function DossierWizardWorkspace() {
   const [requestId, setRequestId] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [opsUserId, setOpsUserId] = useState("");
+  const [chinaResponsibleId, setChinaResponsibleId] = useState("");
+  const [externalVehicle, setExternalVehicle] = useState({
+    brand: "",
+    model: "",
+    lengthCm: "",
+    widthCm: "",
+    heightCm: "",
+    weightKg: "",
+  });
 
   useEffect(() => {
     void (async () => {
@@ -133,6 +142,12 @@ export default function DossierWizardWorkspace() {
     ) {
       return "Sélectionnez une offre, un véhicule disponible ou une demande de sourcing.";
     }
+    if (step === 2 && type === DossierType.SHIPPING_ONLY) {
+      const hasBrand = externalVehicle.brand.trim() !== "";
+      const hasModel = externalVehicle.model.trim() !== "";
+      if (hasBrand !== hasModel)
+        return "Renseignez la marque et le modèle du véhicule externe (ou laissez les deux vides).";
+    }
     return "";
   }
 
@@ -165,14 +180,45 @@ export default function DossierWizardWorkspace() {
           await commerceApi.offers.reserve(offer.id, { clientId, quantity: 1 })
         ).id;
       }
+      let externalVehicleId: string | undefined;
+      if (
+        type === DossierType.SHIPPING_ONLY &&
+        externalVehicle.brand.trim() &&
+        externalVehicle.model.trim()
+      ) {
+        const created = await commerceApi.vehicles.create({
+          brand: externalVehicle.brand.trim(),
+          model: externalVehicle.model.trim(),
+          acquisitionType: "external",
+          status: "available",
+          lengthCm: externalVehicle.lengthCm
+            ? Number(externalVehicle.lengthCm)
+            : undefined,
+          widthCm: externalVehicle.widthCm
+            ? Number(externalVehicle.widthCm)
+            : undefined,
+          heightCm: externalVehicle.heightCm
+            ? Number(externalVehicle.heightCm)
+            : undefined,
+          weightKg: externalVehicle.weightKg
+            ? Number(externalVehicle.weightKg)
+            : undefined,
+        });
+        externalVehicleId = created.id;
+      }
       const dossier = await commerceApi.dossiers.create({
         clientId,
         type,
-        vehicleIds: vehicleId ? [vehicleId] : undefined,
+        vehicleIds: vehicleId || externalVehicleId
+          ? [vehicleId, externalVehicleId].filter(
+              (value): value is string => Boolean(value),
+            )
+          : undefined,
         vehicleRequestId: requestId || undefined,
         offerReservationId,
         salesUserId: salesUserId || undefined,
         opsUserId: opsUserId || undefined,
+        chinaResponsibleId: chinaResponsibleId || undefined,
       });
       router.push(`/dossiers/${dossier.id}`);
     } catch (caught) {
@@ -366,7 +412,70 @@ export default function DossierWizardWorkspace() {
               </div>
             )}
 
-            {step === 2 && (
+            {step === 2 && type === DossierType.SHIPPING_ONLY && (
+              <div className="mx-auto max-w-2xl">
+                <h2 className="text-xl font-bold">Véhicule externe</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Décrivez le véhicule à expédier (texte libre). Il pourra aussi
+                  être complété après la création du dossier.
+                </p>
+                <div className="mt-7 grid gap-5 sm:grid-cols-2">
+                  <label>
+                    <span className="field-label">Marque</span>
+                    <input
+                      className={inputClass}
+                      value={externalVehicle.brand}
+                      onChange={(event) =>
+                        setExternalVehicle((current) => ({
+                          ...current,
+                          brand: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Modèle</span>
+                    <input
+                      className={inputClass}
+                      value={externalVehicle.model}
+                      onChange={(event) =>
+                        setExternalVehicle((current) => ({
+                          ...current,
+                          model: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  {(
+                    [
+                      ["lengthCm", "Longueur (cm)"],
+                      ["widthCm", "Largeur (cm)"],
+                      ["heightCm", "Hauteur (cm)"],
+                      ["weightKg", "Poids (kg)"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key}>
+                      <span className="field-label">{label}</span>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        className={inputClass}
+                        value={externalVehicle[key]}
+                        onChange={(event) =>
+                          setExternalVehicle((current) => ({
+                            ...current,
+                            [key]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {step === 2 && type !== DossierType.SHIPPING_ONLY && (
               <div className="mx-auto max-w-2xl">
                 <h2 className="text-xl font-bold">Véhicule et source</h2>
                 <p className="mt-1 text-sm text-muted">
@@ -435,12 +544,6 @@ export default function DossierWizardWorkspace() {
                     </label>
                   </div>
                 )}
-                {type === DossierType.SHIPPING_ONLY && !offer && (
-                  <p className="mt-5 rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
-                    Pour une expédition seule, le véhicule externe pourra aussi
-                    être renseigné après la création.
-                  </p>
-                )}
               </div>
             )}
 
@@ -474,6 +577,22 @@ export default function DossierWizardWorkspace() {
                       className={inputClass}
                       value={opsUserId}
                       onChange={(event) => setOpsUserId(event.target.value)}
+                    >
+                      <option value="">Non assigné</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.firstName} {user.lastName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="field-label">Responsable Chine</span>
+                    <select
+                      aria-label="Responsable Chine"
+                      className={inputClass}
+                      value={chinaResponsibleId}
+                      onChange={(event) => setChinaResponsibleId(event.target.value)}
                     >
                       <option value="">Non assigné</option>
                       {users.map((user) => (
@@ -524,13 +643,16 @@ export default function DossierWizardWorkspace() {
                           ? `${selectedVehicle.brand} ${selectedVehicle.model}`
                           : selectedRequest
                             ? `${selectedRequest.brand || "Sourcing"} ${selectedRequest.model || ""}`
-                            : "Véhicule externe à renseigner"
+                            : type === DossierType.SHIPPING_ONLY &&
+                                externalVehicle.brand.trim()
+                              ? `${externalVehicle.brand} ${externalVehicle.model}`.trim()
+                              : "Véhicule externe à renseigner"
                     }
                   />
                   <Summary
                     icon={UsersRound}
                     label="Équipe"
-                    value={`${users.find((item) => item.id === salesUserId)?.firstName ?? "Utilisateur courant"} · ${users.find((item) => item.id === opsUserId)?.firstName ?? "Opérations non assignées"}`}
+                    value={`${users.find((item) => item.id === salesUserId)?.firstName ?? "Utilisateur courant"} · ${users.find((item) => item.id === opsUserId)?.firstName ?? "Opérations non assignées"}${users.find((item) => item.id === chinaResponsibleId)?.firstName ? ` · Chine · ${users.find((item) => item.id === chinaResponsibleId)?.firstName}` : ""}`}
                   />
                 </div>
               </div>

@@ -346,6 +346,7 @@ export interface ApiDossier {
   };
   salesUserId: string;
   opsUserId?: string | null;
+  chinaResponsibleId?: string | null;
   openedAt: string;
   closedAt?: string | null;
   vehicles: ApiVehicle[];

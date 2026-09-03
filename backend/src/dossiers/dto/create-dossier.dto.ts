@@ -56,4 +56,8 @@ export class CreateDossierDto {
   @IsOptional()
   @IsUUID()
   opsUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  chinaResponsibleId?: string;
 }

@@ -126,6 +126,7 @@ export default function DossierDetailExperience({
   const [pendingStatus, setPendingStatus] = useState<ApiDossierStatus | null>(null);
   const [salesUserId, setSalesUserId] = useState("");
   const [opsUserId, setOpsUserId] = useState("");
+  const [chinaResponsibleId, setChinaResponsibleId] = useState("");
   const [comment, setComment] = useState("");
   const [tab, setTab] = useState<Tab>("overview");
   const [error, setError] = useState("");
@@ -151,6 +152,7 @@ export default function DossierDetailExperience({
       setPartners(partnerPage.items);
       setSalesUserId(record.salesUserId ?? "");
       setOpsUserId(record.opsUserId ?? "");
+      setChinaResponsibleId(record.chinaResponsibleId ?? "");
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Chargement impossible",
@@ -212,6 +214,7 @@ export default function DossierDetailExperience({
       await commerceApi.dossiers.update(id, {
         salesUserId,
         opsUserId: opsUserId || undefined,
+        chinaResponsibleId: chinaResponsibleId || undefined,
       });
       await load();
     } catch (caught) {
@@ -229,6 +232,7 @@ export default function DossierDetailExperience({
   const currentIndex = dossier ? workflow.indexOf(dossier.status) : -1;
   const salesUser = users.find((user) => user.id === dossier?.salesUserId);
   const opsUser = users.find((user) => user.id === dossier?.opsUserId);
+  const chinaUser = users.find((user) => user.id === dossier?.chinaResponsibleId);
   const upfront = dossier?.sections?.finance?.paymentPlan?.installments?.find(
     (item) => item.installmentNumber === 1,
   );
@@ -375,9 +379,16 @@ export default function DossierDetailExperience({
                     : "Commercial non assigné"
                 }
                 subvalue={
-                  opsUser
-                    ? `Opérations · ${opsUser.firstName} ${opsUser.lastName}`
-                    : "Opérations non assignées"
+                  [
+                    opsUser
+                      ? `Opérations · ${opsUser.firstName} ${opsUser.lastName}`
+                      : "Opérations non assignées",
+                    chinaUser
+                      ? `Chine · ${chinaUser.firstName} ${chinaUser.lastName}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
                 }
               />
             </div>
@@ -477,8 +488,10 @@ export default function DossierDetailExperience({
                   users={users}
                   salesUserId={salesUserId}
                   opsUserId={opsUserId}
+                  chinaResponsibleId={chinaResponsibleId}
                   setSalesUserId={setSalesUserId}
                   setOpsUserId={setOpsUserId}
+                  setChinaResponsibleId={setChinaResponsibleId}
                   comment={comment}
                   setComment={setComment}
                   canWrite={canWrite}
@@ -544,8 +557,10 @@ function Overview({
   users,
   salesUserId,
   opsUserId,
+  chinaResponsibleId,
   setSalesUserId,
   setOpsUserId,
+  setChinaResponsibleId,
   comment,
   setComment,
   canWrite,
@@ -556,8 +571,10 @@ function Overview({
   users: User[];
   salesUserId: string;
   opsUserId: string;
+  chinaResponsibleId: string;
   setSalesUserId: (value: string) => void;
   setOpsUserId: (value: string) => void;
+  setChinaResponsibleId: (value: string) => void;
   comment: string;
   setComment: (value: string) => void;
   canWrite: boolean;
@@ -628,6 +645,22 @@ function Overview({
               className={inputClass}
               value={opsUserId}
               onChange={(event) => setOpsUserId(event.target.value)}
+            >
+              <option value="">Non assigné</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.firstName} {user.lastName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="field-label">Responsable Chine</span>
+            <select
+              disabled={!canWrite}
+              className={inputClass}
+              value={chinaResponsibleId}
+              onChange={(event) => setChinaResponsibleId(event.target.value)}
             >
               <option value="">Non assigné</option>
               {users.map((user) => (

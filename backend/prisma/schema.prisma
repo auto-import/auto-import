@@ -143,6 +143,7 @@ model User {
   refreshSessions           RefreshSession[]
   salesDossiers             Dossier[]                   @relation("DossierSalesUser")
   operationsDossiers        Dossier[]                   @relation("DossierOperationsUser")
+  chinaResponsibleDossiers  Dossier[]                   @relation("DossierChinaResponsible")
   dossierStatusChanges      DossierStatusHistory[]
   prospectActivities        ProspectActivity[]
   assignedProspects         Prospect[]
@@ -1211,6 +1212,8 @@ model Dossier {
   salesUser        User              @relation("DossierSalesUser", fields: [salesUserId], references: [id])
   opsUserId        String?
   opsUser          User?             @relation("DossierOperationsUser", fields: [opsUserId], references: [id])
+  chinaResponsibleId String?
+  chinaResponsible   User?           @relation("DossierChinaResponsible", fields: [chinaResponsibleId], references: [id])
   openedAt         DateTime          @default(now())
   closedAt         DateTime?
   createdAt        DateTime          @default(now())
@@ -1242,6 +1245,7 @@ model Dossier {
   @@index([clientId])
   @@index([salesUserId])
   @@index([opsUserId])
+  @@index([chinaResponsibleId])
   @@index([forwarderSupplierId])
 }
 

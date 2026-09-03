@@ -35,7 +35,6 @@ const empty = {
   year: "",
   mileage: "",
   condition: "used",
-  sellingPrice: "",
   currency: "DZD",
   status: "available",
   acquisitionType: "stock",
@@ -145,7 +144,6 @@ export default function VehicleStockPolished() {
             year: String(vehicle.year ?? ""),
             mileage: String(vehicle.mileage ?? ""),
             condition: vehicle.condition ?? "used",
-            sellingPrice: String(vehicle.sellingPrice ?? ""),
             currency: vehicle.currency ?? "DZD",
             status: vehicle.status,
             acquisitionType: vehicle.acquisitionType,
@@ -194,7 +192,6 @@ export default function VehicleStockPolished() {
       year: form.year || undefined,
       mileage: form.mileage || undefined,
       condition: form.condition,
-      sellingPrice: form.sellingPrice || undefined,
       currency: form.currency,
       status: form.status,
       acquisitionType: form.acquisitionType,
@@ -676,7 +673,6 @@ function VehicleForm({
               ["vin", "VIN"],
               ["year", "Année"],
               ["mileage", "Kilométrage"],
-              ["sellingPrice", "Prix de vente"],
               ["engine", "Moteur"],
               ["fuelType", "Carburant"],
               ["transmission", "Transmission"],
@@ -700,7 +696,7 @@ function VehicleForm({
               <input
                 required={key === "brand" || key === "model"}
                 type={
-                  ["year", "mileage", "sellingPrice"].includes(key)
+                  ["year", "mileage"].includes(key)
                     ? "number"
                     : "text"
                 }
@@ -769,6 +765,30 @@ function VehicleForm({
               ))}
             </select>
           </label>
+        </div>
+        <div className="mt-4 grid gap-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-2">
+          <label>
+            <span className="field-label">Prix de vente CIF</span>
+            <input
+              disabled
+              value="—"
+              title="Calculé au niveau du dossier une fois le fret, l’assurance, les droits de douane et la livraison renseignés."
+              className={`${inputClass} cursor-not-allowed bg-neutral-100 text-muted`}
+            />
+          </label>
+          <label>
+            <span className="field-label">Prix de vente DDP</span>
+            <input
+              disabled
+              value="—"
+              title="Calculé au niveau du dossier une fois le fret, l’assurance, les droits de douane et la livraison renseignés."
+              className={`${inputClass} cursor-not-allowed bg-neutral-100 text-muted`}
+            />
+          </label>
+          <p className="sm:col-span-2 text-xs text-muted">
+            Prix calculés automatiquement (base + fret + assurance + droits de
+            douane + livraison) et non saisis manuellement.
+          </p>
         </div>
         <fieldset className="mt-6">
           <legend className="font-bold">

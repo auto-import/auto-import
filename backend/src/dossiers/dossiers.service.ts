@@ -77,6 +77,7 @@ export class DossiersService {
       orderId,
       offerReservationId,
       opsUserId,
+      chinaResponsibleId,
     } = createDossierDto;
 
     // Check if client exists AND belongs to same organization
@@ -92,7 +93,7 @@ export class DossiersService {
 
     const salesUserIdToUse = createDossierDto.salesUserId ?? salesUserId;
     const teamIds = [
-      ...new Set([salesUserIdToUse, opsUserId].filter(Boolean)),
+      ...new Set([salesUserIdToUse, opsUserId, chinaResponsibleId].filter(Boolean)),
     ] as string[];
     const teamCount = await this.prisma.user.count({
       where: { id: { in: teamIds }, organizationId, status: 'active' },
@@ -220,6 +221,7 @@ export class DossiersService {
           workflowVersion: 2,
           salesUserId: salesUserIdToUse,
           opsUserId,
+          chinaResponsibleId,
           openedAt: new Date(),
           dossierVehicles:
             uniqueVehicleIds.length > 0
@@ -1241,7 +1243,7 @@ export class DossiersService {
       );
     }
     const ids = [
-      ...new Set([dto.salesUserId, dto.opsUserId].filter(Boolean)),
+      ...new Set([dto.salesUserId, dto.opsUserId, dto.chinaResponsibleId].filter(Boolean)),
     ] as string[];
     if (ids.length) {
       const valid = await this.prisma.user.count({
