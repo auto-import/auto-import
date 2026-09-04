@@ -9,6 +9,7 @@ import {
   IsUUID,
   IsArray,
   ArrayMinSize,
+  ValidateIf,
   ValidateNested,
   Max,
   Min,
@@ -74,6 +75,7 @@ export class CreateOfferDto {
   @IsOptional() @IsString() notes?: string;
 
   @IsOptional()
+  @ValidateIf((o) => o.vehicles != null && o.vehicles !== undefined)
   @Transform(({ value }: { value: unknown }): unknown => {
     if (typeof value !== 'string') return value;
     try {
