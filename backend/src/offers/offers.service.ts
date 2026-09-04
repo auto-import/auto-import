@@ -95,9 +95,20 @@ export class OffersService {
       const validFrom = new Date(dto.validFrom);
       const validUntil = new Date(dto.validUntil);
       this.validateDates(validFrom, validUntil);
+      const {
+        validFrom: _vf,
+        validUntil: _vu,
+        supplierPrice: _sp,
+        incoterm: _inc,
+        location: _loc,
+        paymentConditions: _pc,
+        vin: _vin,
+        leadTimeDays: _ltd,
+        ...rest
+      } = dto;
       const offer = await tx.chinaOffer.create({
         data: {
-          ...dto,
+          ...rest,
           specification: dto.specification as Prisma.InputJsonValue,
           validFrom,
           validUntil,
