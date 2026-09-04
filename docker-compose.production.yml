@@ -51,6 +51,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile.production
       target: migrate
+      args:
+        APP_COMMIT_SHA: ${APP_COMMIT_SHA:-unknown}
     restart: "no"
     environment: &backend_environment
       NODE_ENV: production
@@ -65,6 +67,7 @@ services:
       PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY}
       PII_LOOKUP_HMAC_KEY: ${PII_LOOKUP_HMAC_KEY}
       INTEGRATION_SECRETS_ENCRYPTION_KEY: ${INTEGRATION_SECRETS_ENCRYPTION_KEY}
+      DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:-}
       PRIVATE_STORAGE_ROOT: ${PRIVATE_STORAGE_ROOT:-/app/storage/private}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TELEPHONY_PROVIDER: disabled
@@ -83,6 +86,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile.production
       target: runtime
+      args:
+        APP_COMMIT_SHA: ${APP_COMMIT_SHA:-unknown}
     restart: unless-stopped
     environment:
       <<: *backend_environment

@@ -16,7 +16,7 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
   private readonly connectionPool: pg.Pool;
   private static readonly REQUIRED_MIGRATION =
-    '20260830020000_offer_reservation_price_snapshot';
+    '20260904120000_reconcile_china_offer_nullable_prices';
 
   constructor() {
     const connectionString = process.env.DATABASE_URL;

@@ -28,6 +28,7 @@ import {
   type StoredFileResult,
 } from '../documents/storage.provider';
 import type { UploadedBufferFile } from '../documents/documents.service';
+import { CostsService } from '../finance/costs.service';
 
 type OfferRow = { id: string; currentRevisionId: string | null };
 
@@ -46,6 +47,7 @@ export class OffersService {
   private readonly dossierWorkflow = new DossierWorkflowService();
   constructor(
     private readonly prisma: PrismaService,
+    private readonly costs: CostsService,
     @Optional()
     private readonly storage: StorageProvider = new StorageProvider(),
   ) {}
@@ -83,9 +85,7 @@ export class OffersService {
       if (
         new Set(stored.map(({ checksum }) => checksum)).size !== stored.length
       )
-        throw new BadRequestException(
-          'Offer photos must be distinct',
-        );
+        throw new BadRequestException('Offer photos must be distinct');
       return stored;
     } catch (error) {
       await Promise.all(
@@ -107,10 +107,15 @@ export class OffersService {
     if (offer.archivedAt) return 'archived';
     if (offer.offerStatus === 'LOST_DEAL') return 'lost';
     if (offer.offerStatus === 'PURCHASED') return 'purchased';
+    if (offer.offerStatus === 'EXPIRED') return 'expired';
     if (offer.validFrom > now) return 'upcoming';
     if (offer.validUntil < now) return 'expired';
     if (offer.availableQuantity <= 0) return 'purchased';
-    if (offer.reservedQuantity >= offer.availableQuantity) return 'reserved';
+    if (
+      offer.offerStatus === 'RESERVED' ||
+      offer.reservedQuantity >= offer.availableQuantity
+    )
+      return 'reserved';
     return 'available';
   }
 
@@ -357,7 +362,10 @@ export class OffersService {
           validFrom,
           validUntil,
         ),
-        include: { supplier: true, vehicles: { orderBy: { lineNumber: 'asc' } } },
+        include: {
+          supplier: true,
+          vehicles: { orderBy: { lineNumber: 'asc' } },
+        },
       });
       if (userId) await this.appendRevision(tx, offer, userId, 'Offre reçue');
       return this.present(offer);
@@ -597,22 +605,22 @@ export class OffersService {
         Prisma.sql`(o."reference" ILIKE ${search} OR o."brand" ILIKE ${search} OR o."model" ILIKE ${search} OR o."version" ILIKE ${search})`,
       );
     }
-    const active = Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" <= ${now} AND o."validUntil" >= ${now}`;
+    const active = Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" <= ${now} AND o."validUntil" >= ${now} AND coalesce(o."offerStatus", 'RECEIVED') NOT IN ('PURCHASED', 'LOST_DEAL', 'EXPIRED')`;
     const statusPredicate: Record<string, Prisma.Sql> = {
       archived: Prisma.sql`o."archivedAt" IS NOT NULL`,
-      expired: Prisma.sql`o."archivedAt" IS NULL AND o."validUntil" < ${now}`,
+      expired: Prisma.sql`o."archivedAt" IS NULL AND coalesce(o."offerStatus", 'RECEIVED') NOT IN ('PURCHASED', 'LOST_DEAL') AND (o."offerStatus" = 'EXPIRED' OR o."validUntil" < ${now})`,
       upcoming: Prisma.sql`o."archivedAt" IS NULL AND o."validFrom" > ${now}`,
-      purchased: Prisma.sql`(o."offerStatus" = 'PURCHASED' OR EXISTS (SELECT 1 FROM "Purchase" p WHERE p."sourceOfferId" = o."id" AND p."status" <> 'cancelled'))`,
-      PURCHASED: Prisma.sql`(o."offerStatus" = 'PURCHASED' OR EXISTS (SELECT 1 FROM "Purchase" p WHERE p."sourceOfferId" = o."id" AND p."status" <> 'cancelled'))`,
-      lost: Prisma.sql`o."offerStatus" = 'LOST_DEAL'`,
-      LOST_DEAL: Prisma.sql`o."offerStatus" = 'LOST_DEAL'`,
-      RECEIVED: Prisma.sql`coalesce(o."offerStatus", 'RECEIVED') = 'RECEIVED'`,
-      UNDER_VERIFICATION: Prisma.sql`o."offerStatus" = 'UNDER_VERIFICATION'`,
-      VALIDATED: Prisma.sql`o."offerStatus" = 'VALIDATED'`,
-      RESERVED: Prisma.sql`o."offerStatus" = 'RESERVED'`,
-      EXPIRED: Prisma.sql`(o."offerStatus" = 'EXPIRED' OR (o."archivedAt" IS NULL AND o."validUntil" < ${now}))`,
-      reserved: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" >= o."availableQuantity"`,
-      available: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."reservedQuantity" < o."availableQuantity"`,
+      purchased: Prisma.sql`o."archivedAt" IS NULL AND (o."offerStatus" = 'PURCHASED' OR o."availableQuantity" <= 0)`,
+      PURCHASED: Prisma.sql`o."archivedAt" IS NULL AND (o."offerStatus" = 'PURCHASED' OR o."availableQuantity" <= 0)`,
+      lost: Prisma.sql`o."archivedAt" IS NULL AND o."offerStatus" = 'LOST_DEAL'`,
+      LOST_DEAL: Prisma.sql`o."archivedAt" IS NULL AND o."offerStatus" = 'LOST_DEAL'`,
+      RECEIVED: Prisma.sql`${active} AND coalesce(o."offerStatus", 'RECEIVED') = 'RECEIVED'`,
+      UNDER_VERIFICATION: Prisma.sql`${active} AND o."offerStatus" = 'UNDER_VERIFICATION'`,
+      VALIDATED: Prisma.sql`${active} AND o."offerStatus" = 'VALIDATED'`,
+      RESERVED: Prisma.sql`${active} AND o."offerStatus" = 'RESERVED'`,
+      EXPIRED: Prisma.sql`o."archivedAt" IS NULL AND coalesce(o."offerStatus", 'RECEIVED') NOT IN ('PURCHASED', 'LOST_DEAL') AND (o."offerStatus" = 'EXPIRED' OR o."validUntil" < ${now})`,
+      reserved: Prisma.sql`${active} AND o."availableQuantity" > 0 AND (o."offerStatus" = 'RESERVED' OR o."reservedQuantity" >= o."availableQuantity")`,
+      available: Prisma.sql`${active} AND o."availableQuantity" > 0 AND o."offerStatus" IS DISTINCT FROM 'RESERVED' AND o."reservedQuantity" < o."availableQuantity"`,
     };
     const statusSql = statusPredicate[filters.status];
     if (!statusSql)
@@ -817,7 +825,7 @@ export class OffersService {
           if (rows.length !== 1)
             throw new ConflictException(
               'Offer is expired, archived, or has insufficient quantity',
-              );
+            );
           if (!rows[0].currentRevisionId) {
             throw new ConflictException('Offer price revision is missing');
           }
@@ -891,7 +899,15 @@ export class OffersService {
         const existing = await tx.purchase.findUnique({
           where: { offerReservationId: reservationId },
         });
-        if (existing) return existing;
+        if (existing) {
+          await this.costs.recordPurchaseCommitment(
+            tx,
+            organizationId,
+            userId,
+            existing,
+          );
+          return existing;
+        }
         const reservation = await tx.offerReservation.findFirst({
           where: {
             id: reservationId,
@@ -1070,6 +1086,12 @@ export class OffersService {
             },
           },
         });
+        await this.costs.recordPurchaseCommitment(
+          tx,
+          organizationId,
+          userId,
+          purchase,
+        );
         await tx.offerReservation.update({
           where: { id: reservation.id },
           data: { status: 'consumed' },
@@ -1336,9 +1358,9 @@ export class OffersService {
     );
     return this.materialize(
       reservation.id,
-        {
-          vin: dto.vin,
-          currentLocationId: dto.currentLocationId,
+      {
+        vin: dto.vin,
+        currentLocationId: dto.currentLocationId,
       },
       userId,
       organizationId,
@@ -1366,10 +1388,16 @@ export class OffersService {
           },
         });
         if (!line) throw new NotFoundException('Offer vehicle not found');
-        if (line.offer.validUntil < new Date() || line.offer.offerStatus === 'EXPIRED') {
+        if (
+          line.offer.validUntil < new Date() ||
+          line.offer.offerStatus === 'EXPIRED'
+        ) {
           throw new ConflictException('Expired offers cannot be purchased');
         }
-        if (line.offer.offerStatus === 'LOST_DEAL' || line.status === 'LOST_DEAL') {
+        if (
+          line.offer.offerStatus === 'LOST_DEAL' ||
+          line.status === 'LOST_DEAL'
+        ) {
           throw new ConflictException('Lost deals cannot be purchased');
         }
         if (!['VALIDATED', 'RESERVED'].includes(line.status)) {
@@ -1378,12 +1406,11 @@ export class OffersService {
           );
         }
         if (line.purchasedQuantity >= line.quantity) {
-          throw new ConflictException('All units on this offer line are purchased');
+          throw new ConflictException(
+            'All units on this offer line are purchased',
+          );
         }
-        if (
-          line.offer.availableQuantity - line.offer.reservedQuantity <=
-          0
-        ) {
+        if (line.offer.availableQuantity - line.offer.reservedQuantity <= 0) {
           throw new ConflictException('No unreserved offer quantity remains');
         }
         if (dto.currentLocationId) {
@@ -1400,10 +1427,13 @@ export class OffersService {
         if (vin) {
           const duplicate = await tx.vehicle.findUnique({ where: { vin } });
           if (duplicate) {
-            throw new ConflictException('A vehicle with this VIN already exists');
+            throw new ConflictException(
+              'A vehicle with this VIN already exists',
+            );
           }
         }
-        const purchasePrice = dto.purchasePrice ?? line.supplierPrice.toNumber();
+        const purchasePrice =
+          dto.purchasePrice ?? line.supplierPrice.toNumber();
         const specification =
           typeof line.specification === 'object' &&
           line.specification !== null &&
@@ -1426,7 +1456,9 @@ export class OffersService {
             supplierId: line.offer.supplierId,
             currentLocationId: dto.currentLocationId,
             status: 'available',
-            acquiredAt: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
+            acquiredAt: dto.purchaseDate
+              ? new Date(dto.purchaseDate)
+              : new Date(),
             specs: {
               create: {
                 engine:
@@ -1481,7 +1513,9 @@ export class OffersService {
             purchasePrice,
             currency: line.currency,
             status: 'confirmed',
-            purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
+            purchaseDate: dto.purchaseDate
+              ? new Date(dto.purchaseDate)
+              : new Date(),
             confirmedBy: userId,
             sourceOfferId: offerId,
             sourceOfferRevisionId: line.offer.currentRevisionId,
@@ -1502,6 +1536,12 @@ export class OffersService {
             },
           },
         });
+        await this.costs.recordPurchaseCommitment(
+          tx,
+          organizationId,
+          userId,
+          purchase,
+        );
         const purchasedQuantity = line.purchasedQuantity + 1;
         await tx.chinaOfferVehicle.update({
           where: { id: line.id },
@@ -1524,7 +1564,10 @@ export class OffersService {
             status: remainingQuantity === 0 ? 'purchased' : line.offer.status,
           },
         });
-        if (nextOfferStatus === 'PURCHASED' && line.offer.offerStatus !== 'PURCHASED') {
+        if (
+          nextOfferStatus === 'PURCHASED' &&
+          line.offer.offerStatus !== 'PURCHASED'
+        ) {
           await tx.chinaOfferStatusHistory.create({
             data: {
               organizationId,
@@ -1569,7 +1612,9 @@ export class OffersService {
       });
       if (!line) throw new NotFoundException('Offer vehicle not found');
       if (line.purchasedQuantity >= line.quantity) {
-        throw new ConflictException('Purchased vehicles cannot become lost deals');
+        throw new ConflictException(
+          'Purchased vehicles cannot become lost deals',
+        );
       }
       const updated = await tx.chinaOfferVehicle.update({
         where: { id: line.id },
@@ -1591,26 +1636,14 @@ export class OffersService {
 
   async statistics(organizationId: string) {
     await this.expireReservations(organizationId);
-    const [offers, purchasedVehicles, lostVehicles] = await Promise.all([
-      this.prisma.chinaOffer.findMany({ where: { organizationId } }),
-      this.prisma.purchase.count({
-        where: {
-          organizationId,
-          sourceOfferId: { not: null },
-          status: { not: 'cancelled' },
-        },
-      }),
-      this.prisma.chinaOfferVehicle.count({
-        where: { organizationId, status: 'LOST_DEAL' },
-      }),
-    ]);
+    const offers = await this.prisma.chinaOffer.findMany({
+      where: { organizationId, archivedAt: null },
+    });
     const byStatus: Record<string, number> = {};
     for (const offer of offers) {
       const status = this.derivedStatus(offer);
       byStatus[status] = (byStatus[status] ?? 0) + 1;
     }
-    byStatus.purchased = purchasedVehicles;
-    byStatus.lost = lostVehicles;
     return {
       total: offers.length,
       byStatus,

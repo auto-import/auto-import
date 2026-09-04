@@ -12,7 +12,12 @@ import {
   type ApiOffer,
 } from "@/lib/commerce-api";
 import { useAuth } from "@/components/AuthProvider";
-import { Permission } from "@/lib/api-contract";
+import {
+  OFFER_STATUS_LABELS_API,
+  Permission,
+  type ApiOfferStatus,
+} from "@/lib/api-contract";
+import { ApiError } from "@/lib/api";
 import {
   buttonClass,
   ErrorState,
@@ -21,6 +26,21 @@ import {
   LoadingState,
 } from "./common";
 import PrivateOfferGallery from "./PrivateOfferGallery";
+
+const actionLabels: Partial<Record<ApiOfferStatus, string>> = {
+  UNDER_VERIFICATION: "Mettre en vérification",
+  VALIDATED: "Marquer disponible",
+  RESERVED: "Réserver",
+  LOST_DEAL: "Marquer perdue",
+  EXPIRED: "Marquer expirée",
+};
+
+function offerActionError(cause: unknown, fallback: string): string {
+  if (cause instanceof ApiError && cause.details.length) {
+    return `${cause.message} : ${cause.details.join(" · ")}`;
+  }
+  return cause instanceof Error ? cause.message : fallback;
+}
 
 export default function OfferDetailWorkspace({
   params,
@@ -82,15 +102,17 @@ export default function OfferDetailWorkspace({
       await commerceApi.offers.transition(id, status, reason);
       await load();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Transition impossible",
-      );
+      setError(offerActionError(caught, "Transition impossible"));
     } finally {
       setChanging(false);
     }
   };
   const purchaseVehicle = async (vehicleId: string) => {
-    if (!window.confirm("Confirmer l’achat de ce véhicule et son entrée au Catalogue ?"))
+    if (
+      !window.confirm(
+        "Confirmer l’achat de ce véhicule et son entrée au Catalogue ?",
+      )
+    )
       return;
     const vin = window.prompt("VIN (facultatif si non disponible)")?.trim();
     setChanging(true);
@@ -101,22 +123,22 @@ export default function OfferDetailWorkspace({
       });
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Achat impossible");
+      setError(offerActionError(caught, "Achat impossible"));
     } finally {
       setChanging(false);
     }
   };
   const loseVehicle = async (vehicleId: string) => {
-    const reason = window.prompt("Motif du deal perdu pour ce véhicule")?.trim();
+    const reason = window
+      .prompt("Motif du deal perdu pour ce véhicule")
+      ?.trim();
     if (!reason) return;
     setChanging(true);
     try {
       await commerceApi.offers.loseVehicle(id, vehicleId, reason);
       await load();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Mise à jour impossible",
-      );
+      setError(offerActionError(caught, "Mise à jour impossible"));
     } finally {
       setChanging(false);
     }
@@ -154,7 +176,9 @@ export default function OfferDetailWorkspace({
       setShowQuotation(false);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Création impossible");
+      setError(
+        caught instanceof Error ? caught.message : "Création impossible",
+      );
     } finally {
       setChanging(false);
     }
@@ -214,7 +238,7 @@ export default function OfferDetailWorkspace({
                         onClick={() => void transition(status)}
                         className="rounded-button border px-3 py-2 text-xs disabled:opacity-40"
                       >
-                        {status}
+                        {actionLabels[status as ApiOfferStatus] ?? status}
                       </button>
                     ))}
                   </div>
@@ -224,8 +248,8 @@ export default function OfferDetailWorkspace({
                     className={buttonClass}
                     onClick={() => {
                       const dossierId =
-                        offer.reservations?.find((item) => item.dossier)?.dossier
-                          ?.id ?? "";
+                        offer.reservations?.find((item) => item.dossier)
+                          ?.dossier?.id ?? "";
                       setQuotationForm((current) => ({
                         ...current,
                         dossierId,
@@ -249,7 +273,13 @@ export default function OfferDetailWorkspace({
                   label="Disponible"
                   value={`${offer.remainingQuantity} / ${offer.availableQuantity}`}
                 />
-                <Info label="Statut" value={offer.status} />
+                <Info
+                  label="Statut"
+                  value={
+                    OFFER_STATUS_LABELS_API[offer.status as ApiOfferStatus] ??
+                    offer.status
+                  }
+                />
               </div>
             </section>
             <section className="card p-5">
@@ -265,16 +295,17 @@ export default function OfferDetailWorkspace({
                     >
                       <div>
                         <p className="font-semibold">
-                          #{vehicle.lineNumber} · {vehicle.brand} {vehicle.model}{" "}
-                          {vehicle.version}
+                          #{vehicle.lineNumber} · {vehicle.brand}{" "}
+                          {vehicle.model} {vehicle.version}
                         </p>
                         <p className="text-sm text-muted">
-                          {vehicle.year ?? "—"} · {vehicle.vin || "VIN non renseigné"} ·{" "}
+                          {vehicle.year ?? "—"} ·{" "}
+                          {vehicle.vin || "VIN non renseigné"} ·{" "}
                           {formatMoney(vehicle.supplierPrice, vehicle.currency)}
                         </p>
                         <p className="text-xs text-muted">
-                          {vehicle.purchasedQuantity}/{vehicle.quantity} acheté(s) ·{" "}
-                          {vehicle.status}
+                          {vehicle.purchasedQuantity}/{vehicle.quantity}{" "}
+                          acheté(s) · {vehicle.status}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -290,7 +321,9 @@ export default function OfferDetailWorkspace({
                             </button>
                           )}
                         {canTransition &&
-                          !["PURCHASED", "LOST_DEAL"].includes(vehicle.status) && (
+                          !["PURCHASED", "LOST_DEAL"].includes(
+                            vehicle.status,
+                          ) && (
                             <button
                               disabled={changing}
                               onClick={() => void loseVehicle(vehicle.id)}
@@ -407,7 +440,9 @@ export default function OfferDetailWorkspace({
               </div>
             </section>
             <section className="card p-5">
-              <h2 className="mb-3 font-semibold">Tarification / Devis client</h2>
+              <h2 className="mb-3 font-semibold">
+                Tarification / Devis client
+              </h2>
               {!quotations.length ? (
                 <p className="text-sm text-muted">
                   Aucun prix client n’est enregistré sur l’offre fournisseur.
@@ -421,14 +456,15 @@ export default function OfferDetailWorkspace({
                       className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
                     >
                       <span>
-                        <b>{quotation.quotationNumber}</b> · {quotation.priceBasis} ·{" "}
-                        {quotation.dossier?.reference}
+                        <b>{quotation.quotationNumber}</b> ·{" "}
+                        {quotation.priceBasis} · {quotation.dossier?.reference}
                       </span>
                       <span>
                         {formatMoney(
                           quotation.currentRevision?.finalCustomerPrice,
                           quotation.currency,
-                        )} · {quotation.status}
+                        )}{" "}
+                        · {quotation.status}
                       </span>
                     </div>
                   ))}
@@ -468,7 +504,9 @@ export default function OfferDetailWorkspace({
                     }))
                   }
                 >
-                  <option value="">Affecter d’abord l’offre à un dossier</option>
+                  <option value="">
+                    Affecter d’abord l’offre à un dossier
+                  </option>
                   {offer.reservations
                     ?.filter((reservation) => reservation.dossier)
                     .map((reservation) => (
@@ -554,7 +592,10 @@ export default function OfferDetailWorkspace({
                 />
               </label>
             </div>
-            <button disabled={changing} className={`${buttonClass} mt-6 w-full`}>
+            <button
+              disabled={changing}
+              className={`${buttonClass} mt-6 w-full`}
+            >
               {changing ? "Création…" : "Créer le devis"}
             </button>
           </form>

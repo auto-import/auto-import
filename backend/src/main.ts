@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
+import type { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -11,6 +12,26 @@ import helmet from 'helmet';
 import { configureOpenApi } from './common/openapi';
 import { validateProductionEnvironment } from './config/production-environment';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+
+function validationDetails(
+  errors: ValidationError[],
+  parentPath = '',
+): string[] {
+  return errors.flatMap((error) => {
+    const segment = /^\d+$/.test(error.property)
+      ? `[${error.property}]`
+      : parentPath
+        ? `.${error.property}`
+        : error.property;
+    const path = `${parentPath}${segment}`;
+    const own = Object.entries(error.constraints ?? {}).map(([key, message]) =>
+      key === 'unknownValue'
+        ? `${path}: invalid nested object`
+        : `${path}: ${message}`,
+    );
+    return [...own, ...validationDetails(error.children ?? [], path)];
+  });
+}
 
 async function bootstrap() {
   validateProductionEnvironment(process.env);
@@ -59,13 +80,10 @@ async function bootstrap() {
         enableImplicitConversion: true,
       },
       exceptionFactory: (errors) => {
-        const messages = errors.map((error) =>
-          Object.values(error.constraints || {}).join(', '),
-        );
         return new BadRequestException({
           code: 'VALIDATION_ERROR',
           message: 'Validation failed',
-          details: messages,
+          details: validationDetails(errors),
         });
       },
     }),
@@ -83,6 +101,7 @@ async function bootstrap() {
   await app.listen(port);
   logger.log(`Application listening on port ${port}`);
   logger.log(`Environment: ${nodeEnv}`);
+  logger.log(`Revision: ${process.env.APP_COMMIT_SHA ?? 'unknown'}`);
   logger.log(`Health check path: /health`);
 }
 void bootstrap();

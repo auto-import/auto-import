@@ -19,6 +19,7 @@ export class AppController {
         database: dbHealthy ? 'connected' : 'disconnected',
       },
       version: process.env.npm_package_version || '1.0.0',
+      revision: process.env.APP_COMMIT_SHA || 'unknown',
     };
   }
 

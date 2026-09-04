@@ -4,6 +4,7 @@ import { OffersService } from './offers.service';
 describe('OffersService', () => {
   let prisma: any;
   let service: OffersService;
+  let costs: { recordPurchaseCommitment: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -19,7 +20,11 @@ describe('OffersService', () => {
         aggregate: jest.fn().mockResolvedValue({ _max: { revisionNumber: 0 } }),
         create: jest.fn(),
       },
-      chinaOfferVehicle: { updateMany: jest.fn() },
+      chinaOfferVehicle: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
       chinaOfferStatusHistory: { create: jest.fn() },
       supplierDossierLink: { upsert: jest.fn() },
       dossier: { findFirst: jest.fn() },
@@ -34,13 +39,16 @@ describe('OffersService', () => {
       warehouseLocation: { findFirst: jest.fn() },
       purchase: { findUnique: jest.fn(), create: jest.fn() },
       vehicle: { create: jest.fn() },
+      vehiclePhoto: { create: jest.fn() },
+      auditLog: { create: jest.fn() },
       dossierVehicle: { create: jest.fn() },
       $queryRaw: jest.fn(),
       $transaction: jest.fn(async (callback: (tx: any) => unknown) =>
         callback(prisma),
       ),
     };
-    service = new OffersService(prisma);
+    costs = { recordPurchaseCommitment: jest.fn() };
+    service = new OffersService(prisma, costs as never);
   });
 
   it('rejects an invalid validity interval', async () => {
@@ -173,5 +181,131 @@ describe('OffersService', () => {
     await expect(
       service.transition('offer-1', { status: 'RESERVED' }, 'user-1', 'org-1'),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('posts one purchase expense in the same transaction as a bought offer line', async () => {
+    const offer = {
+      id: 'offer-1',
+      organizationId: 'org-1',
+      supplierId: 'supplier-1',
+      supplier: { id: 'supplier-1', name: 'China Motors', country: 'CN' },
+      currentRevisionId: 'revision-1',
+      offerStatus: 'VALIDATED',
+      status: 'available',
+      validUntil: new Date(Date.now() + 86_400_000),
+      availableQuantity: 1,
+      reservedQuantity: 0,
+      photos: [],
+    };
+    const line = {
+      id: 'line-1',
+      offerId: 'offer-1',
+      brand: 'Geely',
+      model: 'Coolray',
+      version: null,
+      year: 2026,
+      mileage: 0,
+      condition: 'new',
+      specification: {},
+      supplierPrice: { toNumber: () => 12000 },
+      currency: 'USD',
+      vin: null,
+      quantity: 1,
+      purchasedQuantity: 0,
+      reservedQuantity: 0,
+      status: 'VALIDATED',
+      offer,
+    };
+    prisma.chinaOfferVehicle.findFirst
+      .mockResolvedValueOnce(line)
+      .mockResolvedValueOnce({
+        ...line,
+        purchasedQuantity: 1,
+        status: 'PURCHASED',
+      });
+    prisma.vehicle.create.mockResolvedValue({ id: 'vehicle-1', specs: {} });
+    prisma.purchase.create.mockResolvedValue({
+      id: 'purchase-1',
+      purchaseNumber: 'PUR-2026-00001',
+      purchasePrice: 12000,
+      currency: 'USD',
+      supplierId: 'supplier-1',
+      dossierId: null,
+      purchaseDate: new Date(),
+    });
+
+    await service.purchaseOfferVehicle(
+      'offer-1',
+      'line-1',
+      {},
+      'user-1',
+      'org-1',
+    );
+
+    expect(costs.recordPurchaseCommitment).toHaveBeenCalledTimes(1);
+    expect(costs.recordPurchaseCommitment).toHaveBeenCalledWith(
+      prisma,
+      'org-1',
+      'user-1',
+      expect.objectContaining({ id: 'purchase-1', purchasePrice: 12000 }),
+    );
+    expect(prisma.chinaOffer.update).toHaveBeenCalledWith({
+      where: { id: 'offer-1' },
+      data: expect.objectContaining({ offerStatus: 'PURCHASED' }),
+    });
+
+    await expect(
+      service.purchaseOfferVehicle('offer-1', 'line-1', {}, 'user-1', 'org-1'),
+    ).rejects.toThrow(ConflictException);
+    expect(costs.recordPurchaseCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it('calculates offer KPIs from mutually exclusive effective statuses', async () => {
+    const now = Date.now();
+    const active = {
+      archivedAt: null,
+      validFrom: new Date(now - 86_400_000),
+      validUntil: new Date(now + 86_400_000),
+      availableQuantity: 1,
+      reservedQuantity: 0,
+    };
+    prisma.chinaOffer.findMany.mockResolvedValue([
+      { ...active, id: 'available', offerStatus: 'VALIDATED' },
+      { ...active, id: 'reserved', offerStatus: 'RESERVED' },
+      {
+        ...active,
+        id: 'purchased',
+        offerStatus: 'PURCHASED',
+        validUntil: new Date(now - 1),
+      },
+      {
+        ...active,
+        id: 'lost',
+        offerStatus: 'LOST_DEAL',
+        validUntil: new Date(now - 1),
+      },
+      {
+        ...active,
+        id: 'expired',
+        offerStatus: 'VALIDATED',
+        validUntil: new Date(now - 1),
+      },
+    ]);
+
+    await expect(service.statistics('org-1')).resolves.toEqual(
+      expect.objectContaining({
+        total: 5,
+        byStatus: expect.objectContaining({
+          available: 1,
+          reserved: 1,
+          purchased: 1,
+          lost: 1,
+          expired: 1,
+        }),
+      }),
+    );
+    expect(prisma.chinaOffer.findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', archivedAt: null },
+    });
   });
 });

@@ -1,8 +1,9 @@
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -21,10 +22,15 @@ const conditions = ['new', 'used'] as const;
 export const incoterms = ['FCA', 'FOB', 'CIF', 'CFR', 'DDP'] as const;
 
 export class CreateOfferVehicleDto {
-  @IsString() brand: string;
-  @IsString() model: string;
+  @IsString() @IsNotEmpty() brand: string;
+  @IsString() @IsNotEmpty() model: string;
   @IsOptional() @IsString() version?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1900) @Max(2100) year?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1900)
+  @Max(2100)
+  year?: number;
   @IsIn(conditions) condition: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) mileage?: number;
   @IsOptional() @IsObject() specification?: Record<string, unknown>;
@@ -34,10 +40,28 @@ export class CreateOfferVehicleDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) quantity = 1;
 }
 
+function parseOfferVehicles(value: unknown): unknown {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return parsed;
+    }
+  }
+
+  if (!Array.isArray(parsed)) return parsed;
+  return parsed.map((vehicle) =>
+    plainToInstance(CreateOfferVehicleDto, vehicle, {
+      enableImplicitConversion: true,
+    }),
+  );
+}
+
 export class CreateOfferDto {
   @IsUUID() supplierId: string;
-  @IsString() brand: string;
-  @IsString() model: string;
+  @IsString() @IsNotEmpty() brand: string;
+  @IsString() @IsNotEmpty() model: string;
   @IsOptional() @IsString() version?: string;
   @IsOptional()
   @Type(() => Number)
@@ -75,15 +99,11 @@ export class CreateOfferDto {
   @IsOptional() @IsString() notes?: string;
 
   @IsOptional()
-  @ValidateIf((o) => o.vehicles != null && o.vehicles !== undefined)
-  @Transform(({ value }: { value: unknown }): unknown => {
-    if (typeof value !== 'string') return value;
-    try {
-      return JSON.parse(value) as unknown;
-    } catch {
-      return value;
-    }
-  })
+  @ValidateIf(
+    (offer: CreateOfferDto) =>
+      offer.vehicles != null && offer.vehicles !== undefined,
+  )
+  @Transform(({ value }: { value: unknown }) => parseOfferVehicles(value))
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

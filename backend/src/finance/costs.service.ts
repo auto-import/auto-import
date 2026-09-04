@@ -20,6 +20,126 @@ export class CostsService {
     private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
+  async recordPurchaseCommitment(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    userId: string,
+    purchase: {
+      id: string;
+      purchaseNumber: string;
+      purchasePrice: Prisma.Decimal | number;
+      currency: string;
+      supplierId: string;
+      dossierId?: string | null;
+      purchaseDate?: Date | null;
+      createdAt?: Date;
+    },
+  ) {
+    const sourceModule = 'PURCHASE_COMMITMENT';
+    const existing = await tx.financeTransaction.findUnique({
+      where: {
+        organizationId_sourceModule_sourceRecordId: {
+          organizationId,
+          sourceModule,
+          sourceRecordId: purchase.id,
+        },
+      },
+    });
+    if (existing) return existing;
+
+    const amount = new Prisma.Decimal(purchase.purchasePrice);
+    if (!amount.isPositive()) {
+      throw new BadRequestException('Purchase cost amount must be positive');
+    }
+    const currency = purchase.currency.toUpperCase();
+    const occurredAt =
+      purchase.purchaseDate ?? purchase.createdAt ?? new Date();
+    const rate = await this.findEffectiveRateInTransaction(
+      tx,
+      organizationId,
+      currency,
+      occurredAt,
+    );
+    const amountDzd = amount.mul(rate).toDecimalPlaces(2);
+    const cost = await tx.cost.create({
+      data: {
+        organizationId,
+        type: 'PURCHASE',
+        costScope: 'DIRECT',
+        amount,
+        currency,
+        amountInBaseCurrency: amountDzd,
+        dossierId: purchase.dossierId,
+        purchaseId: purchase.id,
+        occurredAt,
+        description: `Supplier purchase ${purchase.purchaseNumber}`,
+        actorUserId: userId,
+        status: 'POSTED',
+      },
+    });
+
+    return tx.financeTransaction.create({
+      data: {
+        organizationId,
+        type: 'DIRECT_COST_PURCHASE',
+        direction: 'DEBIT',
+        sourceModule,
+        sourceRecordId: purchase.id,
+        idempotencyKey: `purchase-cost:${purchase.id}`,
+        originalAmount: amount,
+        currency,
+        exchangeRateSnapshot: rate,
+        amountDzd,
+        dossierId: purchase.dossierId,
+        supplierId: purchase.supplierId,
+        purchaseId: purchase.id,
+        costId: cost.id,
+        status: 'VALIDATED',
+        createdBy: userId,
+        validatedBy: userId,
+        validatedAt: occurredAt,
+        occurredAt,
+      },
+    });
+  }
+
+  private async findEffectiveRateInTransaction(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    currency: string,
+    occurredAt: Date,
+  ): Promise<Prisma.Decimal> {
+    if (currency === 'DZD') return new Prisma.Decimal(1);
+
+    const direct = await tx.exchangeRate.findFirst({
+      where: {
+        organizationId,
+        baseCurrency: 'DZD',
+        quoteCurrency: currency,
+        effectiveAt: { lte: occurredAt },
+      },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    if (direct) return direct.rate;
+
+    const inverse = await tx.exchangeRate.findFirst({
+      where: {
+        organizationId,
+        baseCurrency: currency,
+        quoteCurrency: 'DZD',
+        effectiveAt: { lte: occurredAt },
+      },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    if (inverse && !inverse.rate.isZero()) {
+      return new Prisma.Decimal(1).dividedBy(inverse.rate);
+    }
+
+    throw new BadRequestException(
+      `No DZD/${currency} exchange rate exists at the purchase date`,
+    );
+  }
+
   async create(organizationId: string, userId: string, dto: CreateCostDto) {
     if (dto.amount <= 0) {
       throw new BadRequestException('Cost amount must be positive');
@@ -78,9 +198,9 @@ export class CostsService {
         'Operating expenses cannot be dossier costs',
       );
     }
-    if (costScope === 'DIRECT' && !dto.dossierId) {
+    if (costScope === 'DIRECT' && !dto.dossierId && !dto.purchaseId) {
       throw new BadRequestException(
-        'Direct costs must be linked to a dossier',
+        'Direct costs must be linked to a dossier or purchase',
       );
     }
     if (dto.treasuryAccountId) {
@@ -112,11 +232,7 @@ export class CostsService {
         throw new NotFoundException('Supporting document not found');
     }
     const cost = await this.prisma.$transaction(async (tx) => {
-      const {
-        treasuryAccountId,
-        supportingDocumentId,
-        ...costInput
-      } = dto;
+      const { treasuryAccountId, supportingDocumentId, ...costInput } = dto;
       const created = await tx.cost.create({
         data: {
           organizationId,
