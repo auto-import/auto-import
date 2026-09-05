@@ -17,6 +17,7 @@ import { CrmReferenceService } from '../crm/crm-reference.service';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
+import { VehicleStatusSyncService } from '../dossiers/workflows/vehicle-status-sync.service';
 import { DocumentsService } from '../documents/documents.service';
 
 describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
@@ -173,6 +174,7 @@ describe('Deep Adversarial Security Audit (Phase 3-5)', () => {
         ProspectsService,
         UsersService,
         DossierWorkflowService,
+        VehicleStatusSyncService,
         {
           provide: ContactResolutionService,
           useValue: {

@@ -131,8 +131,8 @@ export class ProspectsService {
                 needType: leadData.needType ?? 'VEHICLE',
                 vehicleRequests:
                   requirement && (leadData.needType ?? 'VEHICLE') === 'VEHICLE'
-                  ? { create: { ...requirement, organizationId, assignedTo } }
-                  : undefined,
+                    ? { create: { ...requirement, organizationId, assignedTo } }
+                    : undefined,
               },
               include: this.prospectInclude(),
             });
@@ -222,7 +222,11 @@ export class ProspectsService {
 
     const where: Prisma.ProspectWhereInput = {
       organizationId,
-      ...(!filters?.includeArchived ? { archivedAt: null } : {}),
+      ...(filters?.archivedOnly
+        ? { archivedAt: { not: null } }
+        : !filters?.includeArchived
+          ? { archivedAt: null }
+          : {}),
     };
     if (filters?.status) where.crmStatus = filters.status;
     if (filters?.assignedTo) where.assignedTo = filters.assignedTo;

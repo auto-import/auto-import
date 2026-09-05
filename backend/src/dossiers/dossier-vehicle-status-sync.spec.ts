@@ -51,9 +51,12 @@ describe('Dossier → Vehicle status mapping', () => {
     [DossierStatus.BOOKING, VehicleStatus.RESERVED],
     [DossierStatus.CONTAINER_BILL_OF_LADING, VehicleStatus.IN_TRANSIT],
     [DossierStatus.ARRIVED, VehicleStatus.DELIVERED],
-  ] as const)('maps dossier %s → vehicle %s', (dossierStatus, vehicleStatus) => {
-    expect(getTargetVehicleStatus(dossierStatus)).toBe(vehicleStatus);
-  });
+  ] as const)(
+    'maps dossier %s → vehicle %s',
+    (dossierStatus, vehicleStatus) => {
+      expect(getTargetVehicleStatus(dossierStatus)).toBe(vehicleStatus);
+    },
+  );
 
   it('keeps vehicles reserved at shipment booking (not in-transit yet)', () => {
     expect(getTargetVehicleStatus(DossierStatus.SHIPMENT_BOOKING)).toBe(
@@ -104,7 +107,10 @@ describe('VehicleStatusSyncService.assertTransitionAllowed', () => {
 
 describe('VehicleStatusSyncService.syncForTransition', () => {
   let service: VehicleStatusSyncService;
-  let prisma: { vehicle: { update: jest.Mock }; auditLog: { create: jest.Mock } };
+  let prisma: {
+    vehicle: { update: jest.Mock };
+    auditLog: { create: jest.Mock };
+  };
 
   beforeEach(() => {
     service = new VehicleStatusSyncService();
@@ -115,8 +121,13 @@ describe('VehicleStatusSyncService.syncForTransition', () => {
   });
 
   it('updates every vehicle to the mapped status and audits each change', async () => {
-    const changes = await service.syncForTransition(prisma as never, syncInput());
-    expect(changes).toEqual([{ vehicleId: 'v1', from: 'reserved', to: 'inTransit' }]);
+    const changes = await service.syncForTransition(
+      prisma as never,
+      syncInput(),
+    );
+    expect(changes).toEqual([
+      { vehicleId: 'v1', from: 'reserved', to: 'inTransit' },
+    ]);
     expect(prisma.vehicle.update).toHaveBeenCalledTimes(1);
     expect(prisma.vehicle.update).toHaveBeenCalledWith({
       where: { id: 'v1' },
@@ -133,32 +144,47 @@ describe('VehicleStatusSyncService.syncForTransition', () => {
   });
 
   it('updates multiple vehicles individually', async () => {
-    await service.syncForTransition(prisma as never, syncInput({
-      vehicles: [
-        { id: 'v1', status: 'reserved' },
-        { id: 'v2', status: 'reserved' },
-        { id: 'v3', status: 'inTransit' },
-      ],
-    }));
-    // v3 already at target → not updated
+    await service.syncForTransition(
+      prisma as never,
+      syncInput({
+        vehicles: [
+          { id: 'v1', status: 'reserved' },
+          { id: 'v2', status: 'reserved' },
+          { id: 'v3', status: 'inTransit' },
+        ],
+      }),
+    );
+    // v3 already at target → not updated, but the synchronization is audited.
     expect(prisma.vehicle.update).toHaveBeenCalledTimes(2);
-    expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(3);
   });
 
-  it('is idempotent — no update or audit when already at target', async () => {
-    const changes = await service.syncForTransition(prisma as never, syncInput({
-      vehicles: [{ id: 'v1', status: 'inTransit' }],
-    }));
+  it('is idempotent — no update, with an audit confirmation when already at target', async () => {
+    const changes = await service.syncForTransition(
+      prisma as never,
+      syncInput({
+        vehicles: [{ id: 'v1', status: 'inTransit' }],
+      }),
+    );
     expect(changes).toEqual([]);
     expect(prisma.vehicle.update).not.toHaveBeenCalled();
-    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'vehicle.status.sync.confirmed',
+        oldValues: { status: 'inTransit' },
+        newValues: expect.objectContaining({ status: 'inTransit' }),
+      }),
+    });
   });
 
   it('throws (rollback) when a rejected vehicle would be overwritten', async () => {
     await expect(
-      service.syncForTransition(prisma as never, syncInput({
-        vehicles: [{ id: 'v1', status: 'rejected' }],
-      })),
+      service.syncForTransition(
+        prisma as never,
+        syncInput({
+          vehicles: [{ id: 'v1', status: 'rejected' }],
+        }),
+      ),
     ).rejects.toMatchObject({
       response: { code: 'VEHICLE_REJECTED_BLOCKS_DOSSIER' },
     });
@@ -166,9 +192,12 @@ describe('VehicleStatusSyncService.syncForTransition', () => {
   });
 
   it('no-ops for milestones without a target', async () => {
-    const changes = await service.syncForTransition(prisma as never, syncInput({
-      toStatus: DossierStatus.CANCELLED,
-    }));
+    const changes = await service.syncForTransition(
+      prisma as never,
+      syncInput({
+        toStatus: DossierStatus.CANCELLED,
+      }),
+    );
     expect(changes).toEqual([]);
     expect(prisma.vehicle.update).not.toHaveBeenCalled();
   });
@@ -194,9 +223,14 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
   beforeEach(() => {
     prisma = {
       dossier: { update: jest.fn() },
-      dossierStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'h1' }) },
+      dossierStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'h1' }),
+      },
       notification: { createMany: jest.fn() },
-      vehicle: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn() },
+      vehicle: {
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn(),
+      },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
       offerReservation: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((cb: (tx: any) => unknown) => cb(prisma)),
@@ -222,20 +256,53 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
     jest.spyOn(service, 'findOne').mockResolvedValue({
       ...baseDossier,
       vehicles: [
-        { id: 'v1', status: 'reserved', brand: 'Toyota', model: 'LC', vin: 'VIN1' },
-        { id: 'v2', status: 'reserved', brand: 'Nissan', model: 'Patrol', vin: 'VIN2' },
+        {
+          id: 'v1',
+          status: 'reserved',
+          brand: 'Toyota',
+          model: 'LC',
+          vin: 'VIN1',
+        },
+        {
+          id: 'v2',
+          status: 'reserved',
+          brand: 'Nissan',
+          model: 'Patrol',
+          vin: 'VIN2',
+        },
       ],
     } as any);
 
     prisma.dossier.update.mockResolvedValue({
       ...baseDossier,
       dossierVehicles: [
-        { vehicle: { id: 'v1', status: 'reserved', brand: 'Toyota', model: 'LC', vin: 'VIN1' } },
-        { vehicle: { id: 'v2', status: 'reserved', brand: 'Nissan', model: 'Patrol', vin: 'VIN2' } },
+        {
+          vehicle: {
+            id: 'v1',
+            status: 'reserved',
+            brand: 'Toyota',
+            model: 'LC',
+            vin: 'VIN1',
+          },
+        },
+        {
+          vehicle: {
+            id: 'v2',
+            status: 'reserved',
+            brand: 'Nissan',
+            model: 'Patrol',
+            vin: 'VIN2',
+          },
+        },
       ],
     });
 
-    await service.updateStatus('d1', { status: DossierStatus.LOADING }, 'user-1', 'org-1');
+    await service.updateStatus(
+      'd1',
+      { status: DossierStatus.LOADING },
+      'user-1',
+      'org-1',
+    );
 
     expect(prisma.vehicle.update).toHaveBeenCalledTimes(2);
     expect(prisma.vehicle.update).toHaveBeenCalledWith({
@@ -254,12 +321,23 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
     jest.spyOn(service, 'findOne').mockResolvedValue({
       ...baseDossier,
       vehicles: [
-        { id: 'v1', status: 'rejected', brand: 'Toyota', model: 'LC', vin: 'VIN1' },
+        {
+          id: 'v1',
+          status: 'rejected',
+          brand: 'Toyota',
+          model: 'LC',
+          vin: 'VIN1',
+        },
       ],
     } as any);
 
     await expect(
-      service.updateStatus('d1', { status: DossierStatus.LOADING }, 'user-1', 'org-1'),
+      service.updateStatus(
+        'd1',
+        { status: DossierStatus.LOADING },
+        'user-1',
+        'org-1',
+      ),
     ).rejects.toMatchObject({
       response: { code: 'VEHICLE_REJECTED_BLOCKS_DOSSIER' },
     });
@@ -270,20 +348,53 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
     jest.spyOn(service, 'findOne').mockResolvedValue({
       ...baseDossier,
       vehicles: [
-        { id: 'v1', status: 'reserved', brand: 'Toyota', model: 'LC', vin: 'VIN1' },
-        { id: 'v2', status: 'inTransit', brand: 'Nissan', model: 'Patrol', vin: 'VIN2' },
+        {
+          id: 'v1',
+          status: 'reserved',
+          brand: 'Toyota',
+          model: 'LC',
+          vin: 'VIN1',
+        },
+        {
+          id: 'v2',
+          status: 'inTransit',
+          brand: 'Nissan',
+          model: 'Patrol',
+          vin: 'VIN2',
+        },
       ],
     } as any);
 
     prisma.dossier.update.mockResolvedValue({
       ...baseDossier,
       dossierVehicles: [
-        { vehicle: { id: 'v1', status: 'reserved', brand: 'Toyota', model: 'LC', vin: 'VIN1' } },
-        { vehicle: { id: 'v2', status: 'inTransit', brand: 'Nissan', model: 'Patrol', vin: 'VIN2' } },
+        {
+          vehicle: {
+            id: 'v1',
+            status: 'reserved',
+            brand: 'Toyota',
+            model: 'LC',
+            vin: 'VIN1',
+          },
+        },
+        {
+          vehicle: {
+            id: 'v2',
+            status: 'inTransit',
+            brand: 'Nissan',
+            model: 'Patrol',
+            vin: 'VIN2',
+          },
+        },
       ],
     });
 
-    await service.updateStatus('d1', { status: DossierStatus.CANCELLED }, 'user-1', 'org-1');
+    await service.updateStatus(
+      'd1',
+      { status: DossierStatus.CANCELLED },
+      'user-1',
+      'org-1',
+    );
 
     // Only the reserved vehicle is released; the in-transit one is untouched.
     expect(prisma.vehicle.update).toHaveBeenCalledTimes(1);
@@ -298,17 +409,38 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
     jest.spyOn(service, 'findOne').mockResolvedValue({
       ...baseDossier,
       status: DossierStatus.DOCUMENTS_DELIVERED,
-      vehicles: [{ id: 'v1', status: 'delivered', brand: 'Toyota', model: 'LC', vin: 'VIN1' }],
+      vehicles: [
+        {
+          id: 'v1',
+          status: 'delivered',
+          brand: 'Toyota',
+          model: 'LC',
+          vin: 'VIN1',
+        },
+      ],
     } as any);
 
     prisma.dossier.update.mockResolvedValue({
       ...baseDossier,
       dossierVehicles: [
-        { vehicle: { id: 'v1', status: 'delivered', brand: 'Toyota', model: 'LC', vin: 'VIN1' } },
+        {
+          vehicle: {
+            id: 'v1',
+            status: 'delivered',
+            brand: 'Toyota',
+            model: 'LC',
+            vin: 'VIN1',
+          },
+        },
       ],
     });
 
-    await service.updateStatus('d1', { status: DossierStatus.CLOSED }, 'user-1', 'org-1');
+    await service.updateStatus(
+      'd1',
+      { status: DossierStatus.CLOSED },
+      'user-1',
+      'org-1',
+    );
 
     expect(prisma.vehicle.update).toHaveBeenCalledWith({
       where: { id: 'v1' },

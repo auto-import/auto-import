@@ -17,6 +17,9 @@ vi.mock("@/lib/commerce-api", () => ({
 }));
 
 vi.mock("@/components/Topbar", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
+vi.mock("@/components/AuthProvider", () => ({
+  useAuth: () => ({ hasPermission: () => true }),
+}));
 
 const pagination = { page: 1, pageSize: 100, totalItems: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false };
 

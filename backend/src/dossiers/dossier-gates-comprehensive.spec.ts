@@ -10,6 +10,8 @@ import { DocumentsService } from '../documents/documents.service';
 describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
   let dossiersService: DossiersService;
   let workflowService: DossierWorkflowService;
+  let costsService: { recordPurchaseCommitment: jest.Mock };
+  let financeProjection: { projectCustomerPayment: jest.Mock };
 
   const mockPrisma: any = {
     dossier: {
@@ -21,7 +23,9 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
     },
     payment: {
       findMany: jest.fn(),
+      create: jest.fn(),
     },
+    customerDeposit: { create: jest.fn() },
     paymentInstallment: {
       findMany: jest.fn(),
     },
@@ -37,12 +41,15 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
     dossierStatusHistory: {
       create: jest.fn(),
     },
+    auditLog: { create: jest.fn() },
     $transaction: jest.fn((cb) => cb(mockPrisma)),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     workflowService = new DossierWorkflowService();
+    costsService = { recordPurchaseCommitment: jest.fn() };
+    financeProjection = { projectCustomerPayment: jest.fn() };
     const documentsService = {
       verifySignedContract: jest.fn(),
       verifyCheckpoint: jest.fn(),
@@ -53,6 +60,9 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       workflowService,
       new VehicleStatusSyncService(),
       documentsService as unknown as DocumentsService,
+      undefined,
+      costsService as never,
+      financeProjection as never,
     );
     mockPrisma.partner.findFirst.mockResolvedValue({
       id: 'supplier-1',
@@ -184,6 +194,81 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
           },
         }),
       );
+      expect(costsService.recordPurchaseCommitment).toHaveBeenCalledWith(
+        mockPrisma,
+        'org-1',
+        'user-1',
+        expect.objectContaining({ id: 'purchase-1' }),
+      );
+    });
+
+    it('projects a transition-recorded client deposit to Finance atomically', async () => {
+      const before = {
+        id: 'dos-1',
+        organizationId: 'org-1',
+        clientId: 'client-1',
+        reference: 'CA-2026-00001',
+        type: DossierType.VEHICLE_SALE_CIF,
+        status: DossierStatus.CONTRACT_SIGNED,
+        workflowVersion: 2,
+        dossierVehicles: [{ vehicleId: 'vehicle-1' }],
+        vehicles: [{ id: 'vehicle-1', status: 'reserved' }],
+        payments: [],
+        invoices: [],
+      };
+      mockPrisma.dossier.findFirst
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce({
+          ...before,
+          status: DossierStatus.DEPOSIT_RECEIVED,
+        });
+      mockPrisma.payment.create.mockResolvedValue({
+        id: 'payment-1',
+        clientId: 'client-1',
+        dossierId: 'dos-1',
+        amount: new Prisma.Decimal(300_000),
+        currency: 'DZD',
+        paymentMethod: 'BANK_TRANSFER',
+        paymentDate: new Date('2026-09-02'),
+      });
+      mockPrisma.dossier.update.mockResolvedValue({
+        id: 'dos-1',
+        status: DossierStatus.DEPOSIT_RECEIVED,
+        dossierVehicles: [
+          {
+            vehicle: {
+              id: 'vehicle-1',
+              status: 'reserved',
+              brand: 'Test',
+              model: 'Vehicle',
+              vin: 'VIN-1',
+            },
+          },
+        ],
+      });
+
+      await dossiersService.updateStatus(
+        'dos-1',
+        {
+          status: DossierStatus.DEPOSIT_RECEIVED,
+          deposit: {
+            amount: 300_000,
+            currency: 'DZD',
+            paymentMethod: 'BANK_TRANSFER',
+            receivedAt: '2026-09-02',
+          },
+        },
+        'user-1',
+        'org-1',
+      );
+
+      expect(financeProjection.projectCustomerPayment).toHaveBeenCalledWith(
+        mockPrisma,
+        'org-1',
+        'user-1',
+        expect.objectContaining({ id: 'payment-1' }),
+      );
+      expect(mockPrisma.customerDeposit.create).toHaveBeenCalled();
     });
   });
 

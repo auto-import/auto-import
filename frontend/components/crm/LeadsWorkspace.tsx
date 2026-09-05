@@ -4,6 +4,7 @@ import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Archive,
   Calendar,
   ChevronRight,
   Plus,
@@ -51,6 +52,7 @@ export default function LeadsWorkspace() {
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [qualification, setQualification] = useState("");
+  const [archivedOnly, setArchivedOnly] = useState(false);
   const [references, setReferences] = useState<ApiCrmReference[]>([]);
   const [assignees, setAssignees] = useState<AgentSummary[]>([]);
   const [selected, setSelected] = useState<ApiProspect | null>(null);
@@ -72,6 +74,7 @@ export default function LeadsWorkspace() {
         createdFrom: createdFrom || undefined,
         createdTo: createdTo || undefined,
         qualification,
+        archivedOnly: archivedOnly ? "true" : undefined,
       });
       setLeads(result.items);
     } catch (caught) {
@@ -91,6 +94,7 @@ export default function LeadsWorkspace() {
     createdFrom,
     createdTo,
     qualification,
+    archivedOnly,
   ]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 250);
@@ -123,7 +127,25 @@ export default function LeadsWorkspace() {
         title="Leads"
         subtitle="Pipeline commercial — données CRM en temps réel"
       />
-      <main className="space-y-6 p-8">
+      <main className="space-y-6 p-4 sm:p-8">
+        <nav
+          className="flex w-fit gap-2 rounded-card border border-border bg-background p-2"
+          aria-label="Vues des leads"
+        >
+          <button
+            className={`rounded-button px-4 py-2 text-sm ${!archivedOnly ? "bg-foreground text-white" : "hover:bg-surface"}`}
+            onClick={() => setArchivedOnly(false)}
+          >
+            Leads actifs
+          </button>
+          <button
+            className={`flex items-center gap-2 rounded-button px-4 py-2 text-sm ${archivedOnly ? "bg-foreground text-white" : "hover:bg-surface"}`}
+            onClick={() => setArchivedOnly(true)}
+          >
+            <Archive className="h-4 w-4" />
+            Archives
+          </button>
+        </nav>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Kpi label="Total leads" value={leads.length} />
           <Kpi label="En cours" value={active} />
@@ -245,13 +267,15 @@ export default function LeadsWorkspace() {
               onChange={(event) => setCreatedTo(event.target.value)}
             />
           </label>
-          <button
-            onClick={() => setShowForm(true)}
-            className="ml-auto flex items-center gap-2 rounded-button bg-foreground px-4 py-2 text-sm text-white"
-          >
-            <Plus className="h-4 w-4" />
-            Nouveau lead
-          </button>
+          {!archivedOnly && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="ml-auto flex items-center gap-2 rounded-button bg-foreground px-4 py-2 text-sm text-white"
+            >
+              <Plus className="h-4 w-4" />
+              Nouveau lead
+            </button>
+          )}
         </div>
         {error && (
           <div className="rounded-card bg-status-red-bg p-4 text-sm text-status-red-text">
@@ -271,7 +295,9 @@ export default function LeadsWorkspace() {
           </div>
         ) : leads.length === 0 ? (
           <div className="card p-12 text-center text-muted">
-            Aucun lead ne correspond aux filtres.
+            {archivedOnly
+              ? "Aucun lead archivé ne correspond aux filtres."
+              : "Aucun lead ne correspond aux filtres."}
           </div>
         ) : (
           <div className="flex gap-4 overflow-x-auto pb-4">
@@ -297,6 +323,11 @@ export default function LeadsWorkspace() {
                           <p className="font-semibold">
                             {lead.firstName} {lead.lastName}
                           </p>
+                          {lead.archivedAt && (
+                            <span className="mt-1 inline-flex rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">
+                              Archivé
+                            </span>
+                          )}
                           <p className="text-xs text-muted">
                             {lead.entryChannel?.labelFr || "Canal inconnu"} ·{" "}
                             {lead.marketingSource?.labelFr || "Source inconnue"}

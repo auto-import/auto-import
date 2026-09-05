@@ -143,6 +143,12 @@ export default function LeadDetailDialog({
             {error}
           </p>
         )}
+        {current.archivedAt && (
+          <p className="mb-4 rounded-card bg-surface p-3 text-sm text-muted">
+            Ce lead est archivé. Son historique reste consultable en lecture
+            seule.
+          </p>
+        )}
         <div className="mb-6 grid gap-3 md:grid-cols-3">
           <label className="space-y-1 text-xs text-muted">
             Statut
@@ -151,21 +157,25 @@ export default function LeadDetailDialog({
                 ? CRM_LEAD_STATUS_LABELS[current.crmStatus]
                 : "À réconcilier"}
             </div>
-            {current.crmStatus && nextStatus[current.crmStatus] && (
-              <button
-                disabled={saving}
-                className="mt-2 rounded-button border border-border px-3 py-1 text-xs"
-                onClick={() => void transition(nextStatus[current.crmStatus!]!)}
-              >
-                Passer à{" "}
-                {CRM_LEAD_STATUS_LABELS[nextStatus[current.crmStatus]!]}
-              </button>
-            )}
+            {!current.archivedAt &&
+              current.crmStatus &&
+              nextStatus[current.crmStatus] && (
+                <button
+                  disabled={saving}
+                  className="mt-2 rounded-button border border-border px-3 py-1 text-xs"
+                  onClick={() =>
+                    void transition(nextStatus[current.crmStatus!]!)
+                  }
+                >
+                  Passer à{" "}
+                  {CRM_LEAD_STATUS_LABELS[nextStatus[current.crmStatus]!]}
+                </button>
+              )}
           </label>
           <label className="space-y-1 text-xs text-muted">
             Qualification
             <select
-              disabled={saving}
+              disabled={saving || Boolean(current.archivedAt)}
               className={`${control} block w-full`}
               value={current.qualification}
               onChange={(event) =>
@@ -196,6 +206,7 @@ export default function LeadDetailDialog({
             Prochaine action
             <input
               className={`${control} block w-full`}
+              disabled={saving || Boolean(current.archivedAt)}
               value={current.nextAction || ""}
               onChange={(event) =>
                 setCurrent({ ...current, nextAction: event.target.value })
@@ -208,6 +219,7 @@ export default function LeadDetailDialog({
             <input
               type="datetime-local"
               className={`${control} block w-full`}
+              disabled={saving || Boolean(current.archivedAt)}
               value={
                 current.nextActionAt
                   ? new Date(current.nextActionAt).toISOString().slice(0, 16)
@@ -256,39 +268,42 @@ export default function LeadDetailDialog({
             </div>
           )}
         </div>
-        <div className="mb-6 flex gap-2">
-          <input
-            className={`${control} flex-1`}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Ajouter une note à la timeline"
-          />
-          <button
-            disabled={saving || !note.trim()}
-            onClick={() => void addNote()}
-            className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            Ajouter
-          </button>
-          {!current.client && current.crmStatus === CrmLeadStatus.APPOINTMENT && (
+        {!current.archivedAt && (
+          <div className="mb-6 flex gap-2">
+            <input
+              className={`${control} flex-1`}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Ajouter une note à la timeline"
+            />
             <button
-              disabled={saving}
-              onClick={() => void convert()}
-              className="rounded-button border border-border px-4 py-2 text-sm"
+              disabled={saving || !note.trim()}
+              onClick={() => void addNote()}
+              className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50"
             >
-              Convertir en client
+              Ajouter
             </button>
-          )}
-          {hasPermission(Permission.PROSPECTS_ARCHIVE) && (
-            <button
-              disabled={saving}
-              onClick={() => void archive()}
-              className="rounded-button border border-status-red-text px-4 py-2 text-sm text-status-red-text"
-            >
-              Archiver
-            </button>
-          )}
-        </div>
+            {!current.client &&
+              current.crmStatus === CrmLeadStatus.APPOINTMENT && (
+                <button
+                  disabled={saving}
+                  onClick={() => void convert()}
+                  className="rounded-button border border-border px-4 py-2 text-sm"
+                >
+                  Convertir en client
+                </button>
+              )}
+            {hasPermission(Permission.PROSPECTS_ARCHIVE) && (
+              <button
+                disabled={saving}
+                onClick={() => void archive()}
+                className="rounded-button border border-status-red-text px-4 py-2 text-sm text-status-red-text"
+              >
+                Archiver
+              </button>
+            )}
+          </div>
+        )}
         <UnifiedTimeline
           items={timeline}
           emptyMessage="Aucune interaction enregistrée."

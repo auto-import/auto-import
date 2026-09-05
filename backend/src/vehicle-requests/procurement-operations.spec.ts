@@ -11,21 +11,33 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierType } from '@auto-import/contracts';
 import { DocumentsService } from '../documents/documents.service';
+import { CostsService } from '../finance/costs.service';
+import { VehicleStatusSyncService } from '../dossiers/workflows/vehicle-status-sync.service';
 
 describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audit', () => {
   let vehicleRequestsService: VehicleRequestsService;
   let dossiersService: DossiersService;
   let partnersService: PartnersService;
   let prisma: any;
+  let costsService: { recordPurchaseCommitment: jest.Mock };
+  let vehicleStatusSync: {
+    assertTransitionAllowed: jest.Mock;
+    syncForTransition: jest.Mock;
+  };
 
   const ORG_A = 'org-tenant-a';
   const ORG_B = 'org-tenant-b';
 
   beforeEach(async () => {
+    costsService = { recordPurchaseCommitment: jest.fn() };
+    vehicleStatusSync = {
+      assertTransitionAllowed: jest.fn(),
+      syncForTransition: jest.fn().mockResolvedValue([]),
+    };
     prisma = {
       vehicleRequest: {
         findFirst: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -41,7 +53,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       vehicle: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -102,6 +114,14 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         DossiersService,
         PartnersService,
         DossierWorkflowService,
+        {
+          provide: CostsService,
+          useValue: costsService,
+        },
+        {
+          provide: VehicleStatusSyncService,
+          useValue: vehicleStatusSync,
+        },
         {
           provide: DocumentsService,
           useValue: {
@@ -435,6 +455,22 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
             purchasePrice: 22000,
             status: 'confirmed',
           }),
+        }),
+      );
+      expect(costsService.recordPurchaseCommitment).toHaveBeenCalledWith(
+        prisma,
+        ORG_A,
+        'user-procurement-1',
+        expect.objectContaining({ id: 'pur-1' }),
+      );
+      expect(vehicleStatusSync.syncForTransition).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          organizationId: ORG_A,
+          dossierId: 'dossier-1',
+          fromStatus: 'depositReceived',
+          toStatus: 'purchaseConfirmed',
+          userId: 'user-procurement-1',
         }),
       );
     });

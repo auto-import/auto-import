@@ -17,6 +17,7 @@ import type {
   CreateSupplierContactDto,
   CreateSupplierIncidentDto,
   LinkSupplierDossierDto,
+  LinkSupplierVehicleDto,
   ResolveSupplierIncidentDto,
   TransitionSupplierDto,
   UpdateSupplierScoreDto,
@@ -572,7 +573,7 @@ export class PartnersService {
       currency: account.currency,
       details: JSON.parse(
         this.sensitive.decrypt(account.encryptedDetails, 'pii'),
-      ),
+      ) as unknown,
     };
   }
 
@@ -705,6 +706,121 @@ export class PartnersService {
         createdBy: userId,
       },
       update: {},
+    });
+  }
+
+  async eligibleVehicles(
+    supplierId: string,
+    organizationId: string,
+    search?: string,
+  ) {
+    await this.requireSupplier(supplierId, organizationId);
+    const term = search?.trim();
+    return this.prisma.vehicle.findMany({
+      where: {
+        organizationId,
+        archivedAt: null,
+        OR: [{ supplierId: null }, { supplierId }],
+        ...(term
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { brand: { contains: term, mode: 'insensitive' } },
+                    { model: { contains: term, mode: 'insensitive' } },
+                    { vin: { contains: term, mode: 'insensitive' } },
+                  ],
+                },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        brand: true,
+        model: true,
+        year: true,
+        vin: true,
+        status: true,
+        supplierId: true,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 50,
+    });
+  }
+
+  async linkVehicle(
+    supplierId: string,
+    organizationId: string,
+    userId: string,
+    dto: LinkSupplierVehicleDto,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const supplier = await tx.partner.findFirst({
+        where: {
+          id: supplierId,
+          organizationId,
+          type: 'supplier',
+          status: { not: 'archived' },
+        },
+        select: { id: true },
+      });
+      if (!supplier) throw new NotFoundException('Supplier not found');
+
+      const vehicle = await tx.vehicle.findFirst({
+        where: { id: dto.vehicleId, organizationId, archivedAt: null },
+        include: {
+          purchases: {
+            where: { status: { not: 'cancelled' } },
+            select: { supplierId: true },
+          },
+        },
+      });
+      if (!vehicle) throw new NotFoundException('Vehicle not found');
+      if (vehicle.supplierId === supplierId) return vehicle;
+      if (vehicle.supplierId && vehicle.supplierId !== supplierId) {
+        throw new ConflictException({
+          code: 'VEHICLE_ALREADY_ASSIGNED_TO_SUPPLIER',
+          message: 'Vehicle already has another primary supplier',
+        });
+      }
+      if (
+        vehicle.purchases.some((purchase) => purchase.supplierId !== supplierId)
+      ) {
+        throw new ConflictException({
+          code: 'VEHICLE_PURCHASE_SUPPLIER_MISMATCH',
+          message:
+            'Vehicle purchase history belongs to another supplier and cannot be reassigned',
+        });
+      }
+
+      const assignment = await tx.vehicle.updateMany({
+        where: {
+          id: vehicle.id,
+          organizationId,
+          archivedAt: null,
+          supplierId: null,
+        },
+        data: { supplierId },
+      });
+      if (assignment.count !== 1) {
+        throw new ConflictException({
+          code: 'VEHICLE_SUPPLIER_ASSIGNMENT_CONFLICT',
+          message: 'Vehicle supplier assignment changed concurrently',
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_VEHICLE_LINKED',
+          entityType: 'Vehicle',
+          entityId: vehicle.id,
+          oldValues: { supplierId: vehicle.supplierId },
+          newValues: { supplierId },
+        },
+      });
+      return { ...vehicle, supplierId };
     });
   }
 

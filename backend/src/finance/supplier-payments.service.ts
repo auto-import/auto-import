@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,10 +14,19 @@ import {
   FilterSupplierPaymentsDto,
   ReverseSupplierPaymentDto,
 } from './dto/finance.dto';
+import { FinanceProjectionService } from './finance-projection.service';
 
 @Injectable()
 export class SupplierPaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly financeProjection: FinanceProjectionService;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() financeProjection?: FinanceProjectionService,
+  ) {
+    this.financeProjection =
+      financeProjection ?? new FinanceProjectionService(prisma);
+  }
 
   async create(
     organizationId: string,
@@ -194,67 +204,13 @@ export class SupplierPaymentsService {
           actorUser: { select: { id: true, firstName: true, lastName: true } },
         },
       });
-      const rate =
-        confirmed.currency === 'DZD'
-          ? new Prisma.Decimal(1)
-          : confirmed.exchangeRateId
-            ? (
-                await tx.exchangeRate.findUnique({
-                  where: { id: confirmed.exchangeRateId },
-                })
-              )?.rate
-            : (
-                await tx.exchangeRate.findFirst({
-                  where: {
-                    organizationId,
-                    baseCurrency: 'DZD',
-                    quoteCurrency: confirmed.currency,
-                    effectiveAt: { lte: confirmed.paymentDate ?? new Date() },
-                  },
-                  orderBy: { effectiveAt: 'desc' },
-                })
-              )?.rate;
-      if (!rate)
-        throw new ConflictException(
-          'A historical DZD exchange rate is required before confirmation',
-        );
-      await tx.financeTransaction.upsert({
-        where: {
-          organizationId_sourceModule_sourceRecordId: {
-            organizationId,
-            sourceModule: 'SUPPLIER_PAYMENT',
-            sourceRecordId: confirmed.id,
-          },
-        },
-        create: {
-          organizationId,
-          type: 'SUPPLIER_PAYMENT',
-          direction: 'DEBIT',
-          sourceModule: 'SUPPLIER_PAYMENT',
-          sourceRecordId: confirmed.id,
-          idempotencyKey: confirmed.idempotencyKey
-            ? `supplier-payment:${confirmed.idempotencyKey}`
-            : `supplier-payment:${confirmed.id}`,
-          originalAmount: confirmed.amount,
-          currency: confirmed.currency,
-          exchangeRateSnapshot: rate,
-          amountDzd: confirmed.amount.mul(rate).toDecimalPlaces(2),
-          dossierId: confirmed.purchase.dossierId,
-          supplierId: confirmed.supplierId,
-          paymentMode: confirmed.paymentMethod,
-          reference: confirmed.reference,
-          supplierPaymentId: confirmed.id,
-          purchaseId: confirmed.purchaseId,
-          treasuryAccountId: dto.treasuryAccountId,
-          supportingDocumentId: dto.supportingDocumentId,
-          status: 'VALIDATED',
-          createdBy: userId,
-          validatedBy: userId,
-          validatedAt: new Date(),
-          occurredAt: confirmed.paymentDate ?? new Date(),
-        },
-        update: {},
-      });
+      await this.financeProjection.projectSupplierPayment(
+        tx,
+        organizationId,
+        userId,
+        confirmed,
+        dto,
+      );
       return confirmed;
     });
   }

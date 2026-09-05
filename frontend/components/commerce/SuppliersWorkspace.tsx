@@ -4,36 +4,20 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Archive,
   Building2,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  DollarSign,
   FileText,
-  History,
-  Mail,
-  Package,
   Pencil,
-  Phone,
   Plus,
   Search,
-  ShieldAlert,
-  Truck,
-  UserCheck,
-  Users,
   X,
 } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import {
   commerceApi,
   type ApiPartner,
-  type ApiPartnerContact,
-  type ApiPartnerIncident,
-  type ApiPartnerPurchase,
-  type ApiPartnerPayment,
-  type ApiPartnerGedLink,
-  type ApiPartnerDossierLink,
-  type ApiOffer,
+  type ApiVehicle,
 } from "@/lib/commerce-api";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
 import {
   buttonClass,
   EmptyState,
@@ -76,6 +60,8 @@ type SupplierTab =
   | "historique";
 
 export default function SuppliersWorkspace() {
+  const { hasPermission } = useAuth();
+  const canAssignVehicle = hasPermission(Permission.PARTNERS_WRITE);
   const [items, setItems] = useState<ApiPartner[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("active");
@@ -105,6 +91,17 @@ export default function SuppliersWorkspace() {
     type: "QUALITY",
   });
   const [submittingSub, setSubmittingSub] = useState(false);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [eligibleVehicles, setEligibleVehicles] = useState<
+    Array<
+      Pick<
+        ApiVehicle,
+        "id" | "brand" | "model" | "year" | "vin" | "status" | "supplierId"
+      >
+    >
+  >([]);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -252,7 +249,9 @@ export default function SuppliersWorkspace() {
       await selectSupplier(selected.id);
     } catch (err) {
       alert(
-        err instanceof Error ? err.message : "Erreur lors de l'ajout du contact",
+        err instanceof Error
+          ? err.message
+          : "Erreur lors de l'ajout du contact",
       );
     } finally {
       setSubmittingSub(false);
@@ -278,6 +277,42 @@ export default function SuppliersWorkspace() {
         err instanceof Error
           ? err.message
           : "Erreur lors de l'ajout de l'incident",
+      );
+    } finally {
+      setSubmittingSub(false);
+    }
+  };
+
+  const openVehicleAssignment = async () => {
+    if (!selected) return;
+    setSubmittingSub(true);
+    try {
+      const vehicles = await commerceApi.partners.eligibleVehicles(selected.id);
+      setEligibleVehicles(vehicles);
+      setVehicleId("");
+      setVehicleSearch("");
+      setShowVehicleModal(true);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Véhicules indisponibles",
+      );
+    } finally {
+      setSubmittingSub(false);
+    }
+  };
+
+  const handleAssignVehicle = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected || !vehicleId) return;
+    setSubmittingSub(true);
+    try {
+      await commerceApi.partners.linkVehicle(selected.id, vehicleId);
+      setShowVehicleModal(false);
+      await selectSupplier(selected.id);
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Association impossible",
       );
     } finally {
       setSubmittingSub(false);
@@ -389,7 +424,9 @@ export default function SuppliersWorkspace() {
                     <p>{partner._count?.suppliedVehicles ?? 0} véhicules</p>
                     <p
                       className={
-                        partner.status === "active" ? "text-emerald-700 font-semibold" : ""
+                        partner.status === "active"
+                          ? "text-emerald-700 font-semibold"
+                          : ""
                       }
                     >
                       {partner.supplierStatus ?? partner.status}
@@ -479,13 +516,17 @@ export default function SuppliersWorkspace() {
                   {selected.kpis && (
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                       <div className="rounded-card border p-3">
-                        <p className="text-xs uppercase text-muted">Offres actives</p>
+                        <p className="text-xs uppercase text-muted">
+                          Offres actives
+                        </p>
                         <p className="text-xl font-bold text-emerald-600">
                           {selected.kpis.activeOffers}
                         </p>
                       </div>
                       <div className="rounded-card border p-3">
-                        <p className="text-xs uppercase text-muted">Achats cumulés</p>
+                        <p className="text-xs uppercase text-muted">
+                          Achats cumulés
+                        </p>
                         <p className="text-xl font-bold">
                           {formatMoney(
                             selected.kpis.amountPurchased,
@@ -497,7 +538,9 @@ export default function SuppliersWorkspace() {
                         </p>
                       </div>
                       <div className="rounded-card border p-3">
-                        <p className="text-xs uppercase text-muted">Solde restant dû</p>
+                        <p className="text-xs uppercase text-muted">
+                          Solde restant dû
+                        </p>
                         <p className="text-xl font-bold text-amber-600">
                           {formatMoney(
                             selected.kpis.supplierBalance,
@@ -506,7 +549,9 @@ export default function SuppliersWorkspace() {
                         </p>
                       </div>
                       <div className="rounded-card border p-3">
-                        <p className="text-xs uppercase text-muted">Délai moyen</p>
+                        <p className="text-xs uppercase text-muted">
+                          Délai moyen
+                        </p>
                         <p className="text-xl font-bold">
                           {selected.kpis.averageLeadTimeDays ?? "—"} jours
                         </p>
@@ -516,51 +561,75 @@ export default function SuppliersWorkspace() {
 
                   <div className="grid gap-6 md:grid-cols-2">
                     <section className="space-y-3 rounded-card border p-4">
-                      <h3 className="font-bold text-sm">Coordonnées commerciales</h3>
+                      <h3 className="font-bold text-sm">
+                        Coordonnées commerciales
+                      </h3>
                       <dl className="grid gap-2 text-sm">
                         <div className="flex justify-between">
                           <dt className="text-muted">Contact principal</dt>
-                          <dd className="font-medium">{selected.contactPerson || "—"}</dd>
+                          <dd className="font-medium">
+                            {selected.contactPerson || "—"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">Téléphone</dt>
-                          <dd className="font-medium">{selected.phone || "—"}</dd>
+                          <dd className="font-medium">
+                            {selected.phone || "—"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">Email</dt>
-                          <dd className="font-medium">{selected.email || "—"}</dd>
+                          <dd className="font-medium">
+                            {selected.email || "—"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">WhatsApp / WeChat</dt>
                           <dd className="font-medium">
-                            {[selected.whatsapp, selected.wechat].filter(Boolean).join(" / ") || "—"}
+                            {[selected.whatsapp, selected.wechat]
+                              .filter(Boolean)
+                              .join(" / ") || "—"}
                           </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">Adresse</dt>
-                          <dd className="font-medium">{selected.address || "—"}</dd>
+                          <dd className="font-medium">
+                            {selected.address || "—"}
+                          </dd>
                         </div>
                       </dl>
                     </section>
 
                     <section className="space-y-3 rounded-card border p-4">
-                      <h3 className="font-bold text-sm">Conditions d&apos;approvisionnement</h3>
+                      <h3 className="font-bold text-sm">
+                        Conditions d&apos;approvisionnement
+                      </h3>
                       <dl className="grid gap-2 text-sm">
                         <div className="flex justify-between">
                           <dt className="text-muted">Devise préférée</dt>
-                          <dd className="font-medium">{selected.preferredCurrency ?? "USD"}</dd>
+                          <dd className="font-medium">
+                            {selected.preferredCurrency ?? "USD"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">Conditions de paiement</dt>
-                          <dd className="font-medium">{selected.paymentTerms || "—"}</dd>
+                          <dd className="font-medium">
+                            {selected.paymentTerms || "—"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-muted">Incoterms supportés</dt>
-                          <dd className="font-medium">{(selected.incoterms ?? []).join(", ") || "—"}</dd>
+                          <dd className="font-medium">
+                            {(selected.incoterms ?? []).join(", ") || "—"}
+                          </dd>
                         </div>
                         <div className="flex justify-between">
-                          <dt className="text-muted">Conditions de livraison</dt>
-                          <dd className="font-medium">{selected.deliveryTerms || "—"}</dd>
+                          <dt className="text-muted">
+                            Conditions de livraison
+                          </dt>
+                          <dd className="font-medium">
+                            {selected.deliveryTerms || "—"}
+                          </dd>
                         </div>
                       </dl>
                     </section>
@@ -569,9 +638,12 @@ export default function SuppliersWorkspace() {
                   {/* Verification status transition actions */}
                   <div className="flex items-center justify-between rounded-card bg-surface p-4 text-sm">
                     <div>
-                      <p className="font-semibold">Statut de vérification ERP</p>
+                      <p className="font-semibold">
+                        Statut de vérification ERP
+                      </p>
                       <p className="text-xs text-muted">
-                        Validation de conformité fournisseur et scoring opérationnel.
+                        Validation de conformité fournisseur et scoring
+                        opérationnel.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -585,7 +657,9 @@ export default function SuppliersWorkspace() {
                       )}
                       {selected.supplierStatus !== "SUSPENDED" && (
                         <button
-                          onClick={() => void handleStatusTransition("SUSPENDED")}
+                          onClick={() =>
+                            void handleStatusTransition("SUSPENDED")
+                          }
                           className="rounded-button border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
                         >
                           Suspendre
@@ -625,7 +699,9 @@ export default function SuppliersWorkspace() {
                                 </span>
                               )}
                             </p>
-                            <p className="text-xs text-muted">{contact.role || "Contact"}</p>
+                            <p className="text-xs text-muted">
+                              {contact.role || "Contact"}
+                            </p>
                           </div>
                           <div className="text-right text-xs">
                             <p>{contact.phone || "—"}</p>
@@ -652,14 +728,19 @@ export default function SuppliersWorkspace() {
                           className="rounded-card border p-3 text-sm space-y-1"
                         >
                           <div className="flex justify-between">
-                            <p className="font-bold">{offer.brand} {offer.model}</p>
+                            <p className="font-bold">
+                              {offer.brand} {offer.model}
+                            </p>
                             <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs">
                               {offer.offerStatus ?? offer.status}
                             </span>
                           </div>
-                          <p className="text-xs text-muted">Réf: {offer.reference}</p>
+                          <p className="text-xs text-muted">
+                            Réf: {offer.reference}
+                          </p>
                           <p className="font-semibold text-primary">
-                            Prix fournisseur: {formatMoney(offer.supplierPrice, offer.currency)}
+                            Prix fournisseur:{" "}
+                            {formatMoney(offer.supplierPrice, offer.currency)}
                           </p>
                           <p className="text-xs text-muted">
                             Qté disponible: {offer.availableQuantity}
@@ -685,14 +766,21 @@ export default function SuppliersWorkspace() {
                           className="flex items-center justify-between p-3 text-sm"
                         >
                           <div>
-                            <p className="font-semibold">Achat #{purchase.id.slice(0, 8)}</p>
+                            <p className="font-semibold">
+                              Achat #{purchase.id.slice(0, 8)}
+                            </p>
                             <p className="text-xs text-muted">
-                              {new Date(purchase.createdAt).toLocaleDateString()}
+                              {new Date(
+                                purchase.createdAt,
+                              ).toLocaleDateString()}
                             </p>
                           </div>
                           <div className="text-right">
                             <p className="font-bold">
-                              {formatMoney(purchase.purchasePrice, purchase.currency)}
+                              {formatMoney(
+                                purchase.purchasePrice,
+                                purchase.currency,
+                              )}
                             </p>
                             <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs">
                               {purchase.status}
@@ -702,7 +790,7 @@ export default function SuppliersWorkspace() {
                       ))}
                     </div>
                   ) : (
-                    <EmptyState label="Aucune commande d&apos;achat enregistrée." />
+                    <EmptyState label="Aucune commande d'achat enregistrée." />
                   )}
                 </div>
               )}
@@ -710,15 +798,53 @@ export default function SuppliersWorkspace() {
               {/* TAB 5: VÉHICULES */}
               {activeTab === "vehicules" && (
                 <div className="space-y-4">
-                  <h3 className="font-bold text-sm">Véhicules approvisionnés</h3>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-bold text-sm">
+                      Véhicules approvisionnés
+                    </h3>
+                    {canAssignVehicle && (
+                      <button
+                        onClick={() => void openVehicleAssignment()}
+                        className="rounded-button bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+                      >
+                        <Plus className="mr-1 inline h-3.5 w-3.5" />
+                        Associer un véhicule
+                      </button>
+                    )}
+                  </div>
                   <div className="rounded-card border p-4 text-center">
                     <p className="text-2xl font-bold text-primary">
                       {selected._count?.suppliedVehicles ?? 0}
                     </p>
                     <p className="text-xs text-muted mt-1">
-                      Véhicule(s) enregistré(s) dans le parc avec ce fournisseur source.
+                      Véhicule(s) enregistré(s) dans le parc avec ce fournisseur
+                      source.
                     </p>
                   </div>
+                  {selected.suppliedVehicles?.length ? (
+                    <div className="divide-y divide-border rounded-card border">
+                      {selected.suppliedVehicles.map((vehicle) => (
+                        <div
+                          key={vehicle.id}
+                          className="flex items-center justify-between gap-3 p-3 text-sm"
+                        >
+                          <div>
+                            <p className="font-semibold">
+                              {vehicle.brand} {vehicle.model}
+                            </p>
+                            <p className="text-xs text-muted">
+                              {vehicle.vin || "VIN non renseigné"}
+                            </p>
+                          </div>
+                          <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs">
+                            {vehicle.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState label="Aucun véhicule associé à ce fournisseur." />
+                  )}
                 </div>
               )}
 
@@ -735,7 +861,9 @@ export default function SuppliersWorkspace() {
                         >
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 text-muted" />
-                            <p className="font-medium">Document GED #{link.documentId.slice(0, 8)}</p>
+                            <p className="font-medium">
+                              Document GED #{link.documentId.slice(0, 8)}
+                            </p>
                           </div>
                           <a
                             href={`/api/ged/documents/${link.documentId}/download`}
@@ -757,8 +885,11 @@ export default function SuppliersWorkspace() {
               {/* TAB 7: PAIEMENTS */}
               {activeTab === "paiements" && (
                 <div className="space-y-4">
-                  <h3 className="font-bold text-sm">Règlements & Décaissements Fournisseur</h3>
-                  {selected.supplierPayments && selected.supplierPayments.length > 0 ? (
+                  <h3 className="font-bold text-sm">
+                    Règlements & Décaissements Fournisseur
+                  </h3>
+                  {selected.supplierPayments &&
+                  selected.supplierPayments.length > 0 ? (
                     <div className="divide-y divide-border rounded-card border">
                       {selected.supplierPayments.map((payment) => (
                         <div
@@ -771,7 +902,9 @@ export default function SuppliersWorkspace() {
                             </p>
                             <p className="text-xs text-muted">
                               {payment.paymentDate
-                                ? new Date(payment.paymentDate).toLocaleDateString()
+                                ? new Date(
+                                    payment.paymentDate,
+                                  ).toLocaleDateString()
                                 : "Date non précisée"}
                             </p>
                           </div>
@@ -791,7 +924,9 @@ export default function SuppliersWorkspace() {
               {activeTab === "incidents" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-sm">Journal des incidents & réclamations</h3>
+                    <h3 className="font-bold text-sm">
+                      Journal des incidents & réclamations
+                    </h3>
                     <button
                       onClick={() => setShowIncidentModal(true)}
                       className="rounded-button bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
@@ -803,16 +938,24 @@ export default function SuppliersWorkspace() {
                   {selected.incidents && selected.incidents.length > 0 ? (
                     <div className="divide-y divide-border rounded-card border">
                       {selected.incidents.map((incident) => (
-                        <div key={incident.id} className="p-3 text-sm space-y-1">
+                        <div
+                          key={incident.id}
+                          className="p-3 text-sm space-y-1"
+                        >
                           <div className="flex items-center justify-between">
-                            <p className="font-semibold text-red-700">{incident.title}</p>
+                            <p className="font-semibold text-red-700">
+                              {incident.title}
+                            </p>
                             <span className="rounded bg-red-50 px-2 py-0.5 text-xs font-bold text-red-800">
                               {incident.severity} · {incident.status}
                             </span>
                           </div>
-                          <p className="text-xs text-muted">{incident.description}</p>
+                          <p className="text-xs text-muted">
+                            {incident.description}
+                          </p>
                           <p className="text-[10px] text-muted">
-                            Survenu le: {new Date(incident.occurredAt).toLocaleDateString()}
+                            Survenu le:{" "}
+                            {new Date(incident.occurredAt).toLocaleDateString()}
                           </p>
                         </div>
                       ))}
@@ -826,7 +969,9 @@ export default function SuppliersWorkspace() {
               {/* TAB 9: HISTORIQUE */}
               {activeTab === "historique" && (
                 <div className="space-y-4">
-                  <h3 className="font-bold text-sm">Historique des liaisons & dossiers</h3>
+                  <h3 className="font-bold text-sm">
+                    Historique des liaisons & dossiers
+                  </h3>
                   {selected.dossierLinks && selected.dossierLinks.length > 0 ? (
                     <div className="divide-y divide-border rounded-card border">
                       {selected.dossierLinks.map((link) => (
@@ -835,9 +980,12 @@ export default function SuppliersWorkspace() {
                           className="flex items-center justify-between p-3 text-sm"
                         >
                           <div>
-                            <p className="font-semibold">Dossier {link.dossier?.reference}</p>
+                            <p className="font-semibold">
+                              Dossier {link.dossier?.reference}
+                            </p>
                             <p className="text-xs text-muted">
-                              Lié le {new Date(link.createdAt).toLocaleDateString()}
+                              Lié le{" "}
+                              {new Date(link.createdAt).toLocaleDateString()}
                             </p>
                           </div>
                           <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs">
@@ -873,6 +1021,75 @@ export default function SuppliersWorkspace() {
         </div>
       )}
 
+      {showVehicleModal && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={handleAssignVehicle}
+            className="card w-full max-w-lg space-y-4 p-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold">Associer un véhicule</h3>
+                <p className="text-xs text-muted">
+                  Fournisseur : {selected.name}
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowVehicleModal(false)}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <input
+              className={inputClass}
+              placeholder="Rechercher par marque, modèle ou VIN"
+              value={vehicleSearch}
+              onChange={(event) => setVehicleSearch(event.target.value)}
+            />
+            <select
+              required
+              className={inputClass}
+              value={vehicleId}
+              onChange={(event) => setVehicleId(event.target.value)}
+            >
+              <option value="">Sélectionner un véhicule éligible</option>
+              {eligibleVehicles
+                .filter((vehicle) =>
+                  `${vehicle.brand} ${vehicle.model} ${vehicle.vin ?? ""}`
+                    .toLocaleLowerCase()
+                    .includes(vehicleSearch.trim().toLocaleLowerCase()),
+                )
+                .map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.brand} {vehicle.model} ·{" "}
+                    {vehicle.vin || "sans VIN"}
+                    {vehicle.supplierId === selected.id
+                      ? " · déjà associé"
+                      : ""}
+                  </option>
+                ))}
+            </select>
+            <p className="text-xs text-muted">
+              Un véhicule lié à un autre fournisseur ou à un historique d’achat
+              incompatible ne peut pas être réaffecté.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-button border px-3 py-2 text-sm"
+                onClick={() => setShowVehicleModal(false)}
+              >
+                Annuler
+              </button>
+              <button
+                disabled={submittingSub || !vehicleId}
+                className={`${buttonClass} disabled:opacity-50`}
+              >
+                {submittingSub ? "Association…" : "Confirmer l’association"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Add Contact Modal */}
       {showContactModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -887,7 +1104,9 @@ export default function SuppliersWorkspace() {
                 required
                 className={inputClass}
                 value={contactForm.name}
-                onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                onChange={(e) =>
+                  setContactForm({ ...contactForm, name: e.target.value })
+                }
               />
             </label>
             <label>
@@ -896,7 +1115,9 @@ export default function SuppliersWorkspace() {
                 className={inputClass}
                 placeholder="Ex: Commercial Export"
                 value={contactForm.role}
-                onChange={(e) => setContactForm({ ...contactForm, role: e.target.value })}
+                onChange={(e) =>
+                  setContactForm({ ...contactForm, role: e.target.value })
+                }
               />
             </label>
             <label>
@@ -905,7 +1126,9 @@ export default function SuppliersWorkspace() {
                 className={inputClass}
                 placeholder="+86 138..."
                 value={contactForm.phone}
-                onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+                onChange={(e) =>
+                  setContactForm({ ...contactForm, phone: e.target.value })
+                }
               />
             </label>
             <label>
@@ -914,14 +1137,21 @@ export default function SuppliersWorkspace() {
                 type="email"
                 className={inputClass}
                 value={contactForm.email}
-                onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                onChange={(e) =>
+                  setContactForm({ ...contactForm, email: e.target.value })
+                }
               />
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={contactForm.preferred}
-                onChange={(e) => setContactForm({ ...contactForm, preferred: e.target.checked })}
+                onChange={(e) =>
+                  setContactForm({
+                    ...contactForm,
+                    preferred: e.target.checked,
+                  })
+                }
               />
               Contact principal privilégié
             </label>
@@ -948,7 +1178,9 @@ export default function SuppliersWorkspace() {
             onSubmit={handleAddIncident}
             className="card w-full max-w-md space-y-4 p-6"
           >
-            <h3 className="font-bold text-base">Signaler un incident fournisseur</h3>
+            <h3 className="font-bold text-base">
+              Signaler un incident fournisseur
+            </h3>
             <label>
               <span className="field-label">Titre de l&apos;incident *</span>
               <input
@@ -956,7 +1188,9 @@ export default function SuppliersWorkspace() {
                 className={inputClass}
                 placeholder="Ex: Retard d'expédition / Non-conformité"
                 value={incidentForm.title}
-                onChange={(e) => setIncidentForm({ ...incidentForm, title: e.target.value })}
+                onChange={(e) =>
+                  setIncidentForm({ ...incidentForm, title: e.target.value })
+                }
               />
             </label>
             <label>
@@ -964,7 +1198,9 @@ export default function SuppliersWorkspace() {
               <select
                 className={inputClass}
                 value={incidentForm.severity}
-                onChange={(e) => setIncidentForm({ ...incidentForm, severity: e.target.value })}
+                onChange={(e) =>
+                  setIncidentForm({ ...incidentForm, severity: e.target.value })
+                }
               >
                 <option value="LOW">Faible</option>
                 <option value="MEDIUM">Moyenne</option>
@@ -977,7 +1213,9 @@ export default function SuppliersWorkspace() {
               <select
                 className={inputClass}
                 value={incidentForm.type}
-                onChange={(e) => setIncidentForm({ ...incidentForm, type: e.target.value })}
+                onChange={(e) =>
+                  setIncidentForm({ ...incidentForm, type: e.target.value })
+                }
               >
                 <option value="QUALITY">Qualité véhicule</option>
                 <option value="DELAY">Délai / Logistique</option>
@@ -993,7 +1231,12 @@ export default function SuppliersWorkspace() {
                 className={inputClass}
                 rows={3}
                 value={incidentForm.description}
-                onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
+                onChange={(e) =>
+                  setIncidentForm({
+                    ...incidentForm,
+                    description: e.target.value,
+                  })
+                }
               />
             </label>
             <div className="flex justify-end gap-2 pt-2">
@@ -1055,55 +1298,67 @@ export default function SuppliersWorkspace() {
                   "averageLeadTimeDays",
                   "specialties",
                 ] as const
-              ).filter((key) => key !== "supplierType").map((key) => (
-                <label
-                  key={key}
-                  className={
-                    key === "address" || key === "specialties"
-                      ? "md:col-span-2"
-                      : ""
-                  }
-                >
-                  <span className="field-label">
-                    {
+              )
+                .filter((key) => key !== "supplierType")
+                .map((key) => (
+                  <label
+                    key={key}
+                    className={
+                      key === "address" || key === "specialties"
+                        ? "md:col-span-2"
+                        : ""
+                    }
+                  >
+                    <span className="field-label">
                       {
-                        name: "Nom *",
-                        country: "Pays",
-                        city: "Ville",
-                        contactPerson: "Contact",
-                        phone: "Téléphone",
-                        email: "Email",
-                        address: "Adresse",
-                        website: "Site web",
-                        paymentTerms: "Conditions de paiement",
-                        deliveryTerms: "Conditions de livraison",
-                        supplierType: "Type fournisseur",
-                        whatsapp: "WhatsApp",
-                        wechat: "WeChat",
-                        preferredCurrency: "Devise préférée",
-                        incoterms: "Incoterms (séparés par des virgules)",
-                        averageLeadTimeDays: "Délai moyen (jours)",
-                        specialties: "Spécialités (séparées par des virgules)",
-                      }[key]
-                    }
-                  </span>
-                  <input
-                    required={key === "name"}
-                    className={inputClass}
-                    type={key === "averageLeadTimeDays" ? "number" : "text"}
-                    value={form[key]}
-                    onChange={(e) =>
-                      setForm((current) => ({
-                        ...current,
-                        [key]: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              ))}
+                        {
+                          name: "Nom *",
+                          country: "Pays",
+                          city: "Ville",
+                          contactPerson: "Contact",
+                          phone: "Téléphone",
+                          email: "Email",
+                          address: "Adresse",
+                          website: "Site web",
+                          paymentTerms: "Conditions de paiement",
+                          deliveryTerms: "Conditions de livraison",
+                          supplierType: "Type fournisseur",
+                          whatsapp: "WhatsApp",
+                          wechat: "WeChat",
+                          preferredCurrency: "Devise préférée",
+                          incoterms: "Incoterms (séparés par des virgules)",
+                          averageLeadTimeDays: "Délai moyen (jours)",
+                          specialties:
+                            "Spécialités (séparées par des virgules)",
+                        }[key]
+                      }
+                    </span>
+                    <input
+                      required={key === "name"}
+                      className={inputClass}
+                      type={key === "averageLeadTimeDays" ? "number" : "text"}
+                      value={form[key]}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          [key]: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ))}
               <label>
                 <span className="field-label">Type fournisseur</span>
-                <select className={inputClass} value={form.supplierType} onChange={(event) => setForm((current) => ({ ...current, supplierType: event.target.value }))}>
+                <select
+                  className={inputClass}
+                  value={form.supplierType}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      supplierType: event.target.value,
+                    }))
+                  }
+                >
                   <option value="VEHICLE">Fournisseur véhicule</option>
                   <option value="FORWARDER">Forwarder / transitaire</option>
                   <option value="OTHER">Autre</option>

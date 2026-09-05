@@ -24,6 +24,7 @@ import {
   CreateSupplierContactDto,
   CreateSupplierIncidentDto,
   LinkSupplierDossierDto,
+  LinkSupplierVehicleDto,
   ResolveSupplierIncidentDto,
   TransitionSupplierDto,
   UpdateSupplierScoreDto,
@@ -49,6 +50,20 @@ export class PartnersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.partnersService.findAll(user.organizationId, query);
+  }
+
+  @Get(':id/eligible-vehicles')
+  @RequirePermission(Permission.PARTNERS_WRITE)
+  eligibleVehicles(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('search') search: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.eligibleVehicles(
+      id,
+      user.organizationId,
+      search,
+    );
   }
 
   @Get(':id')
@@ -237,6 +252,21 @@ export class PartnersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.partnersService.linkDossier(
+      id,
+      user.organizationId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/vehicles')
+  @RequirePermission(Permission.PARTNERS_WRITE)
+  linkVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: LinkSupplierVehicleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.partnersService.linkVehicle(
       id,
       user.organizationId,
       user.id,

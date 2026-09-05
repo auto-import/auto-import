@@ -68,9 +68,8 @@ export default function LeadFormDialog({
             sources[0]?.id ||
             "",
           countryId:
-            countries.find(
-              (item) => item.metadata?.defaultForPhone === true,
-            )?.id || "",
+            countries.find((item) => item.metadata?.defaultForPhone === true)
+              ?.id || "",
         }));
       })
       .catch((caught) =>
@@ -149,10 +148,10 @@ export default function LeadFormDialog({
   const input =
     "w-full rounded-input border border-border bg-background px-3 py-2 text-sm";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/40 p-4 sm:items-center">
       <form
         onSubmit={submit}
-        className="card w-full max-w-xl space-y-4 bg-background"
+        className="card max-h-[calc(100dvh-2rem)] w-full max-w-xl space-y-4 overflow-y-auto overscroll-contain bg-background"
       >
         <div className="flex items-center justify-between">
           <div>
@@ -289,7 +288,9 @@ export default function LeadFormDialog({
             Véhicule / besoin client
           </legend>
           <label className="md:col-span-2">
-            <span className="mb-1 block text-xs text-muted">Type de besoin *</span>
+            <span className="mb-1 block text-xs text-muted">
+              Type de besoin *
+            </span>
             <select
               required
               className={input}
@@ -340,7 +341,10 @@ export default function LeadFormDialog({
                 placeholder="Type de marchandise / véhicule"
                 value={values.shippingCargoType}
                 onChange={(event) =>
-                  setValues({ ...values, shippingCargoType: event.target.value })
+                  setValues({
+                    ...values,
+                    shippingCargoType: event.target.value,
+                  })
                 }
               />
               <input
@@ -348,7 +352,10 @@ export default function LeadFormDialog({
                 placeholder="Destination"
                 value={values.shippingDestination}
                 onChange={(event) =>
-                  setValues({ ...values, shippingDestination: event.target.value })
+                  setValues({
+                    ...values,
+                    shippingDestination: event.target.value,
+                  })
                 }
               />
               <textarea
@@ -357,7 +364,10 @@ export default function LeadFormDialog({
                 placeholder="Description du besoin"
                 value={values.shippingDescription}
                 onChange={(event) =>
-                  setValues({ ...values, shippingDescription: event.target.value })
+                  setValues({
+                    ...values,
+                    shippingDescription: event.target.value,
+                  })
                 }
               />
               <textarea
@@ -366,7 +376,10 @@ export default function LeadFormDialog({
                 placeholder="Exigences shipping / notes"
                 value={values.shippingRequirements}
                 onChange={(event) =>
-                  setValues({ ...values, shippingRequirements: event.target.value })
+                  setValues({
+                    ...values,
+                    shippingRequirements: event.target.value,
+                  })
                 }
               />
             </>

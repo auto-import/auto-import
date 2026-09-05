@@ -43,4 +43,9 @@ export class FilterProspectDto extends PaginationDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   includeArchived?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  archivedOnly?: boolean;
 }

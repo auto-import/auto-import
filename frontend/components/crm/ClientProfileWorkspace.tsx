@@ -115,9 +115,7 @@ export default function ClientProfileWorkspace({
       await load();
     } catch (caught) {
       setError(
-        caught instanceof Error
-          ? caught.message
-          : "Identité non enregistrée",
+        caught instanceof Error ? caught.message : "Identité non enregistrée",
       );
     } finally {
       setIdentitySaving(false);
@@ -311,9 +309,7 @@ export default function ClientProfileWorkspace({
                         setIdentityForm({
                           ...identityForm,
                           identityDocumentType: event.target.value as
-                            | ""
-                            | "PASSPORT"
-                            | "NATIONAL_ID",
+                            "" | "PASSPORT" | "NATIONAL_ID",
                         })
                       }
                     >
@@ -323,19 +319,41 @@ export default function ClientProfileWorkspace({
                         Carte d’identité nationale / NIN
                       </option>
                     </select>
-                    {identityForm.identityDocumentType === "PASSPORT" ? (
+                    {identityForm.identityDocumentType && (
+                      <input
+                        className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                        placeholder={
+                          identityForm.identityDocumentType === "PASSPORT"
+                            ? "Numéro de passeport"
+                            : "Numéro de carte d’identité"
+                        }
+                        value={identityForm.passportNumber}
+                        onChange={(event) =>
+                          setIdentityForm({
+                            ...identityForm,
+                            passportNumber: event.target.value,
+                          })
+                        }
+                      />
+                    )}
+                    {identityForm.identityDocumentType && (
+                      <input
+                        className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                        inputMode="numeric"
+                        pattern="[0-9]{18}"
+                        maxLength={18}
+                        placeholder="NIN algérien (18 chiffres)"
+                        value={identityForm.nin}
+                        onChange={(event) =>
+                          setIdentityForm({
+                            ...identityForm,
+                            nin: event.target.value,
+                          })
+                        }
+                      />
+                    )}
+                    {identityForm.identityDocumentType === "PASSPORT" && (
                       <>
-                        <input
-                          className="rounded-input border border-border bg-background px-3 py-2 text-sm"
-                          placeholder="Numéro de passeport"
-                          value={identityForm.passportNumber}
-                          onChange={(event) =>
-                            setIdentityForm({
-                              ...identityForm,
-                              passportNumber: event.target.value,
-                            })
-                          }
-                        />
                         <input
                           className="rounded-input border border-border bg-background px-3 py-2 text-sm"
                           placeholder="Pays d’émission"
@@ -376,22 +394,7 @@ export default function ClientProfileWorkspace({
                           />
                         </label>
                       </>
-                    ) : identityForm.identityDocumentType === "NATIONAL_ID" ? (
-                      <input
-                        className="rounded-input border border-border bg-background px-3 py-2 text-sm"
-                        inputMode="numeric"
-                        pattern="[0-9]{18}"
-                        maxLength={18}
-                        placeholder="NIN / numéro de carte"
-                        value={identityForm.nin}
-                        onChange={(event) =>
-                          setIdentityForm({
-                            ...identityForm,
-                            nin: event.target.value,
-                          })
-                        }
-                      />
-                    ) : null}
+                    )}
                     {identityForm.identityDocumentType && (
                       <label className="text-xs text-muted">
                         Document privé (facultatif)
@@ -409,7 +412,9 @@ export default function ClientProfileWorkspace({
                       disabled={identitySaving}
                       className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50 md:col-span-2"
                     >
-                      {identitySaving ? "Enregistrement…" : "Enregistrer l’identité"}
+                      {identitySaving
+                        ? "Enregistrement…"
+                        : "Enregistrer l’identité"}
                     </button>
                   </form>
                 )}

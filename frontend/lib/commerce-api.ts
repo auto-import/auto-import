@@ -92,6 +92,9 @@ export interface ApiPartner {
   supplierPayments?: ApiPartnerPayment[];
   gedLinks?: ApiPartnerGedLink[];
   chinaOffers?: ApiOffer[];
+  suppliedVehicles?: Array<
+    Pick<ApiVehicle, "id" | "brand" | "model" | "status" | "vin">
+  >;
   kpis?: {
     activeOffers: number;
     totalPurchases: number;
@@ -107,7 +110,14 @@ export interface ApiPartner {
 
 export interface ApiVehicleLookup {
   id: string;
-  kind: "BRAND" | "MODEL" | "ENGINE" | "TRANSMISSION" | "FUEL_TYPE" | "COLOR" | "BODY_TYPE";
+  kind:
+    | "BRAND"
+    | "MODEL"
+    | "ENGINE"
+    | "TRANSMISSION"
+    | "FUEL_TYPE"
+    | "COLOR"
+    | "BODY_TYPE";
   value: string;
   parentId?: string | null;
   active: boolean;
@@ -184,8 +194,16 @@ export interface ApiVehicle {
     purchaseNumber: string;
     purchaseDate?: string | null;
     status: string;
-    sourceOffer?: { id: string; reference: string; offerStatus?: string | null } | null;
-    sourceOfferVehicle?: { id: string; lineNumber: number; status: string } | null;
+    sourceOffer?: {
+      id: string;
+      reference: string;
+      offerStatus?: string | null;
+    } | null;
+    sourceOfferVehicle?: {
+      id: string;
+      lineNumber: number;
+      status: string;
+    } | null;
   }>;
 }
 
@@ -425,7 +443,11 @@ export const commerceApi = {
   configuration: {
     lookups: (filters: Record<string, string | undefined> = {}) =>
       apiRequest<ApiVehicleLookup[]>(`/vehicle-lookups${queryString(filters)}`),
-    createLookup: (data: { kind: ApiVehicleLookup["kind"]; value: string; parentId?: string }) =>
+    createLookup: (data: {
+      kind: ApiVehicleLookup["kind"];
+      value: string;
+      parentId?: string;
+    }) =>
       apiRequest<ApiVehicleLookup>("/vehicle-lookups", {
         method: "POST",
         body: JSON.stringify(data),
@@ -435,17 +457,25 @@ export const commerceApi = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
-    containerPresets: () => apiRequest<Array<Record<string, string | number>>>("/container-presets"),
-    pricingSettings: () => apiRequest<Record<string, unknown>>("/pricing-settings"),
+    containerPresets: () =>
+      apiRequest<Array<Record<string, string | number>>>("/container-presets"),
+    pricingSettings: () =>
+      apiRequest<Record<string, unknown>>("/pricing-settings"),
     updateInsurance: (insuranceRatePercent?: number) =>
       apiRequest("/pricing-settings/insurance", {
         method: "PUT",
         body: JSON.stringify({ insuranceRatePercent }),
       }),
     upsertDuty: (data: Record<string, unknown>) =>
-      apiRequest("/pricing-settings/duties", { method: "PUT", body: JSON.stringify(data) }),
+      apiRequest("/pricing-settings/duties", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
     upsertDelivery: (data: Record<string, unknown>) =>
-      apiRequest("/pricing-settings/delivery", { method: "PUT", body: JSON.stringify(data) }),
+      apiRequest("/pricing-settings/delivery", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
   },
   partners: {
     list: (filters: Record<string, string | number | undefined> = {}) =>
@@ -484,6 +514,22 @@ export const commerceApi = {
       apiRequest<unknown>(`/partners/${id}/bank-accounts`, {
         method: "POST",
         body: JSON.stringify(data),
+      }),
+    eligibleVehicles: (id: string, search?: string) =>
+      apiRequest<
+        Array<
+          Pick<
+            ApiVehicle,
+            "id" | "brand" | "model" | "year" | "vin" | "status" | "supplierId"
+          >
+        >
+      >(
+        `/partners/${id}/eligible-vehicles${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+      ),
+    linkVehicle: (id: string, vehicleId: string) =>
+      apiRequest<ApiVehicle>(`/partners/${id}/vehicles`, {
+        method: "POST",
+        body: JSON.stringify({ vehicleId }),
       }),
   },
   vehicles: {
@@ -639,8 +685,7 @@ export const commerceApi = {
       apiRequest<PaginatedData<ApiCustomerQuotation>>(
         `/quotations${queryString(filters)}`,
       ),
-    get: (id: string) =>
-      apiRequest<ApiCustomerQuotation>(`/quotations/${id}`),
+    get: (id: string) => apiRequest<ApiCustomerQuotation>(`/quotations/${id}`),
     create: (data: Record<string, unknown>) =>
       apiRequest<ApiCustomerQuotation>("/quotations", {
         method: "POST",

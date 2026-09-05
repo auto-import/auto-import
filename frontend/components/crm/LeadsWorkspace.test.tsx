@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LeadsWorkspace from "./LeadsWorkspace";
 
@@ -38,5 +44,20 @@ describe("LeadsWorkspace", () => {
       ).toBeTruthy(),
     );
     expect(mocks.listProspects).toHaveBeenCalled();
+  });
+
+  it("loads archived leads through the backend archive filter", async () => {
+    mocks.listProspects.mockResolvedValue({ items: [], pagination: {} });
+    render(<LeadsWorkspace />);
+    await waitFor(() => expect(mocks.listProspects).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Archives" }));
+
+    await waitFor(() =>
+      expect(mocks.listProspects).toHaveBeenLastCalledWith(
+        expect.objectContaining({ archivedOnly: "true" }),
+      ),
+    );
+    expect(screen.queryByRole("button", { name: /Nouveau lead/i })).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,13 +16,28 @@ import { paginate } from '../common/helpers/pagination.helper';
 import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
 import { DossierWorkflowService } from '../dossiers/workflows/dossier-workflow.service';
 import { DossierStatus, DossierType } from '@auto-import/contracts';
+import { CostsService } from '../finance/costs.service';
+import { ExchangeRatesService } from '../finance/exchange-rates.service';
+import { VehicleStatusSyncService } from '../dossiers/workflows/vehicle-status-sync.service';
 
 @Injectable()
 export class VehicleRequestsService {
   private readonly logger = new Logger(VehicleRequestsService.name);
   private readonly dossierWorkflow = new DossierWorkflowService();
 
-  constructor(private prisma: PrismaService) {}
+  private readonly costs: CostsService;
+  private readonly vehicleStatusSync: VehicleStatusSyncService;
+
+  constructor(
+    private prisma: PrismaService,
+    @Optional() costs?: CostsService,
+    @Optional() vehicleStatusSync?: VehicleStatusSyncService,
+  ) {
+    this.costs =
+      costs ?? new CostsService(prisma, new ExchangeRatesService(prisma));
+    this.vehicleStatusSync =
+      vehicleStatusSync ?? new VehicleStatusSyncService();
+  }
 
   // ──────────────────────────────────────────────
   // Vehicle Requests CRUD
@@ -830,6 +846,38 @@ export class VehicleRequestsService {
           },
         },
       });
+
+      await this.costs.recordPurchaseCommitment(
+        tx,
+        organizationId,
+        userId,
+        purchase,
+      );
+
+      if (request.dossier) {
+        const linkedVehicles = await tx.vehicle.findMany({
+          where: {
+            organizationId,
+            dossierVehicles: { some: { dossierId: request.dossier.id } },
+          },
+          select: {
+            id: true,
+            status: true,
+            brand: true,
+            model: true,
+            vin: true,
+          },
+        });
+        await this.vehicleStatusSync.syncForTransition(tx, {
+          organizationId,
+          dossierId: request.dossier.id,
+          dossierReference: request.dossier.reference,
+          fromStatus: request.dossier.status,
+          toStatus: DossierStatus.PURCHASE_CONFIRMED,
+          vehicles: linkedVehicles,
+          userId,
+        });
+      }
 
       this.logger.log(
         `Purchase confirmed for request ${requestId}: vehicle ${targetVehicleId}, purchase ${purchase.purchaseNumber}`,

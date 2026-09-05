@@ -70,3 +70,7 @@ export class LinkSupplierDossierDto {
   @IsUUID() dossierId: string;
   @IsOptional() @IsString() source?: string;
 }
+
+export class LinkSupplierVehicleDto {
+  @IsUUID() vehicleId: string;
+}

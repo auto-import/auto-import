@@ -22,6 +22,7 @@ import { ContractsV2Controller } from './contracts-v2.controller';
 import { ContractsV2Service } from './contracts-v2.service';
 import { FinanceLedgerController } from './finance-ledger.controller';
 import { FinanceLedgerService } from './finance-ledger.service';
+import { FinanceProjectionService } from './finance-projection.service';
 
 @Module({
   imports: [PrismaModule, Phase3Module],
@@ -49,6 +50,7 @@ import { FinanceLedgerService } from './finance-ledger.service';
     FinanceService,
     ContractsV2Service,
     FinanceLedgerService,
+    FinanceProjectionService,
   ],
   exports: [
     ReconciliationService,
@@ -62,6 +64,7 @@ import { FinanceLedgerService } from './finance-ledger.service';
     FinanceService,
     ContractsV2Service,
     FinanceLedgerService,
+    FinanceProjectionService,
   ],
 })
 export class FinanceModule {}

@@ -16,6 +16,7 @@ import {
 } from './dto/finance.dto';
 import { ReconciliationService } from './reconciliation.service';
 import { NotificationsGateway } from '../phase3/notifications.gateway';
+import { FinanceProjectionService } from './finance-projection.service';
 
 @Injectable()
 export class PaymentsService {
@@ -23,7 +24,13 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly reconciliation: ReconciliationService,
     @Optional() private readonly realtime?: NotificationsGateway,
-  ) {}
+    @Optional() financeProjection?: FinanceProjectionService,
+  ) {
+    this.financeProjection =
+      financeProjection ?? new FinanceProjectionService(prisma);
+  }
+
+  private readonly financeProjection: FinanceProjectionService;
 
   async record(organizationId: string, userId: string, dto: RecordPaymentDto) {
     if (dto.amount <= 0) {
@@ -208,66 +215,13 @@ export class PaymentsService {
         },
       });
 
-      const rate =
-        confirmed.currency === 'DZD'
-          ? new Prisma.Decimal(1)
-          : confirmed.exchangeRateId
-            ? (
-                await tx.exchangeRate.findUnique({
-                  where: { id: confirmed.exchangeRateId },
-                })
-              )?.rate
-            : (
-                await tx.exchangeRate.findFirst({
-                  where: {
-                    organizationId,
-                    baseCurrency: 'DZD',
-                    quoteCurrency: confirmed.currency,
-                    effectiveAt: { lte: confirmed.paymentDate ?? new Date() },
-                  },
-                  orderBy: { effectiveAt: 'desc' },
-                })
-              )?.rate;
-      if (!rate)
-        throw new ConflictException(
-          'A historical DZD exchange rate is required before confirmation',
-        );
-      await tx.financeTransaction.upsert({
-        where: {
-          organizationId_sourceModule_sourceRecordId: {
-            organizationId,
-            sourceModule: 'CUSTOMER_PAYMENT',
-            sourceRecordId: confirmed.id,
-          },
-        },
-        create: {
-          organizationId,
-          type: 'CUSTOMER_COLLECTION',
-          direction: 'CREDIT',
-          sourceModule: 'CUSTOMER_PAYMENT',
-          sourceRecordId: confirmed.id,
-          idempotencyKey: confirmed.idempotencyKey
-            ? `payment:${confirmed.idempotencyKey}`
-            : `payment:${confirmed.id}`,
-          originalAmount: confirmed.amount,
-          currency: confirmed.currency,
-          exchangeRateSnapshot: rate,
-          amountDzd: confirmed.amount.mul(rate).toDecimalPlaces(2),
-          dossierId: confirmed.dossierId,
-          clientId: confirmed.clientId,
-          paymentMode: confirmed.paymentMethod,
-          reference: confirmed.reference,
-          customerPaymentId: confirmed.id,
-          treasuryAccountId: dto.treasuryAccountId,
-          supportingDocumentId: dto.supportingDocumentId,
-          status: 'VALIDATED',
-          createdBy: userId,
-          validatedBy: userId,
-          validatedAt: new Date(),
-          occurredAt: confirmed.paymentDate ?? new Date(),
-        },
-        update: {},
-      });
+      await this.financeProjection.projectCustomerPayment(
+        tx,
+        organizationId,
+        userId,
+        confirmed,
+        dto,
+      );
 
       await this.reconciliation.reconcilePayment(tx, id);
 

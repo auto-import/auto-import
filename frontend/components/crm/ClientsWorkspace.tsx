@@ -251,9 +251,7 @@ function ClientForm({
       const payload = Object.fromEntries(
         Object.entries(values).map(([key, value]) => [
           key,
-          typeof value === "string" && value.trim() === ""
-            ? undefined
-            : value,
+          typeof value === "string" && value.trim() === "" ? undefined : value,
         ]),
       ) as Record<string, string | undefined>;
       if (identityDocument) {
@@ -274,10 +272,10 @@ function ClientForm({
     }
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/40 p-4 sm:items-center">
       <form
         onSubmit={submit}
-        className="card grid w-full max-w-lg gap-3 bg-background md:grid-cols-2"
+        className="card grid max-h-[calc(100dvh-2rem)] w-full max-w-lg gap-3 overflow-y-auto overscroll-contain bg-background md:grid-cols-2"
       >
         <h2 className="text-lg font-semibold md:col-span-2">Nouveau client</h2>
         {error && (
@@ -354,26 +352,34 @@ function ClientForm({
               setValues({
                 ...values,
                 identityDocumentType: event.target.value as
-                  | ""
-                  | "PASSPORT"
-                  | "NATIONAL_ID",
-                nin:
-                  event.target.value === "PASSPORT" ? "" : values.nin,
-                passportNumber:
-                  event.target.value === "NATIONAL_ID"
-                    ? ""
-                    : values.passportNumber,
+                  "" | "PASSPORT" | "NATIONAL_ID",
               })
             }
           >
-            <option value="">Type de document d&apos;identité (facultatif)</option>
+            <option value="">
+              Type de document d&apos;identité (facultatif)
+            </option>
             <option value="PASSPORT">Passeport</option>
             <option value="NATIONAL_ID">
               Carte d&apos;identité nationale / NIN
             </option>
           </select>
         )}
-        {canWriteIdentity && values.identityDocumentType === "NATIONAL_ID" && (
+        {canWriteIdentity && values.identityDocumentType && (
+          <input
+            className={input}
+            placeholder={
+              values.identityDocumentType === "PASSPORT"
+                ? "Numéro de passeport"
+                : "Numéro de carte d’identité"
+            }
+            value={values.passportNumber}
+            onChange={(event) =>
+              setValues({ ...values, passportNumber: event.target.value })
+            }
+          />
+        )}
+        {canWriteIdentity && values.identityDocumentType && (
           <input
             className={input}
             inputMode="numeric"
@@ -383,16 +389,6 @@ function ClientForm({
             value={values.nin}
             onChange={(event) =>
               setValues({ ...values, nin: event.target.value })
-            }
-          />
-        )}
-        {canWriteIdentity && values.identityDocumentType === "PASSPORT" && (
-          <input
-            className={input}
-            placeholder="Numéro de passeport"
-            value={values.passportNumber}
-            onChange={(event) =>
-              setValues({ ...values, passportNumber: event.target.value })
             }
           />
         )}

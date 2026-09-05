@@ -8,6 +8,11 @@ describe('PartnersService ERP V2 suppliers', () => {
   beforeEach(() => {
     prisma = {
       partner: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+      vehicle: {
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       auditLog: { create: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => unknown) =>
         callback(prisma),
@@ -38,7 +43,10 @@ describe('PartnersService ERP V2 suppliers', () => {
         supplierStatus: 'ACTIVE',
       }),
     });
-    expect(result).toMatchObject({ supplierStatus: 'ACTIVE', status: 'active' });
+    expect(result).toMatchObject({
+      supplierStatus: 'ACTIVE',
+      status: 'active',
+    });
   });
 
   it('allows legacy TO_VERIFY -> ACTIVE', async () => {
@@ -159,5 +167,82 @@ describe('PartnersService ERP V2 suppliers', () => {
         status: 'SUSPENDED',
       }),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('links an unassigned vehicle to one primary supplier and audits it', async () => {
+    prisma.partner.findFirst.mockResolvedValue({ id: 'supplier-1' });
+    prisma.vehicle.findFirst.mockResolvedValue({
+      id: 'vehicle-1',
+      supplierId: null,
+      purchases: [],
+    });
+    await expect(
+      service.linkVehicle('supplier-1', 'org-1', 'user-1', {
+        vehicleId: 'vehicle-1',
+      }),
+    ).resolves.toMatchObject({ supplierId: 'supplier-1' });
+    expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'vehicle-1',
+        organizationId: 'org-1',
+        archivedAt: null,
+        supplierId: null,
+      },
+      data: { supplierId: 'supplier-1' },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'SUPPLIER_VEHICLE_LINKED',
+        entityId: 'vehicle-1',
+      }),
+    });
+  });
+
+  it('keeps supplier vehicle assignment idempotent', async () => {
+    prisma.partner.findFirst.mockResolvedValue({ id: 'supplier-1' });
+    prisma.vehicle.findFirst.mockResolvedValue({
+      id: 'vehicle-1',
+      supplierId: 'supplier-1',
+      purchases: [],
+    });
+
+    await service.linkVehicle('supplier-1', 'org-1', 'user-1', {
+      vehicleId: 'vehicle-1',
+    });
+    expect(prisma.vehicle.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks reassignment from another primary supplier', async () => {
+    prisma.partner.findFirst.mockResolvedValue({ id: 'supplier-1' });
+    prisma.vehicle.findFirst.mockResolvedValue({
+      id: 'vehicle-1',
+      supplierId: 'supplier-2',
+      purchases: [],
+    });
+
+    await expect(
+      service.linkVehicle('supplier-1', 'org-1', 'user-1', {
+        vehicleId: 'vehicle-1',
+      }),
+    ).rejects.toThrow(ConflictException);
+    expect(prisma.vehicle.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a concurrent supplier assignment instead of overwriting it', async () => {
+    prisma.partner.findFirst.mockResolvedValue({ id: 'supplier-1' });
+    prisma.vehicle.findFirst.mockResolvedValue({
+      id: 'vehicle-1',
+      supplierId: null,
+      purchases: [],
+    });
+    prisma.vehicle.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.linkVehicle('supplier-1', 'org-1', 'user-1', {
+        vehicleId: 'vehicle-1',
+      }),
+    ).rejects.toThrow(ConflictException);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });

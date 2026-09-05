@@ -19,6 +19,8 @@ import { Prisma } from '@prisma/client';
 import { UpdateDossierDto } from './dto/update-dossier.dto';
 import { DocumentsService } from '../documents/documents.service';
 import { ConfigurationService } from '../configuration/configuration.service';
+import { CostsService } from '../finance/costs.service';
+import { FinanceProjectionService } from '../finance/finance-projection.service';
 
 @Injectable()
 export class DossiersService {
@@ -30,6 +32,8 @@ export class DossiersService {
     private vehicleStatusSync: VehicleStatusSyncService,
     private documentsService: DocumentsService,
     @Optional() private configurationService?: ConfigurationService,
+    @Optional() private costs?: CostsService,
+    @Optional() private financeProjection?: FinanceProjectionService,
   ) {}
 
   private async generateReference(
@@ -95,7 +99,9 @@ export class DossiersService {
 
     const salesUserIdToUse = createDossierDto.salesUserId ?? salesUserId;
     const teamIds = [
-      ...new Set([salesUserIdToUse, opsUserId, chinaResponsibleId].filter(Boolean)),
+      ...new Set(
+        [salesUserIdToUse, opsUserId, chinaResponsibleId].filter(Boolean),
+      ),
     ] as string[];
     const teamCount = await this.prisma.user.count({
       where: { id: { in: teamIds }, organizationId, status: 'active' },
@@ -727,7 +733,7 @@ export class DossiersService {
     organizationId?: string,
   ) {
     const dossier = await this.findOne(id, organizationId);
-    const { status, comment } = updateStatusDto;
+    const { status } = updateStatusDto;
 
     const currentStatus = dossier.status;
 
@@ -765,7 +771,10 @@ export class DossiersService {
         message: 'Le véhicule/VIN et la date de réservation sont requis.',
       });
     }
-    if (status === DossierStatus.PURCHASE_CONFIRMED && !updateStatusDto.purchase) {
+    if (
+      status === DossierStatus.PURCHASE_CONFIRMED &&
+      !updateStatusDto.purchase
+    ) {
       throw new BadRequestException({
         code: 'PURCHASE_DATA_REQUIRED',
         message: 'Les données de facturation fournisseur sont requises.',
@@ -774,7 +783,8 @@ export class DossiersService {
     if (
       status === DossierStatus.INSPECTION &&
       (!updateStatusDto.inspection ||
-        (!updateStatusDto.inspection.documentId && !updateStatusDto.inspection.url))
+        (!updateStatusDto.inspection.documentId &&
+          !updateStatusDto.inspection.url))
     ) {
       throw new BadRequestException({
         code: 'INSPECTION_REPORT_REQUIRED',
@@ -827,7 +837,8 @@ export class DossiersService {
           status: 'active',
         },
       });
-      if (!supplier) throw new BadRequestException('Vehicle supplier not found');
+      if (!supplier)
+        throw new BadRequestException('Vehicle supplier not found');
     }
     if (updateStatusDto.shipmentBooking) {
       const forwarder = await this.prisma.partner.findFirst({
@@ -978,7 +989,9 @@ export class DossiersService {
             dossierId: id,
             amount: new Prisma.Decimal(updateStatusDto.deposit.amount),
             allocatedAmount: new Prisma.Decimal(0),
-            unallocatedAmount: new Prisma.Decimal(updateStatusDto.deposit.amount),
+            unallocatedAmount: new Prisma.Decimal(
+              updateStatusDto.deposit.amount,
+            ),
             currency: updateStatusDto.deposit.currency,
             paymentMethod: updateStatusDto.deposit.paymentMethod,
             reference: updateStatusDto.deposit.reference,
@@ -990,6 +1003,15 @@ export class DossiersService {
             notes: updateStatusDto.deposit.note,
           },
         });
+        if (!this.financeProjection) {
+          throw new ConflictException('Finance projection service unavailable');
+        }
+        await this.financeProjection.projectCustomerPayment(
+          prisma,
+          dossier.organizationId,
+          userId,
+          payment,
+        );
         await prisma.customerDeposit.create({
           data: {
             organizationId: dossier.organizationId,
@@ -1007,7 +1029,7 @@ export class DossiersService {
         });
       }
       if (updateStatusDto.purchase && purchaseVehicle) {
-        await prisma.purchase.create({
+        const purchase = await prisma.purchase.create({
           data: {
             organizationId: dossier.organizationId,
             purchaseNumber: updateStatusDto.purchase.invoiceNumber,
@@ -1021,6 +1043,15 @@ export class DossiersService {
             confirmedBy: userId,
           },
         });
+        if (!this.costs) {
+          throw new ConflictException('Purchase cost service unavailable');
+        }
+        await this.costs.recordPurchaseCommitment(
+          prisma,
+          dossier.organizationId,
+          userId,
+          purchase,
+        );
         await prisma.vehicle.update({
           where: { id: purchaseVehicle.id },
           data: {
@@ -1100,7 +1131,10 @@ export class DossiersService {
           fromStatus: currentStatus,
           toStatus: status,
           changedBy: userId || 'system',
-          comment: this.transitionHistoryComment(updateStatusDto, currentStatus),
+          comment: this.transitionHistoryComment(
+            updateStatusDto,
+            currentStatus,
+          ),
         },
       });
 
@@ -1269,7 +1303,11 @@ export class DossiersService {
       );
     }
     const ids = [
-      ...new Set([dto.salesUserId, dto.opsUserId, dto.chinaResponsibleId].filter(Boolean)),
+      ...new Set(
+        [dto.salesUserId, dto.opsUserId, dto.chinaResponsibleId].filter(
+          Boolean,
+        ),
+      ),
     ] as string[];
     if (ids.length) {
       const valid = await this.prisma.user.count({
@@ -1423,9 +1461,10 @@ export class DossiersService {
       return `Inspection — rapport ${dto.inspection.documentId ? 'PDF' : 'URL'} enregistré${dto.inspection.note ? ` — ${dto.inspection.note}` : ''}`;
     if (dto.shipmentBooking)
       return `Shipment Booking — forwarder ${dto.shipmentBooking.forwarderSupplierId}${dto.shipmentBooking.note ? ` — ${dto.shipmentBooking.note}` : ''}`;
-    if (dto.billOfLading)
-      return `BL émis — PDF ${dto.billOfLading.documentId}`;
-    return dto.comment || `Status changed from '${currentStatus}' to '${dto.status}'`;
+    if (dto.billOfLading) return `BL émis — PDF ${dto.billOfLading.documentId}`;
+    return (
+      dto.comment || `Status changed from '${currentStatus}' to '${dto.status}'`
+    );
   }
 
   async getStatistics(organizationId: string) {

@@ -228,7 +228,9 @@ describe('ProspectsService concurrency guarantees', () => {
       task: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       vehicleRequest: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       callSession: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      whatsappConversation: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      whatsappConversation: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       appointment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       crmNote: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       gedDocumentLink: {
@@ -271,5 +273,32 @@ describe('ProspectsService concurrency guarantees', () => {
       data: { prospectId: null, clientId: 'client-doc-1' },
     });
   });
-});
 
+  it('queries archived leads separately without mixing active records', async () => {
+    const prisma = {
+      prospect: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const service = new ProspectsService(
+      prisma as unknown as PrismaService,
+      {} as ContactResolutionService,
+      {} as CrmReferenceService,
+    );
+
+    await service.findAll('org-a', 1, 20, { archivedOnly: true });
+
+    expect(prisma.prospect.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'org-a',
+          archivedAt: { not: null },
+        }),
+      }),
+    );
+    expect(prisma.prospect.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ archivedAt: { not: null } }),
+    });
+  });
+});

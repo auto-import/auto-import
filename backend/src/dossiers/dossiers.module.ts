@@ -5,11 +5,16 @@ import { DossierWorkflowService } from './workflows/dossier-workflow.service';
 import { VehicleStatusSyncService } from './workflows/vehicle-status-sync.service';
 import { DocumentsModule } from '../documents/documents.module';
 import { ConfigurationModule } from '../configuration/configuration.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
-  imports: [DocumentsModule, ConfigurationModule],
+  imports: [DocumentsModule, ConfigurationModule, FinanceModule],
   controllers: [DossiersController],
-  providers: [DossiersService, DossierWorkflowService, VehicleStatusSyncService],
+  providers: [
+    DossiersService,
+    DossierWorkflowService,
+    VehicleStatusSyncService,
+  ],
   exports: [DossiersService, DossierWorkflowService, VehicleStatusSyncService],
 })
 export class DossiersModule {}

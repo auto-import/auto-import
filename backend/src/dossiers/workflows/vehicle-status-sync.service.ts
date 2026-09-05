@@ -92,7 +92,25 @@ export class VehicleStatusSyncService {
 
     const changes: VehicleStatusSyncChange[] = [];
     for (const vehicle of input.vehicles) {
-      if (vehicle.status === target) continue;
+      if (vehicle.status === target) {
+        await prisma.auditLog.create({
+          data: {
+            organizationId: input.organizationId,
+            userId: input.userId,
+            action: 'vehicle.status.sync.confirmed',
+            entityType: 'vehicle',
+            entityId: vehicle.id,
+            oldValues: { status: vehicle.status },
+            newValues: {
+              status: target,
+              reason: `Dossier transition: ${input.fromStatus} → ${input.toStatus}`,
+              dossierId: input.dossierId,
+              dossierReference: input.dossierReference,
+            },
+          },
+        });
+        continue;
+      }
 
       if (vehicle.status === VehicleStatus.REJECTED) {
         throw new ConflictException({
