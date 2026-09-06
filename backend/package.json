@@ -32,7 +32,8 @@
     "admin:inspect": "node dist/scripts/inspect-admin-state.js",
     "admin:rotate-credentials": "node dist/scripts/rotate-admin-credentials.js",
     "privacy:backfill-identities": "ts-node scripts/backfill-client-identity-encryption.ts",
-    "test:post-uat:data-safety": "ts-node scripts/post-uat-data-safety-probe.ts"
+    "test:post-uat:data-safety": "ts-node scripts/post-uat-data-safety-probe.ts",
+    "test:quotation-workflow": "ts-node scripts/verify-quotation-workflow.ts"
   },
   "dependencies": {
     "@auto-import/contracts": "file:../contracts",

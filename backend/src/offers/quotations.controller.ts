@@ -24,6 +24,12 @@ export class QuotationsController {
     return this.quotations.findAll(user.organizationId, query);
   }
 
+  @Get('usd-dzd-rate')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  currentUsdDzdRate(@CurrentUser() user: AuthenticatedUser) {
+    return this.quotations.currentUsdDzdRate(user.organizationId);
+  }
+
   @Get(':id')
   @RequirePermission(Permission.OFFERS_READ)
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
@@ -65,11 +71,6 @@ export class QuotationsController {
     @Body() dto: TransitionQuotationDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.quotations.transition(
-      id,
-      user.organizationId,
-      user.id,
-      dto,
-    );
+    return this.quotations.transition(id, user.organizationId, user.id, dto);
   }
 }

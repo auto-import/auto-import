@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -30,13 +31,24 @@ export class QuotationsService {
     private readonly pricing: QuotationPricingService,
   ) {}
 
-  async preview(
-    organizationId: string,
-    dto: CreateQuotationDto,
-  ) {
-    const calculated = this.pricing.calculate(dto.priceBasis, dto);
-    const exchange = await this.prisma.$transaction((tx) =>
-      this.pricing.usdToDzdSnapshot(tx, organizationId, new Date()),
+  async preview(organizationId: string, dto: CreateQuotationDto) {
+    const { calculated, exchange } = await this.prisma.$transaction(
+      async (tx) => {
+        const sourceVehicle = await this.findSourceVehicle(
+          tx,
+          organizationId,
+          dto,
+        );
+        const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
+        return {
+          calculated: this.pricing.calculate(dto.priceBasis, normalized),
+          exchange: await this.pricing.usdToDzdSnapshot(
+            tx,
+            organizationId,
+            new Date(),
+          ),
+        };
+      },
     );
     return {
       ...Object.fromEntries(
@@ -48,11 +60,69 @@ export class QuotationsService {
       currency: 'USD',
       exchangeRateId: exchange.exchangeRateId,
       exchangeRateSnapshot: exchange.rate.toString(),
+      cifAmountDzd: calculated.cifAmount
+        .mul(exchange.rate)
+        .toDecimalPlaces(2)
+        .toString(),
+      ddpAmountDzd: calculated.ddpAmount
+        .mul(exchange.rate)
+        .toDecimalPlaces(2)
+        .toString(),
       finalCustomerPriceDzd: calculated.finalCustomerPrice
         .mul(exchange.rate)
         .toDecimalPlaces(2)
         .toString(),
     };
+  }
+
+  async currentUsdDzdRate(organizationId: string) {
+    const exchange = await this.prisma.$transaction((tx) =>
+      this.pricing.usdToDzdSnapshot(tx, organizationId, new Date()),
+    );
+    return {
+      exchangeRateId: exchange.exchangeRateId,
+      exchangeRateSnapshot: exchange.rate.toString(),
+      baseCurrency: 'USD',
+      quoteCurrency: 'DZD',
+    };
+  }
+
+  private async findSourceVehicle(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    dto: Pick<CreateQuotationDto, 'sourceOfferId' | 'sourceOfferVehicleId'>,
+  ) {
+    const sourceVehicle = await tx.chinaOfferVehicle.findFirst({
+      where: {
+        organizationId,
+        offerId: dto.sourceOfferId,
+        ...(dto.sourceOfferVehicleId ? { id: dto.sourceOfferVehicleId } : {}),
+        offer: { archivedAt: null },
+      },
+      orderBy: { lineNumber: 'asc' },
+    });
+    if (!sourceVehicle) {
+      throw new NotFoundException("Véhicule de l'offre introuvable.");
+    }
+    return sourceVehicle;
+  }
+
+  private normalizeVehicleAmount(
+    dto: CreateQuotationDto,
+    sourceVehicle: { supplierPrice: Prisma.Decimal; currency: string },
+  ): CreateQuotationDto {
+    if (sourceVehicle.currency !== 'USD') {
+      throw new ConflictException(
+        'Le prix fournisseur du véhicule doit être en USD pour créer ce devis.',
+      );
+    }
+    const supplierPrice = sourceVehicle.supplierPrice;
+    if (!new Prisma.Decimal(dto.vehicleAmount).equals(supplierPrice)) {
+      throw new BadRequestException(
+        'Le prix de base du devis doit correspondre au prix fournisseur du véhicule sélectionné.',
+      );
+    }
+    return { ...dto, vehicleAmount: supplierPrice.toNumber() };
   }
 
   private async nextNumber(
@@ -76,8 +146,7 @@ export class QuotationsService {
     exchangeRateSnapshot: Prisma.Decimal,
   ): Prisma.InputJsonObject {
     return {
-      formula:
-        'CIF=base+fret+assurance+transit+autres+marge; DDP=CIF+douane',
+      formula: 'CIF=base+fret+assurance+transit+autres; DDP=CIF+douane',
       containerPrice: calculated.containerPrice.toString(),
       containerAllocation: `1/${calculated.containerAllocation}`,
       freightAmount: calculated.freightAmount.toString(),
@@ -106,14 +175,12 @@ export class QuotationsService {
         },
         include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
       });
-      if (!offer) throw new NotFoundException('Offre Chine active introuvable.');
-      if (!offer.currentRevisionId) {
-        throw new ConflictException(
-          "L'offre ne possède pas de révision tarifaire exploitable.",
-        );
-      }
+      if (!offer)
+        throw new NotFoundException('Offre Chine active introuvable.');
       const sourceVehicle = dto.sourceOfferVehicleId
-        ? offer.vehicles.find((vehicle) => vehicle.id === dto.sourceOfferVehicleId)
+        ? offer.vehicles.find(
+            (vehicle) => vehicle.id === dto.sourceOfferVehicleId,
+          )
         : offer.vehicles[0];
       if (!sourceVehicle) {
         throw new NotFoundException("Véhicule de l'offre introuvable.");
@@ -126,12 +193,56 @@ export class QuotationsService {
           "Ce véhicule de l'offre n'est plus commercialisable.",
         );
       }
-      const calculated = this.pricing.calculate(dto.priceBasis, dto);
-      const rate = await this.pricing.usdToDzdSnapshot(
-        tx,
-        organizationId,
-        now,
-      );
+      const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
+      let sourceOfferRevisionId = offer.currentRevisionId;
+      if (!sourceOfferRevisionId) {
+        const latest = await tx.chinaOfferRevision.aggregate({
+          where: { offerId: offer.id },
+          _max: { revisionNumber: true },
+        });
+        const revision = await tx.chinaOfferRevision.create({
+          data: {
+            organizationId,
+            offerId: offer.id,
+            revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
+            supplierPrice:
+              offer.supplierPrice ??
+              offer.purchasePrice ??
+              sourceVehicle.supplierPrice,
+            currency: offer.currency,
+            incoterm: offer.incoterm,
+            localCost: offer.localCost,
+            totalOfferPrice:
+              offer.totalOfferPrice ??
+              offer.supplierPrice ??
+              offer.purchasePrice,
+            location: offer.location,
+            quantity: offer.availableQuantity,
+            leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
+            validFrom: offer.validFrom,
+            validUntil: offer.validUntil,
+            paymentConditions: offer.paymentConditions,
+            snapshot: {
+              brand: offer.brand,
+              model: offer.model,
+              version: offer.version,
+              year: offer.year,
+              condition: offer.condition,
+              mileage: offer.mileage,
+              specification: offer.specification,
+            },
+            reason: 'Base historique créée lors du premier devis',
+            createdBy: userId,
+          },
+        });
+        sourceOfferRevisionId = revision.id;
+        await tx.chinaOffer.update({
+          where: { id: offer.id },
+          data: { currentRevisionId: sourceOfferRevisionId },
+        });
+      }
+      const calculated = this.pricing.calculate(dto.priceBasis, normalized);
+      const rate = await this.pricing.usdToDzdSnapshot(tx, organizationId, now);
       const finalCustomerPriceDzd = calculated.finalCustomerPrice
         .mul(rate.rate)
         .toDecimalPlaces(2);
@@ -141,7 +252,7 @@ export class QuotationsService {
           organizationId,
           quotationNumber: await this.nextNumber(tx, organizationId),
           sourceOfferId: offer.id,
-          sourceOfferRevisionId: offer.currentRevisionId,
+          sourceOfferRevisionId,
           sourceOfferVehicleId: sourceVehicle.id,
           priceBasis: dto.priceBasis,
           currency: 'USD',
@@ -156,7 +267,16 @@ export class QuotationsService {
           organizationId,
           quotationId: quotation.id,
           revisionNumber: 1,
-          ...calculated,
+          vehicleAmount: calculated.vehicleAmount,
+          freightAmount: calculated.freightAmount,
+          insuranceAmount: calculated.insuranceAmount,
+          customsAmount: calculated.customsAmount,
+          transitAmount: calculated.transitAmount,
+          otherCostsAmount: calculated.otherCostsAmount,
+          marginAmount: calculated.marginAmount,
+          finalCustomerPrice: calculated.finalCustomerPrice,
+          containerPrice: calculated.containerPrice,
+          containerAllocation: calculated.containerAllocation,
           exchangeRateId: rate.exchangeRateId,
           exchangeRateSnapshot: rate.rate,
           finalCustomerPriceDzd,
@@ -265,7 +385,16 @@ export class QuotationsService {
           organizationId,
           quotationId: id,
           revisionNumber: quotation._count.revisions + 1,
-          ...calculated,
+          vehicleAmount: calculated.vehicleAmount,
+          freightAmount: calculated.freightAmount,
+          insuranceAmount: calculated.insuranceAmount,
+          customsAmount: calculated.customsAmount,
+          transitAmount: calculated.transitAmount,
+          otherCostsAmount: calculated.otherCostsAmount,
+          marginAmount: calculated.marginAmount,
+          finalCustomerPrice: calculated.finalCustomerPrice,
+          containerPrice: calculated.containerPrice,
+          containerAllocation: calculated.containerAllocation,
           exchangeRateId: rate.exchangeRateId,
           exchangeRateSnapshot: rate.rate,
           finalCustomerPriceDzd,
@@ -402,9 +531,17 @@ export class QuotationsService {
           currentRevision: { include: { otherCosts: true } },
           dossier: { select: { id: true, reference: true } },
           client: { select: { id: true, firstName: true, lastName: true } },
-          sourceOffer: { select: { id: true, reference: true, brand: true, model: true } },
+          sourceOffer: {
+            select: { id: true, reference: true, brand: true, model: true },
+          },
           sourceOfferVehicle: {
-            select: { id: true, lineNumber: true, brand: true, model: true, version: true },
+            select: {
+              id: true,
+              lineNumber: true,
+              brand: true,
+              model: true,
+              version: true,
+            },
           },
         },
       }),
@@ -427,7 +564,9 @@ export class QuotationsService {
         },
         dossier: { select: { id: true, reference: true } },
         client: { select: { id: true, firstName: true, lastName: true } },
-        sourceOffer: { select: { id: true, reference: true, brand: true, model: true } },
+        sourceOffer: {
+          select: { id: true, reference: true, brand: true, model: true },
+        },
         sourceOfferVehicle: true,
       },
     });

@@ -25,6 +25,10 @@ import {
 } from "@/lib/api-contract";
 import { ApiError } from "@/lib/api";
 import {
+  buildQuotationDraft,
+  type QuotationPriceBasis,
+} from "@/lib/quotation-calculation";
+import {
   buttonClass,
   ErrorState,
   formatMoney,
@@ -87,10 +91,11 @@ export default function OfferDetailWorkspace({
   const [otherCosts, setOtherCosts] = useState([
     { amount: "", description: "" },
   ]);
-  const [pricingPreview, setPricingPreview] = useState<Record<
-    string,
-    string | number
-  > | null>(null);
+  const [exchangeRateSnapshot, setExchangeRateSnapshot] = useState<
+    string | null
+  >(null);
+  const [quotationError, setQuotationError] = useState("");
+  const [pricingError, setPricingError] = useState("");
   const load = useCallback(async () => {
     setError("");
     try {
@@ -110,48 +115,72 @@ export default function OfferDetailWorkspace({
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
   }, [load]);
-  const quotationPayload = useMemo(
-    () => ({
+  const quotationDraft = useMemo(
+    () =>
+      buildQuotationDraft(
+        quotationForm.priceBasis as QuotationPriceBasis,
+        quotationForm,
+        otherCosts,
+        exchangeRateSnapshot,
+      ),
+    [exchangeRateSnapshot, otherCosts, quotationForm],
+  );
+  const quotationPayload = useMemo(() => {
+    if (!quotationDraft.amounts || !quotationForm.sourceOfferVehicleId) {
+      return null;
+    }
+    return {
       sourceOfferId: id,
       sourceOfferVehicleId: quotationForm.sourceOfferVehicleId,
       priceBasis: quotationForm.priceBasis,
       currency: "USD",
-      vehicleAmount: Number(quotationForm.vehicleAmount || 0),
-      containerPrice: Number(quotationForm.containerPrice || 0),
-      containerAllocation: Number(quotationForm.containerAllocation),
-      insuranceAmount: Number(quotationForm.insuranceAmount || 0),
-      customsAmount: Number(quotationForm.customsAmount || 0),
-      transitAmount: Number(quotationForm.transitAmount || 0),
-      marginAmount: Number(quotationForm.marginAmount || 0),
-      otherCosts: otherCosts
-        .filter((cost) => Number(cost.amount) > 0)
-        .map((cost) => ({
-          amount: Number(cost.amount),
-          description: cost.description.trim(),
-        })),
+      ...quotationDraft.amounts,
       expiresAt: quotationForm.expiresAt
         ? new Date(quotationForm.expiresAt).toISOString()
         : undefined,
       paymentConditions: quotationForm.paymentConditions || undefined,
-    }),
-    [id, otherCosts, quotationForm],
-  );
+    };
+  }, [id, quotationDraft.amounts, quotationForm]);
+  const pricingPreview = quotationDraft.calculation;
+
   useEffect(() => {
-    if (
-      !showQuotation ||
-      !quotationPayload.sourceOfferVehicleId ||
-      quotationPayload.vehicleAmount <= 0 ||
-      quotationPayload.otherCosts.some((cost) => !cost.description)
-    ) {
-      setPricingPreview(null);
-      return;
-    }
+    if (!showQuotation) return;
+    let active = true;
+    void commerceApi.quotations
+      .currentUsdDzdRate()
+      .then((result) => {
+        if (active) setExchangeRateSnapshot(result.exchangeRateSnapshot);
+      })
+      .catch((caught) => {
+        if (active) {
+          setExchangeRateSnapshot(null);
+          setPricingError(
+            offerActionError(caught, "Taux USD/DZD Finance indisponible."),
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [showQuotation]);
+  useEffect(() => {
+    if (!showQuotation || !quotationPayload) return;
     let active = true;
     const timer = window.setTimeout(() => {
       void commerceApi.quotations
         .preview(quotationPayload)
-        .then((result) => active && setPricingPreview(result))
-        .catch(() => active && setPricingPreview(null));
+        .then((result) => {
+          if (!active) return;
+          setExchangeRateSnapshot(String(result.exchangeRateSnapshot));
+          setPricingError("");
+        })
+        .catch((caught) => {
+          if (active) {
+            setPricingError(
+              offerActionError(caught, "Aperçu du calcul indisponible."),
+            );
+          }
+        });
     }, 250);
     return () => {
       active = false;
@@ -213,19 +242,27 @@ export default function OfferDetailWorkspace({
   };
   const createQuotation = async (event: FormEvent) => {
     event.preventDefault();
+    setQuotationError("");
+    if (!quotationForm.sourceOfferVehicleId) {
+      setQuotationError("Sélectionnez un véhicule de l’offre.");
+      return;
+    }
+    if (!quotationPayload) {
+      setQuotationError(
+        quotationDraft.errors.join(" · ") ||
+          "Vérifiez les montants du devis avant de continuer.",
+      );
+      return;
+    }
     setChanging(true);
-    setError("");
     try {
-      if (quotationPayload.otherCosts.some((cost) => !cost.description)) {
-        throw new Error("Décrivez chaque autre coût renseigné.");
-      }
       await commerceApi.quotations.create(quotationPayload);
       setShowQuotation(false);
       setOtherCosts([{ amount: "", description: "" }]);
       await load();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Création impossible",
+      setQuotationError(
+        offerActionError(caught, "Création du devis impossible."),
       );
     } finally {
       setChanging(false);
@@ -326,18 +363,19 @@ export default function OfferDetailWorkspace({
                     <button
                       className={buttonClass}
                       onClick={() => {
-                      const vehicle = offer.vehicles?.[0];
-                      setQuotationForm((current) => ({
-                        ...current,
-                        sourceOfferVehicleId: vehicle?.id ?? "",
-                        vehicleAmount:
-                          vehicle?.currency === "USD"
-                            ? String(
-                                offer.totalOfferPrice ?? vehicle.supplierPrice,
-                              )
-                            : "",
-                      }));
-                      setShowQuotation(true);
+                        const vehicle = offer.vehicles?.[0];
+                        setQuotationError("");
+                        setPricingError("");
+                        setExchangeRateSnapshot(null);
+                        setQuotationForm((current) => ({
+                          ...current,
+                          sourceOfferVehicleId: vehicle?.id ?? "",
+                          vehicleAmount:
+                            vehicle?.currency === "USD"
+                              ? String(vehicle.supplierPrice)
+                              : "",
+                        }));
+                        setShowQuotation(true);
                       }}
                     >
                       <Plus className="mr-2 inline h-4 w-4" />
@@ -529,11 +567,11 @@ export default function OfferDetailWorkspace({
               </div>
             </section>
             <section className="card p-5">
-                <h2 className="mb-3 font-semibold">Devis de l’offre</h2>
+              <h2 className="mb-3 font-semibold">Devis de l’offre</h2>
               {!quotations.length ? (
                 <p className="text-sm text-muted">
-                    Aucun devis commercial. L’offre seule n’apparaît pas au
-                    Catalogue.
+                  Aucun devis commercial. L’offre seule n’apparaît pas au
+                  Catalogue.
                 </p>
               ) : (
                 <div className="divide-y">
@@ -544,17 +582,20 @@ export default function OfferDetailWorkspace({
                     >
                       <span>
                         <b>{quotation.quotationNumber}</b> ·{" "}
-                        {quotation.priceBasis} · ligne offre {quotation.sourceOfferVehicle?.lineNumber ?? "—"}
+                        {quotation.priceBasis} · ligne offre{" "}
+                        {quotation.sourceOfferVehicle?.lineNumber ?? "—"}
                       </span>
                       <span>
                         {formatMoney(
                           quotation.currentRevision?.finalCustomerPrice,
                           "USD",
                         )}{" "}
-                        · {formatMoney(
+                        ·{" "}
+                        {formatMoney(
                           quotation.currentRevision?.finalCustomerPriceDzd,
                           "DZD",
-                        )} · {quotation.status}
+                        )}{" "}
+                        · {quotation.status}
                       </span>
                     </div>
                   ))}
@@ -672,7 +713,10 @@ export default function OfferDetailWorkspace({
                 />
               </label>
             </div>
-            <button disabled={changing} className={`${buttonClass} mt-6 w-full`}>
+            <button
+              disabled={changing}
+              className={`${buttonClass} mt-6 w-full`}
+            >
               {changing ? "Enregistrement…" : "Enregistrer la révision"}
             </button>
           </form>
@@ -695,11 +739,20 @@ export default function OfferDetailWorkspace({
               révision de prix client.
               {offer.currency === "CNY" && (
                 <span className="mt-1 block font-semibold">
-                  L’offre est en CNY : renseignez la base commerciale en USD
-                  sans modifier le montant fournisseur d’origine.
+                  Le véhicule sélectionné doit disposer d’un prix fournisseur en
+                  USD pour créer un devis.
                 </span>
               )}
             </p>
+            {(quotationError || pricingError) && (
+              <div
+                role="alert"
+                aria-live="polite"
+                className="mt-4 rounded-card border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {quotationError || pricingError}
+              </div>
+            )}
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label>
                 <span className="field-label">Véhicule de l’offre *</span>
@@ -716,11 +769,7 @@ export default function OfferDetailWorkspace({
                       sourceOfferVehicleId: event.target.value,
                       vehicleAmount:
                         vehicle?.currency === "USD"
-                          ? String(
-                              vehicle.id === offer.vehicles?.[0]?.id
-                                ? offer.totalOfferPrice ?? vehicle.supplierPrice
-                                : vehicle.supplierPrice,
-                            )
+                          ? String(vehicle.supplierPrice)
                           : "",
                     }));
                   }}
@@ -762,16 +811,20 @@ export default function OfferDetailWorkspace({
                       : "Douane (incluse)",
                   ],
                   ["transitAmount", "Transit"],
-                  ["marginAmount", "Marge"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key}>
                   <span className="field-label">{label}</span>
                   <input
                     required
-                    min="0"
+                    min={
+                      key === "vehicleAmount" || key === "containerPrice"
+                        ? "0.01"
+                        : "0"
+                    }
                     step="0.01"
                     type="number"
+                    readOnly={key === "vehicleAmount"}
                     className={inputClass}
                     value={quotationForm[key]}
                     onChange={(event) =>
@@ -830,7 +883,7 @@ export default function OfferDetailWorkspace({
                         )
                       }
                     />
-                    {Number(cost.amount) > 0 && (
+                    {Number(cost.amount.replace(",", ".")) > 0 && (
                       <input
                         aria-label={`Description autre coût ${index + 1}`}
                         required
@@ -854,7 +907,9 @@ export default function OfferDetailWorkspace({
                         className="rounded-button border px-3"
                         onClick={() =>
                           setOtherCosts((current) =>
-                            current.filter((_, itemIndex) => itemIndex !== index),
+                            current.filter(
+                              (_, itemIndex) => itemIndex !== index,
+                            ),
                           )
                         }
                       >
@@ -905,22 +960,66 @@ export default function OfferDetailWorkspace({
               </label>
             </div>
             <section className="mt-5 rounded-card border-2 border-foreground/15 bg-neutral-50 p-4">
-              <h3 className="font-bold uppercase tracking-wide">Récapitulatif</h3>
+              <h3 className="font-bold uppercase tracking-wide">
+                Récapitulatif
+              </h3>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-                <Info label="Prix de base" value={formatMoney(pricingPreview?.vehicleAmount, "USD")} />
-                <Info label="Fret" value={formatMoney(pricingPreview?.freightAmount, "USD")} />
-                <Info label="Assurance" value={formatMoney(pricingPreview?.insuranceAmount, "USD")} />
-                <Info label="Transit" value={formatMoney(pricingPreview?.transitAmount, "USD")} />
-                <Info label="Autres coûts" value={formatMoney(pricingPreview?.otherCostsAmount, "USD")} />
-                <Info label="Marge" value={formatMoney(pricingPreview?.marginAmount, "USD")} />
                 <Info
-                  label={quotationForm.priceBasis === "CIF" ? "Douane estimée" : "Douane"}
+                  label="Prix de base"
+                  value={formatMoney(pricingPreview?.vehicleAmount, "USD")}
+                />
+                <Info
+                  label="Fret"
+                  value={formatMoney(pricingPreview?.freightAmount, "USD")}
+                />
+                <Info
+                  label="Assurance"
+                  value={formatMoney(pricingPreview?.insuranceAmount, "USD")}
+                />
+                <Info
+                  label="Transit"
+                  value={formatMoney(pricingPreview?.transitAmount, "USD")}
+                />
+                <Info
+                  label="Autres coûts"
+                  value={formatMoney(pricingPreview?.otherCostsAmount, "USD")}
+                />
+                <Info
+                  label={
+                    quotationForm.priceBasis === "CIF"
+                      ? "Douane estimée"
+                      : "Douane"
+                  }
                   value={formatMoney(pricingPreview?.customsAmount, "USD")}
                 />
               </dl>
+              <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted">
+                    Prix CIF
+                  </p>
+                  <p className="text-lg font-bold">
+                    {formatMoney(pricingPreview?.cifAmount, "USD")}
+                  </p>
+                  <p className="font-semibold text-primary">
+                    {formatMoney(pricingPreview?.cifAmountDzd, "DZD")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted">
+                    Prix DDP
+                  </p>
+                  <p className="text-lg font-bold">
+                    {formatMoney(pricingPreview?.ddpAmount, "USD")}
+                  </p>
+                  <p className="font-semibold text-primary">
+                    {formatMoney(pricingPreview?.ddpAmountDzd, "DZD")}
+                  </p>
+                </div>
+              </div>
               <div className="mt-4 border-t border-border pt-4">
                 <p className="text-xs font-semibold uppercase text-muted">
-                  Prix total {quotationForm.priceBasis}
+                  Prix principal {quotationForm.priceBasis}
                 </p>
                 <p className="text-2xl font-bold">
                   {formatMoney(pricingPreview?.finalCustomerPrice, "USD")}
@@ -928,14 +1027,15 @@ export default function OfferDetailWorkspace({
                 <p className="text-lg font-semibold text-primary">
                   {formatMoney(pricingPreview?.finalCustomerPriceDzd, "DZD")}
                 </p>
-                {pricingPreview?.exchangeRateSnapshot && (
+                {exchangeRateSnapshot && (
                   <p className="text-xs text-muted">
-                    Taux Finance figé : 1 USD = {pricingPreview.exchangeRateSnapshot} DZD
+                    Taux Finance actif : 1 USD = {exchangeRateSnapshot} DZD
                   </p>
                 )}
               </div>
             </section>
             <button
+              type="submit"
               disabled={changing}
               className={`${buttonClass} mt-6 w-full`}
             >

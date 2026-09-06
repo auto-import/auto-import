@@ -55,10 +55,27 @@ describe('Offer and quotation pricing rules', () => {
       containerAllocation: 3,
       insuranceAmount: 300,
       transitAmount: 200,
-      customsAmount: 1_500,
+      customsAmount: 1_000,
       otherCosts: [{ amount: 500, description: 'Manutention' }],
     });
-    expect(result.finalCustomerPrice.toNumber()).toBe(12_500);
+    expect(result.cifAmount.toNumber()).toBe(11_000);
+    expect(result.ddpAmount.toNumber()).toBe(12_000);
+    expect(result.finalCustomerPrice.toNumber()).toBe(12_000);
+  });
+
+  it('keeps the legacy margin field outside the required CIF/DDP formulas', () => {
+    const result = pricing.calculate('DDP', {
+      vehicleAmount: 8_000,
+      containerPrice: 6_000,
+      containerAllocation: 3,
+      insuranceAmount: 300,
+      transitAmount: 200,
+      customsAmount: 1_000,
+      otherCosts: [{ amount: 500, description: 'Manutention' }],
+      marginAmount: 900,
+    });
+    expect(result.cifAmount.toNumber()).toBe(11_000);
+    expect(result.ddpAmount.toNumber()).toBe(12_000);
   });
 
   it('takes the effective USD/DZD Finance rate snapshot', async () => {

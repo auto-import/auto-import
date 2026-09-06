@@ -23,10 +23,9 @@ export class QuotationPricingService {
       .add(freightAmount)
       .add(insuranceAmount)
       .add(transitAmount)
-      .add(otherCostsAmount)
-      .add(marginAmount);
-    const finalCustomerPrice =
-      priceBasis === 'DDP' ? cifAmount.add(customsAmount) : cifAmount;
+      .add(otherCostsAmount);
+    const ddpAmount = cifAmount.add(customsAmount);
+    const finalCustomerPrice = priceBasis === 'DDP' ? ddpAmount : cifAmount;
     return {
       vehicleAmount,
       containerPrice,
@@ -37,6 +36,8 @@ export class QuotationPricingService {
       transitAmount,
       otherCostsAmount,
       marginAmount,
+      cifAmount,
+      ddpAmount,
       finalCustomerPrice,
     };
   }

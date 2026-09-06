@@ -22,10 +22,14 @@ export class QuotationAmountsDto {
   @Type(() => Number) @IsNumber() @Min(0.01) vehicleAmount: number;
   @Type(() => Number) @IsNumber() @Min(0.01) containerPrice: number;
   @Type(() => Number) @IsIn([3, 4]) containerAllocation: number;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) insuranceAmount = 0;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) customsAmount = 0;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) transitAmount = 0;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) marginAmount = 0;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  insuranceAmount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) customsAmount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) transitAmount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) marginAmount?: number;
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -40,7 +44,7 @@ export class CreateQuotationDto extends QuotationAmountsDto {
   @IsUUID() sourceOfferId: string;
   @IsOptional() @IsUUID() sourceOfferVehicleId?: string;
   @IsIn(['CIF', 'DDP']) priceBasis: 'CIF' | 'DDP';
-  @IsIn(['USD']) currency: 'USD' = 'USD';
+  @IsIn(['USD']) currency = 'USD' as const;
   @IsOptional() @IsDateString() expiresAt?: string;
 }
 

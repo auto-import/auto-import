@@ -731,6 +731,13 @@ export const commerceApi = {
       ),
   },
   quotations: {
+    currentUsdDzdRate: () =>
+      apiRequest<{
+        exchangeRateId: string;
+        exchangeRateSnapshot: string;
+        baseCurrency: "USD";
+        quoteCurrency: "DZD";
+      }>("/quotations/usd-dzd-rate"),
     list: (filters: Record<string, string | number | undefined> = {}) =>
       apiRequest<PaginatedData<ApiCustomerQuotation>>(
         `/quotations${queryString(filters)}`,
