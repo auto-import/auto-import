@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsBoolean,
   Max,
   Min,
   ValidateNested,
@@ -15,6 +16,8 @@ import {
 import { LeadQualification } from '@prisma/client';
 
 export class LeadVehicleRequirementDto {
+  @IsOptional() @IsUUID() vehicleId?: string;
+  @IsOptional() @IsBoolean() customRequest?: boolean;
   @IsOptional() @IsString() brand?: string;
   @IsOptional() @IsString() model?: string;
   @IsOptional() @IsInt() @Min(1900) @Max(2200) minYear?: number;

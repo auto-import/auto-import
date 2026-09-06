@@ -4,12 +4,23 @@ import {
   IsUUID,
   IsDateString,
   IsEnum,
+  IsBoolean,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DossierType } from './dossier-type.enum';
 import { DossierStatus } from '@auto-import/contracts';
 
 export class FilterDossierDto extends PaginationDto {
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  archivedOnly?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  includeArchived?: boolean;
   @IsOptional()
   @IsEnum(DossierType)
   type?: DossierType;

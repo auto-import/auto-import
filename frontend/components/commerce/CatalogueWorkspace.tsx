@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { PackageCheck, Search } from "lucide-react";
 import Topbar from "@/components/Topbar";
-import { commerceApi, type ApiVehicle } from "@/lib/commerce-api";
+import { commerceApi, type ApiCatalogueItem } from "@/lib/commerce-api";
 import { VEHICLE_STATUS_LABELS_API } from "@/lib/api-contract";
 import {
   EmptyState,
@@ -15,11 +15,10 @@ import {
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 export default function CatalogueWorkspace() {
-  const [items, setItems] = useState<ApiVehicle[]>([]);
+  const [items, setItems] = useState<ApiCatalogueItem[]>([]);
   const [filters, setFilters] = useState({
     search: "",
     status: "",
-    acquisitionType: "",
     page: 1,
   });
   const [pagination, setPagination] = useState({
@@ -60,7 +59,7 @@ export default function CatalogueWorkspace() {
     <>
       <Topbar
         title="Catalogue"
-        subtitle="Véhicules acquis et détenus par Corapide"
+        subtitle="Véhicules disposant d’un devis commercial publié"
       />
       <main className="space-y-6 p-4 sm:p-8">
         <section className="card flex flex-wrap items-center gap-3">
@@ -99,35 +98,19 @@ export default function CatalogueWorkspace() {
             <option value="delivered">Livré</option>
             <option value="sold">Vendu</option>
           </select>
-          <select
-            className={inputClass}
-            aria-label="Mode d’acquisition"
-            value={filters.acquisitionType}
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                acquisitionType: event.target.value,
-                page: 1,
-              }))
-            }
-          >
-            <option value="">Toutes acquisitions</option>
-            <option value="chinaOffer">Offres Chine achetées</option>
-            <option value="stock">Stock Corapide</option>
-          </select>
         </section>
         <p className="text-sm text-muted">
-          {pagination.totalItems} véhicule(s) détenu(s)
+          {pagination.totalItems} véhicule(s) commercialisé(s)
         </p>
         {error && <ErrorState message={error} retry={() => void load()} />}
         {loading ? (
           <LoadingState />
         ) : items.length === 0 ? (
-          <EmptyState label="Aucun véhicule acquis pour ces filtres." />
+          <EmptyState label="Aucun véhicule ne dispose encore d’un devis commercial." />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {items.map((vehicle) => (
-              <CatalogueCard key={vehicle.id} vehicle={vehicle} />
+            {items.map((item) => (
+              <CatalogueCard key={item.id} item={item} />
             ))}
           </div>
         )}
@@ -167,15 +150,15 @@ export default function CatalogueWorkspace() {
   );
 }
 
-function CatalogueCard({ vehicle }: { vehicle: ApiVehicle }) {
+function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
   const photo =
-    vehicle.photos?.find((item) => item.isPrimary) ?? vehicle.photos?.[0];
+    item.photos?.find((photoItem) => photoItem.isPrimary) ?? item.photos?.[0];
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!photo) return;
     let active = true;
     let objectUrl = "";
-    void commerceApi.vehicles
+    void commerceApi.offers
       .photoBlob(photo.id)
       .then((blob) => {
         if (!active) return;
@@ -188,7 +171,6 @@ function CatalogueCard({ vehicle }: { vehicle: ApiVehicle }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [photo]);
-  const purchase = vehicle.purchases?.[0];
   return (
     <article className="card overflow-hidden p-0">
       <div className="relative aspect-[16/10] bg-neutral-100">
@@ -198,7 +180,7 @@ function CatalogueCard({ vehicle }: { vehicle: ApiVehicle }) {
             fill
             sizes="(min-width: 1536px) 25vw, (min-width: 640px) 50vw, 100vw"
             src={url}
-            alt={`${vehicle.brand} ${vehicle.model}`}
+            alt={`${item.brand} ${item.model}`}
             className="object-cover"
           />
         ) : (
@@ -207,49 +189,38 @@ function CatalogueCard({ vehicle }: { vehicle: ApiVehicle }) {
           </div>
         )}
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold">
-          {VEHICLE_STATUS_LABELS_API[vehicle.status] ?? vehicle.status}
+          {VEHICLE_STATUS_LABELS_API[item.status] ?? item.status}
         </span>
       </div>
       <div className="space-y-3 p-5">
         <div>
           <h2 className="text-lg font-bold">
-            {vehicle.brand} {vehicle.model} {vehicle.trim}
+            {item.brand} {item.model} {item.version}
           </h2>
           <p className="text-sm text-muted">
-            {vehicle.year ?? "Année non renseignée"} ·{" "}
-            {vehicle.vin ?? "VIN non renseigné"}
+            {item.year ?? "Année non renseignée"} · {item.remainingQuantity}{" "}
+            disponible(s)
           </p>
         </div>
         <dl className="grid grid-cols-2 gap-2 text-sm">
-          <Mini label="Transmission" value={vehicle.specs?.transmission} />
-          <Mini label="Moteur" value={vehicle.specs?.engine} />
-          <Mini label="Fournisseur" value={vehicle.supplier?.name} />
-          <Mini
-            label="Date d’achat"
-            value={
-              purchase?.purchaseDate
-                ? new Date(purchase.purchaseDate).toLocaleDateString(
-                    getRuntimeLocale(),
-                  )
-                : "Acquis en stock"
-            }
-          />
+          <Mini label="Prix CIF" value={formatDzd(item.cifPrice)} />
+          <Mini label="Prix DDP" value={formatDzd(item.ddpPrice)} />
+          <Mini label="Fournisseur" value={item.supplier?.name} />
+          <Mini label="Offre" value={item.offer.reference} />
         </dl>
         <div className="border-t border-border pt-3 text-xs text-muted">
-          <p>Acquisition : {vehicle.acquisitionType}</p>
-          {purchase?.sourceOffer && (
-            <p>
-              Offre source : {purchase.sourceOffer.reference}
-              {purchase.sourceOfferVehicle
-                ? ` · ligne ${purchase.sourceOfferVehicle.lineNumber}`
-                : ""}
-            </p>
-          )}
-          {purchase && <p>Achat : {purchase.purchaseNumber}</p>}
+          <p>Prix commerciaux en DZD — prix fournisseur non exposé</p>
         </div>
       </div>
     </article>
   );
+}
+
+function formatDzd(value?: string | number | null) {
+  if (value === null || value === undefined) return "Non disponible";
+  return `${new Intl.NumberFormat(getRuntimeLocale(), {
+    maximumFractionDigits: 2,
+  }).format(Number(value))} DZD`;
 }
 
 function Mini({ label, value }: { label: string; value?: string | null }) {

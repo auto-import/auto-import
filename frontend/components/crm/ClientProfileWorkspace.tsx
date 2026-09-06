@@ -17,6 +17,8 @@ import UnifiedTimeline from "@/components/crm/UnifiedTimeline";
 import { crmApi, type ApiClient, type TimelineItem } from "@/lib/crm-api";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
+import type { ApiCrmReference } from "@/lib/crm-api";
+import AlgeriaLocationFields from "./AlgeriaLocationFields";
 
 export default function ClientProfileWorkspace({
   params,
@@ -31,6 +33,19 @@ export default function ClientProfileWorkspace({
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [references, setReferences] = useState<ApiCrmReference[]>([]);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    email: "",
+    countryId: "",
+    wilaya: "",
+    city: "",
+    address: "",
+    notes: "",
+  });
   const [tab, setTab] = useState("overview");
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityDocument, setIdentityDocument] = useState<File | null>(null);
@@ -46,8 +61,23 @@ export default function ClientProfileWorkspace({
     setLoading(true);
     setError("");
     try {
-      const clientResult = await crmApi.getClient(id);
+      const [clientResult, referenceResult] = await Promise.all([
+        crmApi.getClient(id),
+        crmApi.referenceData(),
+      ]);
       setClient(clientResult);
+      setReferences(referenceResult);
+      setProfileForm({
+        firstName: clientResult.firstName,
+        lastName: clientResult.lastName,
+        phone: clientResult.phone ?? "",
+        email: clientResult.email ?? "",
+        countryId: clientResult.countryId ?? "",
+        wilaya: clientResult.wilaya ?? "",
+        city: clientResult.city ?? "",
+        address: clientResult.address ?? "",
+        notes: clientResult.notes ?? "",
+      });
       setIdentityForm((current) => ({
         ...current,
         identityDocumentType: clientResult.identityDocumentType ?? "",
@@ -80,6 +110,32 @@ export default function ClientProfileWorkspace({
       setError(
         caught instanceof Error ? caught.message : "Note non enregistrée",
       );
+    }
+  }
+  async function saveProfile(event: React.FormEvent) {
+    event.preventDefault();
+    setProfileSaving(true);
+    setError("");
+    try {
+      const updated = await crmApi.updateClient(
+        id,
+        Object.fromEntries(
+          Object.entries(profileForm).map(([key, value]) => [
+            key,
+            key === "email" && !value.trim() ? undefined : value.trim(),
+          ]),
+        ),
+      );
+      setClient(updated);
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Informations client non enregistrées",
+      );
+    } finally {
+      setProfileSaving(false);
     }
   }
   async function archiveClient() {
@@ -124,7 +180,7 @@ export default function ClientProfileWorkspace({
   return (
     <>
       <Topbar title="Profil client" subtitle="Timeline omnicanale" />
-      <main className="space-y-6 p-8">
+      <main className="space-y-6 p-4 sm:p-8">
         <button
           onClick={() => router.push("/crm/clients")}
           className="flex items-center gap-1 text-sm text-muted"
@@ -217,35 +273,142 @@ export default function ClientProfileWorkspace({
                 ))}
             </nav>
             {tab === "overview" && (
-              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-                <Info label="NIN" value={client.ninMasked ?? "Non renseigné"} />
-                <Info
-                  label="Passeport"
-                  value={client.passportNumberMasked ?? "Non renseigné"}
-                />
-                <Info
-                  label="Dossiers"
-                  value={client.stats?.totalDossiers ?? 0}
-                />
-                <Info
-                  label="Dossiers actifs"
-                  value={client.stats?.activeDossiers ?? 0}
-                />
-                <Info
-                  label="Commandes"
-                  value={client.stats?.totalOrders ?? 0}
-                />
-                <Info
-                  label="Prochaine action"
-                  value={
-                    client.nextActionAt
-                      ? new Date(client.nextActionAt).toLocaleDateString(
-                          getRuntimeLocale(),
-                        )
-                      : "—"
-                  }
-                  icon={<Calendar className="h-4 w-4" />}
-                />
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <Info label="NIN" value={client.ninMasked ?? "Non renseigné"} />
+                  <Info
+                    label="Passeport"
+                    value={client.passportNumberMasked ?? "Non renseigné"}
+                  />
+                  <Info
+                    label="Dossiers"
+                    value={client.stats?.totalDossiers ?? 0}
+                  />
+                  <Info
+                    label="Dossiers actifs"
+                    value={client.stats?.activeDossiers ?? 0}
+                  />
+                  <Info
+                    label="Commandes"
+                    value={client.stats?.totalOrders ?? 0}
+                  />
+                  <Info
+                    label="Prochaine action"
+                    value={
+                      client.nextActionAt
+                        ? new Date(client.nextActionAt).toLocaleDateString(
+                            getRuntimeLocale(),
+                          )
+                        : "—"
+                    }
+                    icon={<Calendar className="h-4 w-4" />}
+                  />
+                </div>
+                {hasPermission(Permission.CLIENTS_WRITE) ? (
+                  <form
+                    onSubmit={saveProfile}
+                    className="card grid gap-3 sm:grid-cols-2"
+                  >
+                    <h2 className="font-semibold sm:col-span-2">
+                      Informations client
+                    </h2>
+                    <input
+                      required
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Prénom"
+                      value={profileForm.firstName}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          firstName: event.target.value,
+                        })
+                      }
+                    />
+                    <input
+                      required
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Nom"
+                      value={profileForm.lastName}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          lastName: event.target.value,
+                        })
+                      }
+                    />
+                    <input
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Téléphone"
+                      value={profileForm.phone}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          phone: event.target.value,
+                        })
+                      }
+                    />
+                    <input
+                      type="email"
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Email"
+                      value={profileForm.email}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          email: event.target.value,
+                        })
+                      }
+                    />
+                    <AlgeriaLocationFields
+                      references={references}
+                      inputClass="rounded-input border border-border bg-background px-3 py-2 text-sm"
+                      countryId={profileForm.countryId}
+                      wilaya={profileForm.wilaya}
+                      city={profileForm.city}
+                      onChange={(location) =>
+                        setProfileForm({ ...profileForm, ...location })
+                      }
+                    />
+                    <input
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm sm:col-span-2"
+                      placeholder="Adresse"
+                      value={profileForm.address}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          address: event.target.value,
+                        })
+                      }
+                    />
+                    <textarea
+                      rows={3}
+                      className="rounded-input border border-border bg-background px-3 py-2 text-sm sm:col-span-2"
+                      placeholder="Notes"
+                      value={profileForm.notes}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          notes: event.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      disabled={profileSaving}
+                      className="rounded-button bg-foreground px-4 py-2 text-sm text-white disabled:opacity-50 sm:col-span-2"
+                    >
+                      {profileSaving
+                        ? "Enregistrement…"
+                        : "Enregistrer les informations"}
+                    </button>
+                  </form>
+                ) : (
+                  <section className="card grid gap-3 sm:grid-cols-2">
+                    <Info label="Wilaya" value={client.wilaya ?? "—"} />
+                    <Info label="Commune" value={client.city ?? "—"} />
+                    <Info label="Adresse" value={client.address ?? "—"} />
+                    <Info label="Notes" value={client.notes ?? "—"} />
+                  </section>
+                )}
               </div>
             )}
             {tab === "interactions" && client.access?.interactions && (

@@ -118,6 +118,40 @@ export default function LeadDetailDialog({
       setSaving(false);
     }
   }
+  async function restore() {
+    setSaving(true);
+    setError("");
+    try {
+      await crmApi.restoreProspect(current.id);
+      onUpdated();
+      onClose();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Restauration impossible",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function permanentlyDelete() {
+    const confirmed = window.confirm(
+      "Êtes-vous sûr de vouloir supprimer définitivement ce lead ?\n\nCette action peut être irréversible.",
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await crmApi.permanentlyDeleteProspect(current.id);
+      onUpdated();
+      onClose();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Suppression impossible",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
   const control =
     "rounded-input border border-border bg-background px-3 py-2 text-sm";
   return (
@@ -304,6 +338,25 @@ export default function LeadDetailDialog({
             )}
           </div>
         )}
+        {current.archivedAt &&
+          hasPermission(Permission.PROSPECTS_ARCHIVE_MANAGE) && (
+            <div className="mb-6 flex flex-wrap justify-end gap-2">
+              <button
+                disabled={saving}
+                onClick={() => void restore()}
+                className="rounded-button border border-border px-4 py-2 text-sm"
+              >
+                Restaurer
+              </button>
+              <button
+                disabled={saving}
+                onClick={() => void permanentlyDelete()}
+                className="rounded-button border border-status-red-text px-4 py-2 text-sm text-status-red-text"
+              >
+                Supprimer
+              </button>
+            </div>
+          )}
         <UnifiedTimeline
           items={timeline}
           emptyMessage="Aucune interaction enregistrée."

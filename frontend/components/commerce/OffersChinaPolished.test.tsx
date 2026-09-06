@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   listPartners: vi.fn(),
   create: vi.fn(),
   createWithPhotos: vi.fn(),
+  lookups: vi.fn(),
+  createLookup: vi.fn(),
 }));
 
 vi.mock("@/components/AuthProvider", () => ({
@@ -26,6 +28,10 @@ vi.mock("@/lib/commerce-api", () => ({
       createWithPhotos: mocks.createWithPhotos,
     },
     partners: { list: mocks.listPartners },
+    configuration: {
+      offerLookups: mocks.lookups,
+      createOfferLookup: mocks.createLookup,
+    },
   },
 }));
 
@@ -58,6 +64,23 @@ describe("OffersChinaPolished creation", () => {
       pagination,
     });
     mocks.create.mockResolvedValue({ id: "offer-1" });
+    mocks.lookups.mockResolvedValue([
+      {
+        id: "brand-geely",
+        kind: "BRAND",
+        value: "Geely",
+        active: true,
+        needsReview: false,
+      },
+      {
+        id: "model-coolray",
+        kind: "MODEL",
+        value: "Coolray",
+        parentId: "brand-geely",
+        active: true,
+        needsReview: false,
+      },
+    ]);
   });
 
   it("creates a valid supplier offer without requiring photos", async () => {
@@ -69,10 +92,10 @@ describe("OffersChinaPolished creation", () => {
       target: { value: "00000000-0000-4000-8000-000000000001" },
     });
     fireEvent.change(screen.getByLabelText("Marque *"), {
-      target: { value: "Geely" },
+      target: { value: "brand-geely" },
     });
     fireEvent.change(screen.getByLabelText("Modèle *"), {
-      target: { value: "Coolray" },
+      target: { value: "model-coolray" },
     });
     fireEvent.change(screen.getByLabelText("Prix fournisseur *"), {
       target: { value: "12000" },

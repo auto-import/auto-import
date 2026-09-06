@@ -44,6 +44,18 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsString()
+  wilaya?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
   nin?: string;
 
   @IsOptional()

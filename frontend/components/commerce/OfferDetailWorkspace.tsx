@@ -2,7 +2,13 @@
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
-import React, { FormEvent, useCallback, useEffect, useState } from "react";
+import React, {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Package, Plus, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -57,20 +63,34 @@ export default function OfferDetailWorkspace({
   const [error, setError] = useState("");
   const [changing, setChanging] = useState(false);
   const [showQuotation, setShowQuotation] = useState(false);
+  const [showOfferEdit, setShowOfferEdit] = useState(false);
+  const [offerEdit, setOfferEdit] = useState({
+    supplierPrice: "",
+    currency: "USD",
+    incoterm: "FOB",
+    localCost: "",
+    revisionReason: "",
+  });
   const [quotationForm, setQuotationForm] = useState({
-    dossierId: "",
+    sourceOfferVehicleId: "",
     priceBasis: "CIF",
     vehicleAmount: "",
-    freightAmount: "0",
+    containerPrice: "0",
+    containerAllocation: "3",
     insuranceAmount: "0",
     customsAmount: "0",
     transitAmount: "0",
-    otherCostsAmount: "0",
     marginAmount: "0",
-    currency: "USD",
     expiresAt: "",
     paymentConditions: "",
   });
+  const [otherCosts, setOtherCosts] = useState([
+    { amount: "", description: "" },
+  ]);
+  const [pricingPreview, setPricingPreview] = useState<Record<
+    string,
+    string | number
+  > | null>(null);
   const load = useCallback(async () => {
     setError("");
     try {
@@ -90,6 +110,54 @@ export default function OfferDetailWorkspace({
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
   }, [load]);
+  const quotationPayload = useMemo(
+    () => ({
+      sourceOfferId: id,
+      sourceOfferVehicleId: quotationForm.sourceOfferVehicleId,
+      priceBasis: quotationForm.priceBasis,
+      currency: "USD",
+      vehicleAmount: Number(quotationForm.vehicleAmount || 0),
+      containerPrice: Number(quotationForm.containerPrice || 0),
+      containerAllocation: Number(quotationForm.containerAllocation),
+      insuranceAmount: Number(quotationForm.insuranceAmount || 0),
+      customsAmount: Number(quotationForm.customsAmount || 0),
+      transitAmount: Number(quotationForm.transitAmount || 0),
+      marginAmount: Number(quotationForm.marginAmount || 0),
+      otherCosts: otherCosts
+        .filter((cost) => Number(cost.amount) > 0)
+        .map((cost) => ({
+          amount: Number(cost.amount),
+          description: cost.description.trim(),
+        })),
+      expiresAt: quotationForm.expiresAt
+        ? new Date(quotationForm.expiresAt).toISOString()
+        : undefined,
+      paymentConditions: quotationForm.paymentConditions || undefined,
+    }),
+    [id, otherCosts, quotationForm],
+  );
+  useEffect(() => {
+    if (
+      !showQuotation ||
+      !quotationPayload.sourceOfferVehicleId ||
+      quotationPayload.vehicleAmount <= 0 ||
+      quotationPayload.otherCosts.some((cost) => !cost.description)
+    ) {
+      setPricingPreview(null);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void commerceApi.quotations
+        .preview(quotationPayload)
+        .then((result) => active && setPricingPreview(result))
+        .catch(() => active && setPricingPreview(null));
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [quotationPayload, showQuotation]);
   const transition = async (status: string) => {
     setChanging(true);
     setError("");
@@ -148,37 +216,38 @@ export default function OfferDetailWorkspace({
     setChanging(true);
     setError("");
     try {
-      const amountKeys = [
-        "vehicleAmount",
-        "freightAmount",
-        "insuranceAmount",
-        "customsAmount",
-        "transitAmount",
-        "otherCostsAmount",
-        "marginAmount",
-      ] as const;
-      const amounts = Object.fromEntries(
-        amountKeys.map((key) => [key, Number(quotationForm[key] || 0)]),
-      );
-      const finalCustomerPrice = Object.values(amounts).reduce(
-        (sum, amount) => sum + amount,
-        0,
-      );
-      await commerceApi.quotations.create({
-        ...quotationForm,
-        ...amounts,
-        finalCustomerPrice,
-        sourceOfferId: id,
-        expiresAt: quotationForm.expiresAt
-          ? new Date(quotationForm.expiresAt).toISOString()
-          : undefined,
-      });
+      if (quotationPayload.otherCosts.some((cost) => !cost.description)) {
+        throw new Error("Décrivez chaque autre coût renseigné.");
+      }
+      await commerceApi.quotations.create(quotationPayload);
       setShowQuotation(false);
+      setOtherCosts([{ amount: "", description: "" }]);
       await load();
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Création impossible",
       );
+    } finally {
+      setChanging(false);
+    }
+  };
+  const saveOfferEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    setChanging(true);
+    setError("");
+    try {
+      await commerceApi.offers.update(id, {
+        supplierPrice: Number(offerEdit.supplierPrice),
+        currency: offerEdit.currency,
+        incoterm: offerEdit.incoterm,
+        localCost:
+          offerEdit.incoterm === "FCA" ? Number(offerEdit.localCost || 0) : 0,
+        revisionReason: offerEdit.revisionReason.trim(),
+      });
+      setShowOfferEdit(false);
+      await load();
+    } catch (caught) {
+      setError(offerActionError(caught, "Modification impossible"));
     } finally {
       setChanging(false);
     }
@@ -217,12 +286,6 @@ export default function OfferDetailWorkspace({
                     {offer.year ?? "—"}
                   </p>
                 </div>
-                <Link
-                  href={`/dossiers/creer?offerId=${offer.id}`}
-                  className="rounded-button bg-foreground px-4 py-2 text-sm font-medium text-white"
-                >
-                  Créer un dossier
-                </Link>
                 {canTransition && (
                   <div className="flex flex-wrap gap-2">
                     {[
@@ -244,30 +307,56 @@ export default function OfferDetailWorkspace({
                   </div>
                 )}
                 {canWrite && (
-                  <button
-                    className={buttonClass}
-                    onClick={() => {
-                      const dossierId =
-                        offer.reservations?.find((item) => item.dossier)
-                          ?.dossier?.id ?? "";
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded-button border px-4 py-2 text-sm font-medium"
+                      onClick={() => {
+                        setOfferEdit({
+                          supplierPrice: String(offer.supplierPrice ?? ""),
+                          currency: offer.currency,
+                          incoterm: offer.incoterm ?? "FOB",
+                          localCost: String(offer.localCost ?? ""),
+                          revisionReason: "",
+                        });
+                        setShowOfferEdit(true);
+                      }}
+                    >
+                      Modifier l’offre
+                    </button>
+                    <button
+                      className={buttonClass}
+                      onClick={() => {
+                      const vehicle = offer.vehicles?.[0];
                       setQuotationForm((current) => ({
                         ...current,
-                        dossierId,
-                        currency: offer.currency,
-                        vehicleAmount: String(offer.supplierPrice ?? ""),
+                        sourceOfferVehicleId: vehicle?.id ?? "",
+                        vehicleAmount:
+                          vehicle?.currency === "USD"
+                            ? String(
+                                offer.totalOfferPrice ?? vehicle.supplierPrice,
+                              )
+                            : "",
                       }));
                       setShowQuotation(true);
-                    }}
-                  >
-                    <Plus className="mr-2 inline h-4 w-4" />
-                    Créer un devis
-                  </button>
+                      }}
+                    >
+                      <Plus className="mr-2 inline h-4 w-4" />
+                      Créer un devis
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <Info
                   label="Prix fournisseur"
                   value={formatMoney(offer.supplierPrice, offer.currency)}
+                />
+                <Info
+                  label={`Prix total ${offer.incoterm ?? ""}`}
+                  value={formatMoney(
+                    offer.totalOfferPrice ?? offer.supplierPrice,
+                    offer.currency,
+                  )}
                 />
                 <Info
                   label="Disponible"
@@ -440,13 +529,11 @@ export default function OfferDetailWorkspace({
               </div>
             </section>
             <section className="card p-5">
-              <h2 className="mb-3 font-semibold">
-                Tarification / Devis client
-              </h2>
+                <h2 className="mb-3 font-semibold">Devis de l’offre</h2>
               {!quotations.length ? (
                 <p className="text-sm text-muted">
-                  Aucun prix client n’est enregistré sur l’offre fournisseur.
-                  Affectez l’offre à un dossier puis créez un devis CIF ou DDP.
+                    Aucun devis commercial. L’offre seule n’apparaît pas au
+                    Catalogue.
                 </p>
               ) : (
                 <div className="divide-y">
@@ -457,14 +544,17 @@ export default function OfferDetailWorkspace({
                     >
                       <span>
                         <b>{quotation.quotationNumber}</b> ·{" "}
-                        {quotation.priceBasis} · {quotation.dossier?.reference}
+                        {quotation.priceBasis} · ligne offre {quotation.sourceOfferVehicle?.lineNumber ?? "—"}
                       </span>
                       <span>
                         {formatMoney(
                           quotation.currentRevision?.finalCustomerPrice,
-                          quotation.currency,
+                          "USD",
                         )}{" "}
-                        · {quotation.status}
+                        · {formatMoney(
+                          quotation.currentRevision?.finalCustomerPriceDzd,
+                          "DZD",
+                        )} · {quotation.status}
                       </span>
                     </div>
                   ))}
@@ -474,6 +564,120 @@ export default function OfferDetailWorkspace({
           </>
         )}
       </main>
+      {showOfferEdit && offer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <form
+            onSubmit={saveOfferEdit}
+            className="card max-h-[90vh] w-full max-w-xl overflow-y-auto p-6"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Modifier l’offre</h2>
+              <button type="button" onClick={() => setShowOfferEdit(false)}>
+                <X />
+              </button>
+            </div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className="field-label">Prix fournisseur *</span>
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  className={inputClass}
+                  value={offerEdit.supplierPrice}
+                  onChange={(event) =>
+                    setOfferEdit((current) => ({
+                      ...current,
+                      supplierPrice: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span className="field-label">Devise *</span>
+                <select
+                  className={inputClass}
+                  value={offerEdit.currency}
+                  onChange={(event) =>
+                    setOfferEdit((current) => ({
+                      ...current,
+                      currency: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY</option>
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Incoterm *</span>
+                <select
+                  className={inputClass}
+                  value={offerEdit.incoterm}
+                  onChange={(event) =>
+                    setOfferEdit((current) => ({
+                      ...current,
+                      incoterm: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="FCA">FCA</option>
+                  <option value="FOB">FOB</option>
+                </select>
+              </label>
+              {offerEdit.incoterm === "FCA" && (
+                <label>
+                  <span className="field-label">Frais locaux *</span>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className={inputClass}
+                    value={offerEdit.localCost}
+                    onChange={(event) =>
+                      setOfferEdit((current) => ({
+                        ...current,
+                        localCost: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              )}
+              <div className="rounded-card border border-border p-3">
+                <span className="field-label">Nouveau total</span>
+                <p className="font-bold">
+                  {formatMoney(
+                    Number(offerEdit.supplierPrice || 0) +
+                      (offerEdit.incoterm === "FCA"
+                        ? Number(offerEdit.localCost || 0)
+                        : 0),
+                    offerEdit.currency,
+                  )}
+                </p>
+              </div>
+              <label className="sm:col-span-2">
+                <span className="field-label">Motif de révision *</span>
+                <textarea
+                  required
+                  className={inputClass}
+                  value={offerEdit.revisionReason}
+                  onChange={(event) =>
+                    setOfferEdit((current) => ({
+                      ...current,
+                      revisionReason: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <button disabled={changing} className={`${buttonClass} mt-6 w-full`}>
+              {changing ? "Enregistrement…" : "Enregistrer la révision"}
+            </button>
+          </form>
+        </div>
+      )}
       {showQuotation && offer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
           <form
@@ -489,34 +693,45 @@ export default function OfferDetailWorkspace({
             <p className="mt-3 rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
               Ce devis est indépendant du prix fournisseur et conserve chaque
               révision de prix client.
+              {offer.currency === "CNY" && (
+                <span className="mt-1 block font-semibold">
+                  L’offre est en CNY : renseignez la base commerciale en USD
+                  sans modifier le montant fournisseur d’origine.
+                </span>
+              )}
             </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label>
-                <span className="field-label">Dossier *</span>
+                <span className="field-label">Véhicule de l’offre *</span>
                 <select
                   required
                   className={inputClass}
-                  value={quotationForm.dossierId}
-                  onChange={(event) =>
+                  value={quotationForm.sourceOfferVehicleId}
+                  onChange={(event) => {
+                    const vehicle = offer.vehicles?.find(
+                      (item) => item.id === event.target.value,
+                    );
                     setQuotationForm((current) => ({
                       ...current,
-                      dossierId: event.target.value,
-                    }))
-                  }
+                      sourceOfferVehicleId: event.target.value,
+                      vehicleAmount:
+                        vehicle?.currency === "USD"
+                          ? String(
+                              vehicle.id === offer.vehicles?.[0]?.id
+                                ? offer.totalOfferPrice ?? vehicle.supplierPrice
+                                : vehicle.supplierPrice,
+                            )
+                          : "",
+                    }));
+                  }}
                 >
-                  <option value="">
-                    Affecter d’abord l’offre à un dossier
-                  </option>
-                  {offer.reservations
-                    ?.filter((reservation) => reservation.dossier)
-                    .map((reservation) => (
-                      <option
-                        key={reservation.dossier!.id}
-                        value={reservation.dossier!.id}
-                      >
-                        {reservation.dossier!.reference}
-                      </option>
-                    ))}
+                  <option value="">Sélectionner une ligne</option>
+                  {offer.vehicles?.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      #{vehicle.lineNumber} · {vehicle.brand} {vehicle.model}{" "}
+                      {vehicle.version}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -537,12 +752,16 @@ export default function OfferDetailWorkspace({
               </label>
               {(
                 [
-                  ["vehicleAmount", "Base véhicule"],
-                  ["freightAmount", "Fret"],
+                  ["vehicleAmount", "Prix de base véhicule (USD)"],
+                  ["containerPrice", "Prix du conteneur (USD)"],
                   ["insuranceAmount", "Assurance"],
-                  ["customsAmount", "Douane"],
+                  [
+                    "customsAmount",
+                    quotationForm.priceBasis === "CIF"
+                      ? "Douane estimée (non incluse)"
+                      : "Douane (incluse)",
+                  ],
                   ["transitAmount", "Transit"],
-                  ["otherCostsAmount", "Autres coûts"],
                   ["marginAmount", "Marge"],
                 ] as const
               ).map(([key, label]) => (
@@ -564,6 +783,99 @@ export default function OfferDetailWorkspace({
                   />
                 </label>
               ))}
+              <label>
+                <span className="field-label">Part du conteneur *</span>
+                <select
+                  className={inputClass}
+                  value={quotationForm.containerAllocation}
+                  onChange={(event) =>
+                    setQuotationForm((current) => ({
+                      ...current,
+                      containerAllocation: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="3">1/3</option>
+                  <option value="4">1/4</option>
+                </select>
+              </label>
+              <div className="rounded-card border border-border p-3">
+                <span className="field-label">Fret calculé</span>
+                <p className="font-semibold">
+                  {formatMoney(pricingPreview?.freightAmount, "USD")}
+                </p>
+              </div>
+              <fieldset className="space-y-3 rounded-card border border-border p-4 sm:col-span-2">
+                <legend className="px-2 font-semibold">Autres coûts</legend>
+                {otherCosts.map((cost, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-2 sm:grid-cols-[1fr_2fr_auto]"
+                  >
+                    <input
+                      aria-label={`Montant autre coût ${index + 1}`}
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      className={inputClass}
+                      placeholder="Montant USD"
+                      value={cost.amount}
+                      onChange={(event) =>
+                        setOtherCosts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, amount: event.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    {Number(cost.amount) > 0 && (
+                      <input
+                        aria-label={`Description autre coût ${index + 1}`}
+                        required
+                        className={inputClass}
+                        placeholder="Description du coût"
+                        value={cost.description}
+                        onChange={(event) =>
+                          setOtherCosts((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, description: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    )}
+                    {otherCosts.length > 1 && (
+                      <button
+                        type="button"
+                        className="rounded-button border px-3"
+                        onClick={() =>
+                          setOtherCosts((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                      >
+                        Retirer
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="rounded-button border px-3 py-2 text-sm"
+                  onClick={() =>
+                    setOtherCosts((current) => [
+                      ...current,
+                      { amount: "", description: "" },
+                    ])
+                  }
+                >
+                  + Ajouter un autre coût
+                </button>
+              </fieldset>
               <label>
                 <span className="field-label">Expiration</span>
                 <input
@@ -592,6 +904,37 @@ export default function OfferDetailWorkspace({
                 />
               </label>
             </div>
+            <section className="mt-5 rounded-card border-2 border-foreground/15 bg-neutral-50 p-4">
+              <h3 className="font-bold uppercase tracking-wide">Récapitulatif</h3>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                <Info label="Prix de base" value={formatMoney(pricingPreview?.vehicleAmount, "USD")} />
+                <Info label="Fret" value={formatMoney(pricingPreview?.freightAmount, "USD")} />
+                <Info label="Assurance" value={formatMoney(pricingPreview?.insuranceAmount, "USD")} />
+                <Info label="Transit" value={formatMoney(pricingPreview?.transitAmount, "USD")} />
+                <Info label="Autres coûts" value={formatMoney(pricingPreview?.otherCostsAmount, "USD")} />
+                <Info label="Marge" value={formatMoney(pricingPreview?.marginAmount, "USD")} />
+                <Info
+                  label={quotationForm.priceBasis === "CIF" ? "Douane estimée" : "Douane"}
+                  value={formatMoney(pricingPreview?.customsAmount, "USD")}
+                />
+              </dl>
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="text-xs font-semibold uppercase text-muted">
+                  Prix total {quotationForm.priceBasis}
+                </p>
+                <p className="text-2xl font-bold">
+                  {formatMoney(pricingPreview?.finalCustomerPrice, "USD")}
+                </p>
+                <p className="text-lg font-semibold text-primary">
+                  {formatMoney(pricingPreview?.finalCustomerPriceDzd, "DZD")}
+                </p>
+                {pricingPreview?.exchangeRateSnapshot && (
+                  <p className="text-xs text-muted">
+                    Taux Finance figé : 1 USD = {pricingPreview.exchangeRateSnapshot} DZD
+                  </p>
+                )}
+              </div>
+            </section>
             <button
               disabled={changing}
               className={`${buttonClass} mt-6 w-full`}

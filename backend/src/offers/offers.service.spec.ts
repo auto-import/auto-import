@@ -42,6 +42,8 @@ describe('OffersService', () => {
       vehiclePhoto: { create: jest.fn() },
       auditLog: { create: jest.fn() },
       dossierVehicle: { create: jest.fn() },
+      catalogueItem: { updateMany: jest.fn() },
+      $executeRaw: jest.fn().mockResolvedValue(0),
       $queryRaw: jest.fn(),
       $transaction: jest.fn(async (callback: (tx: any) => unknown) =>
         callback(prisma),

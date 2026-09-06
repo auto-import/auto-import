@@ -49,7 +49,7 @@ describe("Phase 1 commerce workspaces", () => {
     expect(mocks.listPartners).toHaveBeenCalledTimes(2);
   });
 
-  it("uses the canonical offerId query parameter for dossier creation", async () => {
+  it("does not expose direct dossier creation from an offer", async () => {
     mocks.listOffers.mockResolvedValue({ items: [{
       id: "offer-1", reference: "OFF-2026-00001", supplierId: "supplier-1", supplier: { id: "supplier-1", name: "China Motors", specialties: [], status: "active", type: "supplier" },
       brand: "Geely", model: "Coolray", condition: "new", specification: {}, supplierPrice: 10000,
@@ -57,7 +57,6 @@ describe("Phase 1 commerce workspaces", () => {
       availableQuantity: 2, reservedQuantity: 0, remainingQuantity: 2, status: "available",
     }], pagination: { ...pagination, totalItems: 1, totalPages: 1 } });
     render(<OffersWorkspace />);
-    const link = await screen.findByRole("link", { name: "Créer un dossier" });
-    expect(link.getAttribute("href")).toBe("/dossiers/creer?offerId=offer-1");
+    expect(screen.queryByRole("link", { name: "Créer un dossier" })).toBeNull();
   });
 });

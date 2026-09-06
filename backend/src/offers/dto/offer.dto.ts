@@ -17,14 +17,17 @@ import {
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-const currencies = ['DZD', 'USD', 'CNY', 'EUR'] as const;
+const currencies = ['USD', 'CNY'] as const;
 const conditions = ['new', 'used'] as const;
-export const incoterms = ['FCA', 'FOB', 'CIF', 'CFR', 'DDP'] as const;
+export const incoterms = ['FCA', 'FOB'] as const;
 
 export class CreateOfferVehicleDto {
   @IsString() @IsNotEmpty() brand: string;
   @IsString() @IsNotEmpty() model: string;
   @IsOptional() @IsString() version?: string;
+  @IsOptional() @IsUUID() brandLookupId?: string;
+  @IsOptional() @IsUUID() modelLookupId?: string;
+  @IsOptional() @IsUUID() versionLookupId?: string;
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -63,6 +66,9 @@ export class CreateOfferDto {
   @IsString() @IsNotEmpty() brand: string;
   @IsString() @IsNotEmpty() model: string;
   @IsOptional() @IsString() version?: string;
+  @IsOptional() @IsUUID() brandLookupId?: string;
+  @IsOptional() @IsUUID() modelLookupId?: string;
+  @IsOptional() @IsUUID() versionLookupId?: string;
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -83,7 +89,8 @@ export class CreateOfferDto {
   specification: Record<string, unknown>;
   @Type(() => Number) @Min(0.01) supplierPrice: number;
   @IsIn(currencies) currency: string;
-  @IsOptional() @IsIn(incoterms) incoterm?: string;
+  @IsIn(incoterms) incoterm: string = 'FOB';
+  @IsOptional() @Type(() => Number) @Min(0) localCost?: number;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsString() paymentConditions?: string;
   @IsOptional() @IsString() vin?: string;
@@ -116,6 +123,9 @@ export class UpdateOfferDto {
   @IsOptional() @IsString() brand?: string;
   @IsOptional() @IsString() model?: string;
   @IsOptional() @IsString() version?: string;
+  @IsOptional() @IsUUID() brandLookupId?: string;
+  @IsOptional() @IsUUID() modelLookupId?: string;
+  @IsOptional() @IsUUID() versionLookupId?: string;
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -129,6 +139,7 @@ export class UpdateOfferDto {
   @IsOptional() @IsIn(currencies) currency?: string;
   @IsOptional() @IsString() supplierReference?: string;
   @IsOptional() @IsIn(incoterms) incoterm?: string;
+  @IsOptional() @Type(() => Number) @Min(0) localCost?: number;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsString() paymentConditions?: string;
   @IsOptional() @IsString() vin?: string;

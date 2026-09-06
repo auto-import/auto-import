@@ -8,7 +8,11 @@ import {
   type DossierType,
 } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { ALL_PERMISSIONS, DOSSIER_WORKFLOWS } from '@auto-import/contracts';
+import {
+  ALL_PERMISSIONS,
+  DOSSIER_WORKFLOWS,
+  Permission,
+} from '@auto-import/contracts';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
 import pg from 'pg';
@@ -165,14 +169,21 @@ async function seedFoundation(): Promise<void> {
     const readOnly = ALL_PERMISSIONS.filter((permission) =>
       permission.endsWith(':read'),
     );
+    const adminOnly = new Set<string>([
+      Permission.PROSPECTS_ARCHIVE_MANAGE,
+      Permission.DOSSIERS_ARCHIVE_MANAGE,
+    ]);
     const rolePermissions: Record<string, readonly string[]> = {
       Admin: ALL_PERMISSIONS,
       Manager: ALL_PERMISSIONS.filter(
         (permission) =>
-          !permission.includes('manage') && permission !== 'notifications:send',
+          !permission.includes('manage') &&
+          !adminOnly.has(permission) &&
+          permission !== 'notifications:send',
       ),
       Commercial: ALL_PERMISSIONS.filter(
         (permission) =>
+          !adminOnly.has(permission) &&
           permission !== 'notifications:send' &&
           /^(prospects|clients|dossiers|vehicles|offers|tasks|notifications|crmTimeline|appointments|dashboard|documents):/.test(
             permission,

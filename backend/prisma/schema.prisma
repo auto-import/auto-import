@@ -103,6 +103,8 @@ model Organization {
   containerPresets      ContainerPreset[]
   vehicleDutyRates      VehicleDutyRate[]
   localDeliveryRates    LocalDeliveryRate[]
+  catalogueItems        CatalogueItem[]
+  quotationOtherCosts   QuotationOtherCost[]
 
   @@index([status])
 }
@@ -144,6 +146,7 @@ model User {
   salesDossiers             Dossier[]                   @relation("DossierSalesUser")
   operationsDossiers        Dossier[]                   @relation("DossierOperationsUser")
   chinaResponsibleDossiers  Dossier[]                   @relation("DossierChinaResponsible")
+  archivedDossiers          Dossier[]                   @relation("DossierArchivedBy")
   dossierStatusChanges      DossierStatusHistory[]
   prospectActivities        ProspectActivity[]
   assignedProspects         Prospect[]
@@ -390,7 +393,10 @@ model Client {
   country              CrmReferenceValue? @relation("ClientCountry", fields: [countryId], references: [id])
   nationalityCountryId String?
   nationalityCountry   CrmReferenceValue? @relation("ClientNationality", fields: [nationalityCountryId], references: [id])
-  address              String?
+    address              String?
+    wilaya               String?
+    city                 String?
+    notes                String?
   status               String             @default("active")
   assignedTo           String?
   assignee             User?              @relation("ClientAssignee", fields: [assignedTo], references: [id])
@@ -1025,6 +1031,14 @@ model ChinaOffer {
   currency           String
   supplierReference  String?
   incoterm           String?
+  localCost          Decimal?            @db.Decimal(12, 2)
+  totalOfferPrice    Decimal?            @db.Decimal(12, 2)
+  brandLookupId      String?
+  brandLookup        VehicleLookupValue? @relation("ChinaOfferBrandLookup", fields: [brandLookupId], references: [id], onDelete: Restrict)
+  modelLookupId      String?
+  modelLookup        VehicleLookupValue? @relation("ChinaOfferModelLookup", fields: [modelLookupId], references: [id], onDelete: Restrict)
+  versionLookupId    String?
+  versionLookup      VehicleLookupValue? @relation("ChinaOfferVersionLookup", fields: [versionLookupId], references: [id], onDelete: Restrict)
   location           String?
   leadTimeDays       Int?
   paymentConditions  String?
@@ -1056,6 +1070,9 @@ model ChinaOffer {
   @@index([organizationId, status, validUntil])
   @@index([organizationId, supplierId, createdAt])
   @@index([organizationId, offerStatus, validUntil])
+  @@index([brandLookupId])
+  @@index([modelLookupId])
+  @@index([versionLookupId])
 }
 
 /// A supplier offer can contain several independently purchasable vehicle
@@ -1071,6 +1088,12 @@ model ChinaOfferVehicle {
   brand             String
   model             String
   version           String?
+  brandLookupId     String?
+  brandLookup       VehicleLookupValue? @relation("ChinaOfferVehicleBrandLookup", fields: [brandLookupId], references: [id], onDelete: Restrict)
+  modelLookupId     String?
+  modelLookup       VehicleLookupValue? @relation("ChinaOfferVehicleModelLookup", fields: [modelLookupId], references: [id], onDelete: Restrict)
+  versionLookupId   String?
+  versionLookup     VehicleLookupValue? @relation("ChinaOfferVehicleVersionLookup", fields: [versionLookupId], references: [id], onDelete: Restrict)
   year              Int?
   condition         String
   mileage           Int?
@@ -1087,12 +1110,17 @@ model ChinaOfferVehicle {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  purchases Purchase[]
+  purchases          Purchase[]
+  catalogueItem      CatalogueItem?
+  customerQuotations CustomerQuotation[]
 
   @@unique([offerId, lineNumber])
   @@index([organizationId, status, createdAt])
   @@index([offerId, status])
   @@index([organizationId, vin])
+  @@index([brandLookupId])
+  @@index([modelLookupId])
+  @@index([versionLookupId])
 }
 
 model ChinaOfferRevision {
@@ -1105,6 +1133,8 @@ model ChinaOfferRevision {
   supplierPrice     Decimal      @db.Decimal(12, 2)
   currency          String
   incoterm          String?
+  localCost         Decimal?      @db.Decimal(12, 2)
+  totalOfferPrice   Decimal?      @db.Decimal(12, 2)
   location          String?
   quantity          Int
   leadTimeDays      Int?
@@ -1193,6 +1223,10 @@ model Dossier {
   orderId          String?           @unique
   order            Order?            @relation(fields: [orderId], references: [id])
   offerReservation OfferReservation?
+  catalogueItemId  String?
+  catalogueItem    CatalogueItem?    @relation(fields: [catalogueItemId], references: [id], onDelete: Restrict)
+  commercialQuotationId String?
+  commercialQuotation CustomerQuotation? @relation("DossierCommercialQuotation", fields: [commercialQuotationId], references: [id], onDelete: Restrict)
   status           String            @default("offerSelected")
   workflowVersion  Int               @default(2)
   forwarderSupplierId String?
@@ -1215,8 +1249,12 @@ model Dossier {
   chinaResponsibleId String?
   chinaResponsible   User?           @relation("DossierChinaResponsible", fields: [chinaResponsibleId], references: [id])
   openedAt         DateTime          @default(now())
-  closedAt         DateTime?
-  createdAt        DateTime          @default(now())
+    closedAt         DateTime?
+    archivedAt       DateTime?
+    archivedById     String?
+    archivedBy       User?             @relation("DossierArchivedBy", fields: [archivedById], references: [id], onDelete: Restrict)
+    archiveReason     String?
+    createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
   history             DossierStatusHistory[]
@@ -1240,13 +1278,18 @@ model Dossier {
   calls               CallSession[]
 
   @@unique([organizationId, reference])
-  @@index([organizationId, status, openedAt])
+    @@index([organizationId, status, openedAt])
+    @@index([organizationId, archivedAt, createdAt])
+    @@index([organizationId, createdAt])
   @@index([organizationId, type, openedAt])
   @@index([clientId])
   @@index([salesUserId])
   @@index([opsUserId])
   @@index([chinaResponsibleId])
-  @@index([forwarderSupplierId])
+  @@index([catalogueItemId])
+  @@index([commercialQuotationId])
+    @@index([forwarderSupplierId])
+    @@index([archivedById])
 }
 
 model DossierVehicle {
@@ -1373,6 +1416,12 @@ model VehicleLookupValue {
   parentId       String?
   parent         VehicleLookupValue?  @relation("VehicleLookupHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children       VehicleLookupValue[] @relation("VehicleLookupHierarchy")
+  offerBrands          ChinaOffer[]        @relation("ChinaOfferBrandLookup")
+  offerModels          ChinaOffer[]        @relation("ChinaOfferModelLookup")
+  offerVersions        ChinaOffer[]        @relation("ChinaOfferVersionLookup")
+  offerVehicleBrands   ChinaOfferVehicle[] @relation("ChinaOfferVehicleBrandLookup")
+  offerVehicleModels   ChinaOfferVehicle[] @relation("ChinaOfferVehicleModelLookup")
+  offerVehicleVersions ChinaOfferVehicle[] @relation("ChinaOfferVehicleVersionLookup")
   active         Boolean      @default(true)
   needsReview    Boolean      @default(false)
   createdBy      String?
@@ -2510,6 +2559,7 @@ model ExchangeRate {
   payments         Payment[]
   supplierPayments SupplierPayment[]
   costs            Cost[]
+  quotationRevisions CustomerQuotationRevision[]
 
   @@index([organizationId, baseCurrency, quoteCurrency, effectiveAt])
 }
@@ -2616,17 +2666,21 @@ model CustomerQuotation {
   organizationId        String
   organization          Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   quotationNumber       String
-  dossierId             String
-  dossier               Dossier                    @relation(fields: [dossierId], references: [id], onDelete: Restrict)
-  clientId              String
-  client                Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  dossierId             String?
+  dossier               Dossier?                   @relation(fields: [dossierId], references: [id], onDelete: Restrict)
+  clientId              String?
+  client                Client?                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
   sourceOfferId         String?
   sourceOffer           ChinaOffer?                @relation(fields: [sourceOfferId], references: [id], onDelete: Restrict)
   sourceOfferRevisionId String?
   sourceOfferRevision   ChinaOfferRevision?        @relation(fields: [sourceOfferRevisionId], references: [id], onDelete: Restrict)
+  sourceOfferVehicleId  String?
+  sourceOfferVehicle    ChinaOfferVehicle?         @relation(fields: [sourceOfferVehicleId], references: [id], onDelete: Restrict)
   priceBasis            String
   currency              String
   status                String                     @default("DRAFT")
+  cataloguePublished    Boolean                    @default(false)
+  publishedAt           DateTime?
   currentRevisionId     String?                    @unique
   currentRevision       CustomerQuotationRevision? @relation("CustomerQuotationCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
   expiresAt             DateTime?
@@ -2637,13 +2691,18 @@ model CustomerQuotation {
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
 
-  revisions CustomerQuotationRevision[] @relation("CustomerQuotationRevisions")
+  revisions              CustomerQuotationRevision[] @relation("CustomerQuotationRevisions")
+  activeCifFor            CatalogueItem[]             @relation("CatalogueActiveCifQuotation")
+  activeDdpFor            CatalogueItem[]             @relation("CatalogueActiveDdpQuotation")
+  commercialForDossiers  Dossier[]                   @relation("DossierCommercialQuotation")
 
   @@unique([organizationId, quotationNumber])
   @@index([organizationId, status, createdAt])
   @@index([dossierId, createdAt])
   @@index([clientId, createdAt])
   @@index([sourceOfferId])
+  @@index([sourceOfferVehicleId])
+  @@index([organizationId, cataloguePublished, createdAt])
 }
 
 model CustomerQuotationRevision {
@@ -2661,6 +2720,12 @@ model CustomerQuotationRevision {
   otherCostsAmount   Decimal           @default(0) @db.Decimal(14, 2)
   marginAmount       Decimal           @default(0) @db.Decimal(14, 2)
   finalCustomerPrice Decimal           @db.Decimal(14, 2)
+  containerPrice     Decimal           @default(0) @db.Decimal(14, 2)
+  containerAllocation Int?
+  exchangeRateId     String?
+  exchangeRate       ExchangeRate?     @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+  exchangeRateSnapshot Decimal         @default(1) @db.Decimal(18, 8)
+  finalCustomerPriceDzd Decimal         @default(0) @db.Decimal(14, 2)
   paymentConditions  String?
   validityNote       String?
   notes              String?
@@ -2671,9 +2736,53 @@ model CustomerQuotationRevision {
   createdAt          DateTime          @default(now())
 
   currentFor CustomerQuotation? @relation("CustomerQuotationCurrentRevision")
+  otherCosts QuotationOtherCost[]
 
   @@unique([quotationId, revisionNumber])
   @@index([organizationId, quotationId, createdAt])
+  @@index([exchangeRateId])
+}
+
+model QuotationOtherCost {
+  id             String                    @id @default(uuid())
+  organizationId String
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revisionId     String
+  revision       CustomerQuotationRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  description    String
+  amount         Decimal                   @db.Decimal(14, 2)
+  currency       String                    @default("USD")
+  sortOrder      Int
+  createdAt      DateTime                  @default(now())
+
+  @@unique([revisionId, sortOrder])
+  @@index([organizationId, createdAt])
+}
+
+/// Commercial projection of one supplier-offer vehicle line. Supplier pricing
+/// stays on ChinaOfferVehicle; only explicitly published quotations are exposed.
+model CatalogueItem {
+  id                       String             @id @default(uuid())
+  organizationId           String
+  organization             Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sourceOfferVehicleId     String             @unique
+  sourceOfferVehicle       ChinaOfferVehicle  @relation(fields: [sourceOfferVehicleId], references: [id], onDelete: Restrict)
+  activeCifQuotationId     String?
+  activeCifQuotation       CustomerQuotation? @relation("CatalogueActiveCifQuotation", fields: [activeCifQuotationId], references: [id], onDelete: Restrict)
+  activeDdpQuotationId     String?
+  activeDdpQuotation       CustomerQuotation? @relation("CatalogueActiveDdpQuotation", fields: [activeDdpQuotationId], references: [id], onDelete: Restrict)
+  availableQuantity        Int
+  reservedQuantity         Int                @default(0)
+  publishedAt              DateTime            @default(now())
+  archivedAt               DateTime?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  dossiers Dossier[]
+
+  @@index([organizationId, archivedAt, publishedAt])
+  @@index([activeCifQuotationId])
+  @@index([activeDdpQuotationId])
 }
 
 model TreasuryAccount {

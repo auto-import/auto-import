@@ -249,12 +249,6 @@ export default function OffersWorkspace() {
                   >
                     Détails
                   </Link>
-                  <Link
-                    href={`/dossiers/creer?offerId=${offer.id}`}
-                    className={buttonClass}
-                  >
-                    Créer un dossier
-                  </Link>
                 </div>
               </article>
             ))}

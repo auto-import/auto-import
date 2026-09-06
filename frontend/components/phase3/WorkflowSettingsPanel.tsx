@@ -15,6 +15,7 @@ type PricingSettings = {
 const kindLabels: Record<ApiVehicleLookup["kind"], string> = {
   BRAND: "Marques",
   MODEL: "Modèles",
+  VERSION: "Versions",
   ENGINE: "Moteurs",
   TRANSMISSION: "Transmissions",
   FUEL_TYPE: "Carburants",
@@ -69,6 +70,34 @@ export default function WorkflowSettingsPanel() {
     await commerceApi.configuration.updateLookup(item.id, { value });
     await load();
   }
+  async function addLookup(kind: ApiVehicleLookup["kind"]) {
+    let parentId: string | undefined;
+    if (kind === "MODEL" || kind === "VERSION") {
+      const parentKind = kind === "MODEL" ? "BRAND" : "MODEL";
+      const parents = lookups.filter(
+        (item) => item.kind === parentKind && item.active,
+      );
+      const parentValue = window
+        .prompt(
+          `${kind === "MODEL" ? "Marque" : "Modèle"} parent (${parents.map((item) => item.value).join(", ")})`,
+        )
+        ?.trim()
+        .toLocaleLowerCase("fr");
+      const parent = parents.find(
+        (item) => item.value.trim().toLocaleLowerCase("fr") === parentValue,
+      );
+      if (!parent) {
+        setMessage("Référence parente introuvable.");
+        return;
+      }
+      parentId = parent.id;
+    }
+    const value = window.prompt(`Nouvelle valeur — ${kindLabels[kind]}`)?.trim();
+    if (!value) return;
+    await commerceApi.configuration.createLookup({ kind, value, parentId });
+    setMessage(`${value} ajouté aux ${kindLabels[kind].toLowerCase()}.`);
+    await load();
+  }
   async function toggleLookup(item: ApiVehicleLookup) {
     await commerceApi.configuration.updateLookup(item.id, { active: !item.active });
     await load();
@@ -93,7 +122,7 @@ export default function WorkflowSettingsPanel() {
         <h2 className="font-bold">Listes véhicules</h2>
         <p className="mt-1 text-sm text-muted">Les valeurs désactivées restent liées aux véhicules historiques mais disparaissent des nouvelles saisies.</p>
         <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {(Object.keys(kindLabels) as ApiVehicleLookup["kind"][]).map((kind) => <div key={kind} className="rounded-xl border p-4"><h3 className="font-semibold">{kindLabels[kind]}</h3><ul className="mt-3 max-h-56 space-y-2 overflow-auto text-sm">{lookups.filter((item) => item.kind === kind).map((item) => <li key={item.id} className={`flex items-center justify-between gap-2 ${item.active ? "" : "text-muted line-through"}`}><button type="button" disabled={!canManageLookups} onClick={() => void editLookup(item)} className="text-left">{item.value}{item.needsReview ? " ⚠" : ""}</button><button type="button" disabled={!canManageLookups} onClick={() => void toggleLookup(item)} className="text-xs font-semibold text-blue-700">{item.active ? "Désactiver" : "Réactiver"}</button></li>)}</ul></div>)}
+          {(Object.keys(kindLabels) as ApiVehicleLookup["kind"][]).map((kind) => <div key={kind} className="rounded-xl border p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{kindLabels[kind]}</h3><button type="button" disabled={!canManageLookups} onClick={() => void addLookup(kind)} className="text-xs font-semibold text-blue-700 disabled:opacity-40">+ Ajouter</button></div><ul className="mt-3 max-h-56 space-y-2 overflow-auto text-sm">{lookups.filter((item) => item.kind === kind).map((item) => <li key={item.id} className={`flex items-center justify-between gap-2 ${item.active ? "" : "text-muted line-through"}`}><button type="button" disabled={!canManageLookups} onClick={() => void editLookup(item)} className="text-left">{item.value}{item.needsReview ? " ⚠" : ""}</button><button type="button" disabled={!canManageLookups} onClick={() => void toggleLookup(item)} className="text-xs font-semibold text-blue-700">{item.active ? "Désactiver" : "Réactiver"}</button></li>)}</ul></div>)}
         </div>
       </section>
     </div>

@@ -20,6 +20,12 @@ describe('FinanceService', () => {
     cost: {
       findMany: jest.fn(),
     },
+    contract: {
+      findMany: jest.fn(),
+    },
+    financeTransaction: {
+      findMany: jest.fn(),
+    },
   };
 
   const mockExchangeRates = {
@@ -188,5 +194,35 @@ describe('FinanceService', () => {
       }),
     );
     expect(summary.gates.canAdvanceToDelivery).toBe(true);
+  });
+
+  it('updates invoiced and collected organization KPIs from issued invoices', async () => {
+    mockPrisma.contract.findMany.mockResolvedValue([]);
+    mockPrisma.invoice.findMany.mockResolvedValue([
+      {
+        total: new Prisma.Decimal(1_000),
+        currency: 'DZD',
+        issueDate: new Date('2026-09-01T00:00:00Z'),
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+      },
+    ]);
+    mockPrisma.financeTransaction.findMany.mockResolvedValue([
+      {
+        direction: 'CREDIT',
+        type: 'CUSTOMER_PAYMENT',
+        amountDzd: new Prisma.Decimal(400),
+        customerPaymentId: 'payment-1',
+        supplierPaymentId: null,
+        costId: null,
+      },
+    ]);
+
+    const overview = await service.getOrganizationFinancialOverview('org-1');
+
+    expect(overview.totalInvoiced).toBe('1000');
+    expect(overview.totalCollected).toBe('400');
+    expect(overview.totalOutstanding).toBe('600');
+    expect(overview.invoiceCount).toBe(1);
+    expect(overview.paymentCount).toBe(1);
   });
 });

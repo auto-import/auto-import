@@ -87,6 +87,10 @@ export class RecordPaymentDto {
 
   @IsOptional()
   @IsString()
+  contractId?: string;
+
+  @IsOptional()
+  @IsString()
   installmentId?: string;
 
   @IsNumber()

@@ -29,6 +29,7 @@ import {
   Permission,
   type Permission as PermissionValue,
 } from '@auto-import/contracts';
+import { normalizeAndValidateCrmLocation } from '../crm/algeria-location.validation';
 
 type IdentityStorageKey =
   | 'ninEncrypted'
@@ -264,6 +265,15 @@ export class ClientsService {
           clientData.nationalityCountryId,
           CrmReferenceKind.COUNTRY,
         );
+        const location = await normalizeAndValidateCrmLocation(
+          tx,
+          organizationId,
+          {
+            countryId: clientData.countryId,
+            wilaya: clientData.wilaya,
+            city: clientData.city,
+          },
+        );
         const phoneNormalized = clientData.phone
           ? await this.contacts!.normalizePhoneForCountry(
               tx,
@@ -275,6 +285,7 @@ export class ClientsService {
         const client = await tx.client.create({
           data: {
             ...clientData,
+            ...location,
             ...identity,
             passportNumber: null,
             phoneNormalized,
@@ -698,6 +709,23 @@ export class ClientsService {
         updateClientDto.nationalityCountryId,
         CrmReferenceKind.COUNTRY,
       );
+      const locationChanged =
+        updateClientDto.countryId !== undefined ||
+        updateClientDto.wilaya !== undefined ||
+        updateClientDto.city !== undefined;
+      const location = locationChanged
+        ? await normalizeAndValidateCrmLocation(tx, organizationId, {
+            countryId:
+              updateClientDto.countryId ??
+              (existing.countryId as string | null | undefined),
+            wilaya:
+              updateClientDto.wilaya ??
+              (existing.wilaya as string | null | undefined),
+            city:
+              updateClientDto.city ??
+              (existing.city as string | null | undefined),
+          })
+        : null;
       const {
         nin,
         passportNumber,
@@ -726,6 +754,7 @@ export class ClientsService {
         where: { id },
         data: {
           ...safeUpdate,
+          ...(location ?? {}),
           ...identity,
           ...(phoneNormalized !== undefined ? { phoneNormalized } : {}),
           ...(updateClientDto.nationalityCountryId

@@ -48,9 +48,36 @@ export class ContractsV2Service {
     return this.prisma.$transaction(async (tx) => {
       const dossier = await tx.dossier.findFirst({
         where: { id: dto.dossierId, organizationId, clientId: dto.clientId },
-        select: { id: true },
+        select: {
+          id: true,
+          type: true,
+          catalogueItemId: true,
+          commercialQuotationId: true,
+          cifPrice: true,
+          ddpPrice: true,
+          priceCurrency: true,
+        },
       });
-      if (!dossier) throw new NotFoundException('Client dossier not found');
+      if (!dossier) throw new NotFoundException('Dossier client introuvable.');
+      if (dossier.catalogueItemId && dossier.commercialQuotationId) {
+        const expectedPrice =
+          dossier.type === 'VEHICLE_SALE_DDP'
+            ? dossier.ddpPrice
+            : dossier.cifPrice;
+        if (!expectedPrice || !expectedPrice.equals(total)) {
+          throw new BadRequestException(
+            'Le montant du contrat doit correspondre au prix commercial figé dans le dossier.',
+          );
+        }
+        if (
+          dto.currency.toUpperCase() !==
+          (dossier.priceCurrency || 'DZD').toUpperCase()
+        ) {
+          throw new BadRequestException(
+            'La devise du contrat doit correspondre à celle du dossier.',
+          );
+        }
+      }
       if (dto.signedDocumentId) {
         const document = await tx.gedDocument.findFirst({
           where: { id: dto.signedDocumentId, organizationId, archivedAt: null },

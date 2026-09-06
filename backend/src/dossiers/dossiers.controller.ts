@@ -19,6 +19,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { Permission } from '@auto-import/contracts';
 import { UpdateDossierDto } from './dto/update-dossier.dto';
+import { DossierStatisticsDto } from './dto/dossier-statistics.dto';
 
 @Controller('dossiers')
 export class DossiersController {
@@ -53,8 +54,11 @@ export class DossiersController {
 
   @Get('statistics')
   @RequirePermission(Permission.DOSSIERS_READ)
-  getStatistics(@CurrentUser() user: AuthenticatedUser) {
-    return this.dossiersService.getStatistics(user.organizationId);
+  getStatistics(
+    @Query() query: DossierStatisticsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dossiersService.getStatistics(user.organizationId, query);
   }
 
   @Get(':id')
@@ -166,6 +170,28 @@ export class DossiersController {
       dto.reason,
       user.id,
       user.organizationId,
+    );
+  }
+
+  @Post(':id/restore')
+  @RequirePermission(Permission.DOSSIERS_ARCHIVE_MANAGE)
+  restore(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dossiersService.restore(id, user.organizationId, user.id);
+  }
+
+  @Delete(':id/permanent')
+  @RequirePermission(Permission.DOSSIERS_ARCHIVE_MANAGE)
+  permanentlyDelete(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dossiersService.permanentlyDelete(
+      id,
+      user.organizationId,
+      user.id,
     );
   }
 }

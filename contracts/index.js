@@ -1,5 +1,11 @@
 "use strict";
 
+const {
+  ALGERIA_WILAYAS,
+  findAlgerianWilaya,
+  isValidAlgerianCommune,
+} = require("./algeria-locations");
+
 const DossierType = Object.freeze({
   VEHICLE_SALE_CIF: "VEHICLE_SALE_CIF",
   VEHICLE_SALE_DDP: "VEHICLE_SALE_DDP",
@@ -408,6 +414,8 @@ const Permission = Object.freeze({
   PROSPECTS_TRANSITION: "prospects:transition",
   PROSPECTS_CONVERT: "prospects:convert",
   PROSPECTS_ARCHIVE: "prospects:archive",
+  PROSPECTS_ARCHIVE_MANAGE: "prospects:archiveManage",
+  DOSSIERS_ARCHIVE_MANAGE: "dossiers:archiveManage",
   CRM_REFERENCE_MANAGE: "crmReference:manage",
   CRM_REFERENCE_READ: "crmReference:read",
 });
@@ -470,6 +478,9 @@ const DOSSIER_WORKFLOWS = Object.freeze({
 const ALL_PERMISSIONS = Object.freeze(Object.values(Permission));
 
 module.exports = {
+  ALGERIA_WILAYAS,
+  findAlgerianWilaya,
+  isValidAlgerianCommune,
   ALL_PERMISSIONS,
   CustomsStatus,
   DOSSIER_WORKFLOWS,

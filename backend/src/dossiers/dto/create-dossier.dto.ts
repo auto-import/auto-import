@@ -51,6 +51,10 @@ export class CreateDossierDto {
 
   @IsOptional()
   @IsUUID()
+  catalogueItemId?: string;
+
+  @IsOptional()
+  @IsUUID()
   salesUserId?: string;
 
   @IsOptional()

@@ -3,7 +3,15 @@
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Image from "next/image";
 import { CarFront, Eye, Plus, Search, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -18,6 +26,7 @@ import {
   commerceApi,
   type ApiOffer,
   type ApiPartner,
+  type ApiVehicleLookup,
 } from "@/lib/commerce-api";
 import {
   buttonClass,
@@ -31,12 +40,16 @@ import {
 const empty = {
   supplierId: "",
   brand: "",
+  brandLookupId: "",
   model: "",
+  modelLookupId: "",
   version: "",
+  versionLookupId: "",
   year: "",
   condition: "new",
   mileage: "",
   supplierPrice: "",
+  localCost: "",
   incoterm: "FOB",
   location: "",
   leadTimeDays: "",
@@ -50,8 +63,11 @@ const empty = {
 
 const emptyVehicleLine = {
   brand: "",
+  brandLookupId: "",
   model: "",
+  modelLookupId: "",
   version: "",
+  versionLookupId: "",
   year: "",
   condition: "new",
   mileage: "",
@@ -69,6 +85,8 @@ function validateOfferForm(form: typeof empty): string | null {
   const supplierPrice = Number(form.supplierPrice);
   if (!Number.isFinite(supplierPrice) || supplierPrice <= 0)
     return "Le prix fournisseur doit être supérieur à zéro.";
+  if (form.incoterm === "FCA" && form.localCost === "")
+    return "Les frais locaux sont obligatoires pour une offre FCA.";
 
   const quantity = Number(form.availableQuantity);
   if (!Number.isInteger(quantity) || quantity < 1)
@@ -114,6 +132,7 @@ export default function OffersChinaPolished() {
     byStatus: Record<string, number>;
   } | null>(null);
   const [suppliers, setSuppliers] = useState<ApiPartner[]>([]);
+  const [lookups, setLookups] = useState<ApiVehicleLookup[]>([]);
   const [filters, setFilters] = useState(() => {
     if (typeof window === "undefined")
       return { search: "", status: "", condition: "", page: 1 };
@@ -154,7 +173,7 @@ export default function OffersChinaPolished() {
     setLoading(true);
     setError("");
     try {
-      const [page, totals, partnerPage] = await Promise.all([
+      const [page, totals, partnerPage, lookupItems] = await Promise.all([
         commerceApi.offers.list({ ...filters, limit: 12 }),
         commerceApi.offers.statistics(),
         canWrite
@@ -164,6 +183,9 @@ export default function OffersChinaPolished() {
               limit: 100,
             })
           : Promise.resolve({ items: [] as ApiPartner[] }),
+        canWrite
+          ? commerceApi.configuration.offerLookups()
+          : Promise.resolve([] as ApiVehicleLookup[]),
       ]);
       setItems(page.items);
       setPagination({
@@ -173,6 +195,7 @@ export default function OffersChinaPolished() {
       });
       setStats(totals);
       setSuppliers(partnerPage.items);
+      setLookups(lookupItems);
       syncUrl();
     } catch (cause) {
       setError(
@@ -182,6 +205,50 @@ export default function OffersChinaPolished() {
       setLoading(false);
     }
   }, [canWrite, filters, syncUrl]);
+
+  async function addLookup(
+    kind: "BRAND" | "MODEL" | "VERSION",
+    parentId?: string,
+    selectMain = true,
+  ) {
+    const labels = { BRAND: "marque", MODEL: "modèle", VERSION: "version" };
+    const value = window.prompt(`Nom de la nouvelle ${labels[kind]}`)?.trim();
+    if (!value) return undefined;
+    try {
+      const created = await commerceApi.configuration.createOfferLookup({
+        kind,
+        value,
+        parentId,
+      });
+      setLookups((current) => [...current, created]);
+      if (selectMain) {
+        setForm((current) => ({
+          ...current,
+          ...(kind === "BRAND"
+            ? {
+                brandLookupId: created.id,
+                brand: created.value,
+                modelLookupId: "",
+                model: "",
+                versionLookupId: "",
+                version: "",
+              }
+            : kind === "MODEL"
+              ? {
+                  modelLookupId: created.id,
+                  model: created.value,
+                  versionLookupId: "",
+                  version: "",
+                }
+              : { versionLookupId: created.id, version: created.value }),
+        }));
+      }
+      return created;
+    } catch (cause) {
+      setError(offerErrorMessage(cause));
+      return undefined;
+    }
+  }
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
     return () => clearTimeout(timer);
@@ -245,6 +312,8 @@ export default function OffersChinaPolished() {
         year: form.year ? Number(form.year) : undefined,
         mileage: form.mileage ? Number(form.mileage) : undefined,
         supplierPrice: Number(form.supplierPrice),
+        localCost:
+          form.incoterm === "FCA" ? Number(form.localCost || 0) : 0,
         leadTimeDays: form.leadTimeDays
           ? Number(form.leadTimeDays)
           : undefined,
@@ -252,8 +321,11 @@ export default function OffersChinaPolished() {
         vehicles: [
           {
             brand: form.brand.trim(),
+            brandLookupId: form.brandLookupId,
             model: form.model.trim(),
+            modelLookupId: form.modelLookupId,
             version: form.version.trim() || undefined,
+            versionLookupId: form.versionLookupId || undefined,
             year: form.year ? Number(form.year) : undefined,
             condition: form.condition,
             mileage: form.mileage ? Number(form.mileage) : undefined,
@@ -265,8 +337,11 @@ export default function OffersChinaPolished() {
           },
           ...additionalVehicles.map((vehicle) => ({
             brand: vehicle.brand.trim(),
+            brandLookupId: vehicle.brandLookupId,
             model: vehicle.model.trim(),
+            modelLookupId: vehicle.modelLookupId,
             version: vehicle.version.trim() || undefined,
+            versionLookupId: vehicle.versionLookupId || undefined,
             year: vehicle.year ? Number(vehicle.year) : undefined,
             condition: vehicle.condition,
             mileage: vehicle.mileage ? Number(vehicle.mileage) : undefined,
@@ -526,7 +601,7 @@ export default function OffersChinaPolished() {
               <p className="rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 sm:col-span-2">
                 Cette fiche contient uniquement le prix fournisseur et son
                 historique. La tarification client CIF/DDP est établie dans un
-                devis distinct lié au dossier.
+                devis distinct créé directement depuis l’offre.
               </p>
               <label>
                 <span className="field-label">État du véhicule *</span>
@@ -558,7 +633,7 @@ export default function OffersChinaPolished() {
                     }))
                   }
                 >
-                  {['USD', 'CNY', 'EUR', 'DZD'].map((currency) => (
+                  {["USD", "CNY"].map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </select>
@@ -575,16 +650,19 @@ export default function OffersChinaPolished() {
                     }))
                   }
                 >
-                  {['FCA', 'FOB', 'CIF', 'CFR', 'DDP'].map((incoterm) => (
+                  {["FCA", "FOB"].map((incoterm) => (
                     <option key={incoterm} value={incoterm}>{incoterm}</option>
                   ))}
                 </select>
               </label>
+              <VehicleReferenceSelectors
+                form={form}
+                lookups={lookups}
+                setForm={setForm}
+                addLookup={addLookup}
+              />
               {Object.entries({
                 supplierId: "Fournisseur *",
-                brand: "Marque *",
-                model: "Modèle *",
-                version: "Version",
                 year: "Année",
                 mileage: "Kilométrage",
                 supplierPrice: "Prix fournisseur *",
@@ -669,6 +747,37 @@ export default function OffersChinaPolished() {
                   </label>
                 ),
               )}
+              {form.incoterm === "FCA" && (
+                <label>
+                  <span className="field-label">Frais locaux *</span>
+                  <input
+                    required
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    className={inputClass}
+                    value={form.localCost}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        localCost: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              )}
+              <div className="rounded-card border border-border p-3">
+                <span className="field-label">Prix total {form.incoterm}</span>
+                <p className="text-lg font-bold">
+                  {formatMoney(
+                    Number(form.supplierPrice || 0) +
+                      (form.incoterm === "FCA"
+                        ? Number(form.localCost || 0)
+                        : 0),
+                    form.currency,
+                  )}
+                </p>
+              </div>
             </div>
             <fieldset className="mt-5 rounded-card border border-border p-4">
               <div className="flex items-center justify-between gap-3">
@@ -712,11 +821,15 @@ export default function OffersChinaPolished() {
                         <X className="h-4 w-4" />
                       </button>
                     </div>
+                    <AdditionalVehicleReferenceSelectors
+                      vehicle={vehicle}
+                      index={index}
+                      lookups={lookups}
+                      setVehicles={setAdditionalVehicles}
+                      addLookup={addLookup}
+                    />
                     {(
                       [
-                        ["brand", "Marque *"],
-                        ["model", "Modèle *"],
-                        ["version", "Version"],
                         ["year", "Année"],
                         ["mileage", "Kilométrage"],
                         ["supplierPrice", "Prix fournisseur *"],
@@ -930,6 +1043,282 @@ function OfferPhotoPreview({ file, index }: { file: File; index: number }) {
     </span>
   );
 }
+
+function VehicleReferenceSelectors({
+  form,
+  lookups,
+  setForm,
+  addLookup,
+}: {
+  form: typeof empty;
+  lookups: ApiVehicleLookup[];
+  setForm: Dispatch<SetStateAction<typeof empty>>;
+  addLookup: (
+    kind: "BRAND" | "MODEL" | "VERSION",
+    parentId?: string,
+    selectMain?: boolean,
+  ) => Promise<ApiVehicleLookup | undefined>;
+}) {
+  const brands = lookups.filter((item) => item.kind === "BRAND" && item.active);
+  const models = lookups.filter(
+    (item) =>
+      item.kind === "MODEL" &&
+      item.active &&
+      item.parentId === form.brandLookupId,
+  );
+  const versions = lookups.filter(
+    (item) =>
+      item.kind === "VERSION" &&
+      item.active &&
+      item.parentId === form.modelLookupId,
+  );
+  return (
+    <>
+      <label>
+        <span className="field-label">Marque *</span>
+        <div className="flex gap-2">
+          <select
+            required
+            className={inputClass}
+            value={form.brandLookupId}
+            onChange={(event) => {
+              const selected = brands.find((item) => item.id === event.target.value);
+              setForm((current) => ({
+                ...current,
+                brandLookupId: selected?.id ?? "",
+                brand: selected?.value ?? "",
+                modelLookupId: "",
+                model: "",
+                versionLookupId: "",
+                version: "",
+              }));
+            }}
+          >
+            <option value="">Sélectionner</option>
+            {brands.map((item) => (
+              <option key={item.id} value={item.id}>{item.value}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded-button border px-3"
+            aria-label="Ajouter une marque"
+            onClick={() => void addLookup("BRAND")}
+          >
+            +
+          </button>
+        </div>
+      </label>
+      <label>
+        <span className="field-label">Modèle *</span>
+        <div className="flex gap-2">
+          <select
+            required
+            disabled={!form.brandLookupId}
+            className={inputClass}
+            value={form.modelLookupId}
+            onChange={(event) => {
+              const selected = models.find((item) => item.id === event.target.value);
+              setForm((current) => ({
+                ...current,
+                modelLookupId: selected?.id ?? "",
+                model: selected?.value ?? "",
+                versionLookupId: "",
+                version: "",
+              }));
+            }}
+          >
+            <option value="">Sélectionner</option>
+            {models.map((item) => (
+              <option key={item.id} value={item.id}>{item.value}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!form.brandLookupId}
+            className="rounded-button border px-3 disabled:opacity-40"
+            aria-label="Ajouter un modèle"
+            onClick={() => void addLookup("MODEL", form.brandLookupId)}
+          >
+            +
+          </button>
+        </div>
+      </label>
+      <label>
+        <span className="field-label">Version</span>
+        <div className="flex gap-2">
+          <select
+            disabled={!form.modelLookupId}
+            className={inputClass}
+            value={form.versionLookupId}
+            onChange={(event) => {
+              const selected = versions.find((item) => item.id === event.target.value);
+              setForm((current) => ({
+                ...current,
+                versionLookupId: selected?.id ?? "",
+                version: selected?.value ?? "",
+              }));
+            }}
+          >
+            <option value="">Sans version</option>
+            {versions.map((item) => (
+              <option key={item.id} value={item.id}>{item.value}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!form.modelLookupId}
+            className="rounded-button border px-3 disabled:opacity-40"
+            aria-label="Ajouter une version"
+            onClick={() => void addLookup("VERSION", form.modelLookupId)}
+          >
+            +
+          </button>
+        </div>
+      </label>
+    </>
+  );
+}
+
+function AdditionalVehicleReferenceSelectors({
+  vehicle,
+  index,
+  lookups,
+  setVehicles,
+  addLookup,
+}: {
+  vehicle: typeof emptyVehicleLine;
+  index: number;
+  lookups: ApiVehicleLookup[];
+  setVehicles: Dispatch<SetStateAction<Array<typeof emptyVehicleLine>>>;
+  addLookup: (
+    kind: "BRAND" | "MODEL" | "VERSION",
+    parentId?: string,
+    selectMain?: boolean,
+  ) => Promise<ApiVehicleLookup | undefined>;
+}) {
+  const options = (kind: "BRAND" | "MODEL" | "VERSION", parentId?: string) =>
+    lookups.filter(
+      (item) =>
+        item.active &&
+        item.kind === kind &&
+        (kind === "BRAND" || item.parentId === parentId),
+    );
+  const update = (data: Partial<typeof emptyVehicleLine>) =>
+    setVehicles((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...data } : item,
+      ),
+    );
+  const fields = [
+    {
+      kind: "BRAND" as const,
+      label: "Marque *",
+      id: vehicle.brandLookupId,
+      parentId: undefined,
+      required: true,
+    },
+    {
+      kind: "MODEL" as const,
+      label: "Modèle *",
+      id: vehicle.modelLookupId,
+      parentId: vehicle.brandLookupId,
+      required: true,
+    },
+    {
+      kind: "VERSION" as const,
+      label: "Version",
+      id: vehicle.versionLookupId,
+      parentId: vehicle.modelLookupId,
+      required: false,
+    },
+  ];
+  return (
+    <>
+      {fields.map((field) => (
+        <label key={field.kind}>
+          <span className="field-label">{field.label}</span>
+          <div className="flex gap-2">
+            <select
+              required={field.required}
+              disabled={field.kind !== "BRAND" && !field.parentId}
+              className={inputClass}
+              value={field.id}
+              onChange={(event) => {
+                const selected = options(field.kind, field.parentId).find(
+                  (item) => item.id === event.target.value,
+                );
+                if (field.kind === "BRAND")
+                  update({
+                    brandLookupId: selected?.id ?? "",
+                    brand: selected?.value ?? "",
+                    modelLookupId: "",
+                    model: "",
+                    versionLookupId: "",
+                    version: "",
+                  });
+                else if (field.kind === "MODEL")
+                  update({
+                    modelLookupId: selected?.id ?? "",
+                    model: selected?.value ?? "",
+                    versionLookupId: "",
+                    version: "",
+                  });
+                else
+                  update({
+                    versionLookupId: selected?.id ?? "",
+                    version: selected?.value ?? "",
+                  });
+              }}
+            >
+              <option value="">
+                {field.kind === "VERSION" ? "Sans version" : "Sélectionner"}
+              </option>
+              {options(field.kind, field.parentId).map((item) => (
+                <option key={item.id} value={item.id}>{item.value}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={field.kind !== "BRAND" && !field.parentId}
+              className="rounded-button border px-3 disabled:opacity-40"
+              aria-label={`Ajouter ${field.label}`}
+              onClick={async () => {
+                const created = await addLookup(
+                  field.kind,
+                  field.parentId,
+                  false,
+                );
+                if (!created) return;
+                if (field.kind === "BRAND")
+                  update({
+                    brandLookupId: created.id,
+                    brand: created.value,
+                    modelLookupId: "",
+                    model: "",
+                    versionLookupId: "",
+                    version: "",
+                  });
+                else if (field.kind === "MODEL")
+                  update({
+                    modelLookupId: created.id,
+                    model: created.value,
+                    versionLookupId: "",
+                    version: "",
+                  });
+                else
+                  update({ versionLookupId: created.id, version: created.value });
+              }}
+            >
+              +
+            </button>
+          </div>
+        </label>
+      ))}
+    </>
+  );
+}
+
 function Mini({ label, value }: { label: string; value: string }) {
   return (
     <div>

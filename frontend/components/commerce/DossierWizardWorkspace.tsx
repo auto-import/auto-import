@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -19,9 +19,8 @@ import { crmApi, type ApiClient } from "@/lib/crm-api";
 import { adminApi, type User } from "@/lib/admin-api";
 import {
   commerceApi,
-  type ApiOffer,
+  type ApiCatalogueItem,
   type ApiVehicle,
-  type ApiVehicleRequest,
 } from "@/lib/commerce-api";
 import { ErrorState, LoadingState, inputClass } from "./common";
 
@@ -55,13 +54,11 @@ const typeOptions = [
 
 export default function DossierWizardWorkspace() {
   const router = useRouter();
-  const offerId = useSearchParams().get("offerId") ?? "";
   const [step, setStep] = useState(0);
   const [clients, setClients] = useState<ApiClient[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
-  const [requests, setRequests] = useState<ApiVehicleRequest[]>([]);
+  const [catalogueItems, setCatalogueItems] = useState<ApiCatalogueItem[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [offer, setOffer] = useState<ApiOffer | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -75,7 +72,7 @@ export default function DossierWizardWorkspace() {
   });
   const [type, setType] = useState<string>(DossierType.VEHICLE_SALE_CIF);
   const [vehicleId, setVehicleId] = useState("");
-  const [requestId, setRequestId] = useState("");
+  const [catalogueItemId, setCatalogueItemId] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [opsUserId, setOpsUserId] = useState("");
   const [chinaResponsibleId, setChinaResponsibleId] = useState("");
@@ -91,19 +88,17 @@ export default function DossierWizardWorkspace() {
   useEffect(() => {
     void (async () => {
       try {
-        const [clientPage, vehiclePage, requestPage, userPage, selectedOffer] =
+        const [clientPage, vehiclePage, cataloguePage, userPage] =
           await Promise.all([
             crmApi.listClients({ limit: 100 }),
             commerceApi.vehicles.list({ status: "available", limit: 100 }),
-            commerceApi.vehicleRequests.list({ limit: 100 }),
+            commerceApi.catalogue.list({ status: "available", limit: 100 }),
             adminApi.listUsers({ status: "active", limit: 100 }),
-            offerId ? commerceApi.offers.get(offerId) : Promise.resolve(null),
           ]);
         setClients(clientPage.items);
         setVehicles(vehiclePage.items);
-        setRequests(requestPage.items);
+        setCatalogueItems(cataloguePage.items);
         setUsers(userPage.items);
-        setOffer(selectedOffer);
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "Chargement impossible",
@@ -112,7 +107,7 @@ export default function DossierWizardWorkspace() {
         setLoading(false);
       }
     })();
-  }, [offerId]);
+  }, []);
 
   const selectedClient = useMemo(
     () => clients.find((item) => item.id === client.id),
@@ -122,9 +117,9 @@ export default function DossierWizardWorkspace() {
     () => vehicles.find((item) => item.id === vehicleId),
     [vehicleId, vehicles],
   );
-  const selectedRequest = useMemo(
-    () => requests.find((item) => item.id === requestId),
-    [requestId, requests],
+  const selectedCatalogueItem = useMemo(
+    () => catalogueItems.find((item) => item.id === catalogueItemId),
+    [catalogueItemId, catalogueItems],
   );
 
   function validateCurrentStep() {
@@ -136,11 +131,10 @@ export default function DossierWizardWorkspace() {
     if (
       step === 2 &&
       type !== DossierType.SHIPPING_ONLY &&
-      !offer &&
       !vehicleId &&
-      !requestId
+      !catalogueItemId
     ) {
-      return "Sélectionnez une offre, un véhicule disponible ou une demande de sourcing.";
+      return "Sélectionnez un véhicule disponible ou un véhicule commercialisé du Catalogue.";
     }
     if (step === 2 && type === DossierType.SHIPPING_ONLY) {
       const hasBrand = externalVehicle.brand.trim() !== "";
@@ -173,12 +167,6 @@ export default function DossierWizardWorkspace() {
           email: client.email || undefined,
         });
         clientId = created.id;
-      }
-      let offerReservationId: string | undefined;
-      if (offer) {
-        offerReservationId = (
-          await commerceApi.offers.reserve(offer.id, { clientId, quantity: 1 })
-        ).id;
       }
       let externalVehicleId: string | undefined;
       if (
@@ -214,8 +202,7 @@ export default function DossierWizardWorkspace() {
               (value): value is string => Boolean(value),
             )
           : undefined,
-        vehicleRequestId: requestId || undefined,
-        offerReservationId,
+        catalogueItemId: catalogueItemId || undefined,
         salesUserId: salesUserId || undefined,
         opsUserId: opsUserId || undefined,
         chinaResponsibleId: chinaResponsibleId || undefined,
@@ -482,21 +469,7 @@ export default function DossierWizardWorkspace() {
                   Sélectionnez une source autoritative disponible pour ce
                   dossier.
                 </p>
-                {offer && (
-                  <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      Offre sélectionnée
-                    </p>
-                    <p className="mt-1 font-semibold">
-                      {offer.reference} · {offer.brand} {offer.model}
-                    </p>
-                    <p className="text-sm text-emerald-800">
-                      {offer.supplier.name}
-                    </p>
-                  </div>
-                )}
-                {!offer && (
-                  <div className="mt-6 space-y-5">
+                <div className="mt-6 space-y-5">
                     <label className="block">
                       <span className="field-label">Véhicule disponible</span>
                       <select
@@ -505,7 +478,7 @@ export default function DossierWizardWorkspace() {
                         value={vehicleId}
                         onChange={(event) => {
                           setVehicleId(event.target.value);
-                          if (event.target.value) setRequestId("");
+                          if (event.target.value) setCatalogueItemId("");
                         }}
                       >
                         <option value="">Aucun véhicule sélectionné</option>
@@ -527,23 +500,33 @@ export default function DossierWizardWorkspace() {
                       <select
                         aria-label="Demande de sourcing"
                         className={inputClass}
-                        value={requestId}
+                        value={catalogueItemId}
                         onChange={(event) => {
-                          setRequestId(event.target.value);
+                          setCatalogueItemId(event.target.value);
                           if (event.target.value) setVehicleId("");
                         }}
                       >
-                        <option value="">Aucune demande sélectionnée</option>
-                        {requests.map((item) => (
+                        <option value="">Aucun véhicule catalogue sélectionné</option>
+                        {catalogueItems
+                          .filter((item) =>
+                            type === DossierType.VEHICLE_SALE_DDP
+                              ? Boolean(item.ddpPrice)
+                              : Boolean(item.cifPrice),
+                          )
+                          .map((item) => (
                           <option key={item.id} value={item.id}>
-                            {item.brand || "Toutes marques"} {item.model || ""}{" "}
-                            · {item.status}
+                            {item.brand} {item.model} {item.version || ""} ·{" "}
+                            {type === DossierType.VEHICLE_SALE_DDP
+                              ? `${Number(item.ddpPrice).toLocaleString()} DZD DDP`
+                              : `${Number(item.cifPrice).toLocaleString()} DZD CIF`}
                           </option>
                         ))}
                       </select>
+                      <span className="mt-1 block text-xs text-muted">
+                        Uniquement les véhicules issus d’un devis commercial publié.
+                      </span>
                     </label>
                   </div>
-                )}
               </div>
             )}
 
@@ -637,12 +620,10 @@ export default function DossierWizardWorkspace() {
                     icon={CarFront}
                     label="Source"
                     value={
-                      offer
-                        ? `${offer.brand} ${offer.model}`
-                        : selectedVehicle
+                      selectedVehicle
                           ? `${selectedVehicle.brand} ${selectedVehicle.model}`
-                          : selectedRequest
-                            ? `${selectedRequest.brand || "Sourcing"} ${selectedRequest.model || ""}`
+                          : selectedCatalogueItem
+                            ? `${selectedCatalogueItem.brand} ${selectedCatalogueItem.model} · Catalogue`
                             : type === DossierType.SHIPPING_ONLY &&
                                 externalVehicle.brand.trim()
                               ? `${externalVehicle.brand} ${externalVehicle.model}`.trim()

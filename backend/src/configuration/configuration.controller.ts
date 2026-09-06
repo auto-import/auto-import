@@ -32,6 +32,24 @@ export class ConfigurationController {
     return this.configuration.createLookup(user.organizationId, user.id, dto);
   }
 
+  @Get('offer-vehicle-lookups')
+  @RequirePermission(Permission.OFFERS_READ)
+  offerLookups(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: LookupQueryDto,
+  ) {
+    return this.configuration.listLookups(user.organizationId, query);
+  }
+
+  @Post('offer-vehicle-lookups')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  createOfferLookup(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateLookupValueDto,
+  ) {
+    return this.configuration.createLookup(user.organizationId, user.id, dto);
+  }
+
   @Patch('vehicle-lookups/:id')
   @RequirePermission(Permission.VEHICLES_WRITE)
   updateLookup(

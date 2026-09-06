@@ -38,16 +38,23 @@ export class ConfigurationService {
     dto: CreateLookupValueDto,
   ) {
     const value = dto.value.trim();
-    if (!value) throw new BadRequestException('Lookup value is required');
+    if (!value) throw new BadRequestException('La valeur est obligatoire.');
     if (dto.kind === 'MODEL' && !dto.parentId) {
-      throw new BadRequestException('A model must belong to a brand');
+      throw new BadRequestException('Un modèle doit appartenir à une marque.');
+    }
+    if (dto.kind === 'VERSION' && !dto.parentId) {
+      throw new BadRequestException('Une version doit appartenir à un modèle.');
     }
     if (dto.parentId) {
       const parent = await this.prisma.vehicleLookupValue.findFirst({
         where: { id: dto.parentId, organizationId, active: true },
       });
-      if (!parent || (dto.kind === 'MODEL' && parent.kind !== 'BRAND')) {
-        throw new BadRequestException('Invalid lookup parent');
+      if (
+        !parent ||
+        (dto.kind === 'MODEL' && parent.kind !== 'BRAND') ||
+        (dto.kind === 'VERSION' && parent.kind !== 'MODEL')
+      ) {
+        throw new BadRequestException('Référence parente invalide.');
       }
     }
     const normalizedValue = value.toLocaleLowerCase('fr').normalize('NFKC');
@@ -83,10 +90,10 @@ export class ConfigurationService {
     const current = await this.prisma.vehicleLookupValue.findFirst({
       where: { id, organizationId },
     });
-    if (!current) throw new NotFoundException('Lookup value not found');
+    if (!current) throw new NotFoundException('Valeur de référence introuvable.');
     const value = dto.value?.trim();
     if (dto.value !== undefined && !value)
-      throw new BadRequestException('Lookup value cannot be blank');
+      throw new BadRequestException('La valeur de référence ne peut pas être vide.');
     if (value) {
       const duplicate = await this.prisma.vehicleLookupValue.findFirst({
         where: {
@@ -97,7 +104,7 @@ export class ConfigurationService {
           id: { not: id },
         },
       });
-      if (duplicate) throw new ConflictException('Lookup value already exists');
+      if (duplicate) throw new ConflictException('Cette valeur existe déjà.');
     }
     return this.prisma.vehicleLookupValue.update({
       where: { id },
@@ -224,13 +231,13 @@ export class ConfigurationService {
         },
       },
     });
-    if (!dossier) throw new NotFoundException('Dossier not found');
-    if (dossier.cifPrice && dossier.ddpPrice && dossier.priceLockedAt) {
+    if (!dossier) throw new NotFoundException('Dossier introuvable.');
+    if ((dossier.cifPrice || dossier.ddpPrice) && dossier.priceLockedAt) {
       return {
         available: true,
         locked: true,
-        cifPrice: Number(dossier.cifPrice),
-        ddpPrice: Number(dossier.ddpPrice),
+        cifPrice: dossier.cifPrice ? Number(dossier.cifPrice) : undefined,
+        ddpPrice: dossier.ddpPrice ? Number(dossier.ddpPrice) : undefined,
         currency: dossier.priceCurrency,
         missing: [],
       };
@@ -239,28 +246,29 @@ export class ConfigurationService {
     const purchase = dossier.purchases[0];
     const dossierVehicle = dossier.dossierVehicles[0]?.vehicle;
     const shipment = dossierVehicle?.shipmentVehicles[0]?.shipment;
-    if (!purchase) missing.push('FOB_FCA_PURCHASE_COST');
-    if (!dossierVehicle) missing.push('VEHICLE');
-    if (!shipment?.totalFreightCost) missing.push('TOTAL_FREIGHT_COST');
-    if (!shipment?.freightCurrency) missing.push('FREIGHT_CURRENCY');
+    if (!purchase) missing.push("coût d’achat fournisseur");
+    if (!dossierVehicle) missing.push('véhicule');
+    if (!shipment?.totalFreightCost) missing.push('coût total du fret');
+    if (!shipment?.freightCurrency) missing.push('devise du fret');
     if (
       purchase &&
       shipment?.freightCurrency &&
       purchase.currency !== shipment.freightCurrency
-    ) missing.push('CURRENCY_CONVERSION_REQUIRED');
+    ) missing.push('taux de conversion des devises');
     const settings = await this.prisma.organizationSettings.findUnique({
       where: { organizationId },
     });
-    if (settings?.insuranceRatePercent == null) missing.push('INSURANCE_RATE');
+    if (settings?.insuranceRatePercent == null) missing.push("taux d’assurance");
     const category = dossierVehicle?.bodyType?.trim();
     const dutyRate = category
       ? await this.prisma.vehicleDutyRate.findFirst({
           where: { organizationId, category, active: true },
         })
       : null;
-    if (!dossier.dutyOverrideAmount && !category) missing.push('VEHICLE_CATEGORY');
+    if (!dossier.dutyOverrideAmount && !category)
+      missing.push('catégorie du véhicule');
     if (!dossier.dutyOverrideAmount && dutyRate?.ratePercent == null)
-      missing.push('CUSTOMS_DUTY_RATE');
+      missing.push('taux de droits de douane');
     const destination = shipment?.arrivalPort?.trim();
     const deliveryRate = destination
       ? await this.prisma.localDeliveryRate.findFirst({
@@ -272,8 +280,8 @@ export class ConfigurationService {
           orderBy: { destination: 'desc' },
         })
       : null;
-    if (!destination) missing.push('DELIVERY_DESTINATION');
-    if (deliveryRate?.amount == null) missing.push('LOCAL_DELIVERY_RATE');
+    if (!destination) missing.push('destination de livraison');
+    if (deliveryRate?.amount == null) missing.push('tarif de livraison locale');
     if (missing.length) {
       return { available: false, locked: Boolean(dossier.priceLockedAt), missing };
     }

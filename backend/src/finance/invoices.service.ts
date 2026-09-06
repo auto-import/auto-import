@@ -46,10 +46,35 @@ export class InvoicesService {
 
     if (dto.dossierId) {
       const dossier = await this.prisma.dossier.findFirst({
-        where: { id: dto.dossierId, organizationId },
+        where: { id: dto.dossierId, organizationId, clientId: dto.clientId },
       });
-      if (!dossier) throw new NotFoundException('Dossier not found');
+      if (!dossier) {
+        throw new NotFoundException(
+          'Le dossier ne correspond pas au client sélectionné.',
+        );
+      }
     }
+
+    const contract = dto.contractId
+      ? await this.prisma.contract.findFirst({
+          where: {
+            id: dto.contractId,
+            organizationId,
+            clientId: dto.clientId,
+            dossierId: dto.dossierId,
+            archivedAt: null,
+          },
+        })
+      : null;
+    if (dto.contractId && !contract) {
+      throw new NotFoundException(
+        'Le contrat ne correspond pas au client et au dossier sélectionnés.',
+      );
+    }
+    if (contract?.invoiceId) {
+      throw new ConflictException('Ce contrat possède déjà une facture.');
+    }
+    const effectiveDossierId = contract?.dossierId ?? dto.dossierId;
 
     if (dto.orderId) {
       const order = await this.prisma.order.findFirst({
@@ -81,6 +106,19 @@ export class InvoicesService {
     });
 
     const total = subtotal.add(totalTax);
+    const invoiceCurrency = (dto.currency || 'DZD').toUpperCase();
+    if (contract) {
+      if (invoiceCurrency !== contract.currency.toUpperCase()) {
+        throw new ConflictException(
+          'La devise de la facture doit correspondre à celle du contrat.',
+        );
+      }
+      if (!total.equals(contract.totalAmount)) {
+        throw new ConflictException(
+          'Le total de la facture doit correspondre au montant du contrat.',
+        );
+      }
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const invoiceNumber = await this.generateInvoiceNumber(
@@ -92,9 +130,9 @@ export class InvoicesService {
           organizationId,
           invoiceNumber,
           clientId: dto.clientId,
-          dossierId: dto.dossierId,
+          dossierId: effectiveDossierId,
           orderId: dto.orderId,
-          currency: dto.currency || 'DZD',
+          currency: invoiceCurrency,
           status: 'DRAFT',
           subtotal,
           tax: totalTax,
@@ -113,6 +151,13 @@ export class InvoicesService {
           order: true,
         },
       });
+
+      if (contract) {
+        await tx.contract.update({
+          where: { id: contract.id },
+          data: { invoiceId: invoice.id },
+        });
+      }
 
       return invoice;
     });

@@ -41,7 +41,77 @@ export class PaymentsService {
       where: { id: dto.clientId, organizationId },
     });
     if (!client) {
-      throw new NotFoundException('Client not found in your organization');
+      throw new NotFoundException('Client introuvable dans votre organisation.');
+    }
+
+    const [dossier, invoice, contract] = await Promise.all([
+      dto.dossierId
+        ? this.prisma.dossier.findFirst({
+            where: {
+              id: dto.dossierId,
+              organizationId,
+              clientId: dto.clientId,
+            },
+          })
+        : null,
+      dto.invoiceId
+        ? this.prisma.invoice.findFirst({
+            where: {
+              id: dto.invoiceId,
+              organizationId,
+              clientId: dto.clientId,
+              ...(dto.dossierId ? { dossierId: dto.dossierId } : {}),
+            },
+          })
+        : null,
+      dto.contractId
+        ? this.prisma.contract.findFirst({
+            where: {
+              id: dto.contractId,
+              organizationId,
+              clientId: dto.clientId,
+              ...(dto.dossierId ? { dossierId: dto.dossierId } : {}),
+              archivedAt: null,
+            },
+          })
+        : null,
+    ]);
+    if (dto.dossierId && !dossier) {
+      throw new NotFoundException(
+        'Le dossier ne correspond pas au client sélectionné.',
+      );
+    }
+    if (dto.invoiceId && !invoice) {
+      throw new NotFoundException(
+        'La facture ne correspond pas au client et au dossier sélectionnés.',
+      );
+    }
+    if (
+      invoice &&
+      !['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'].includes(invoice.status)
+    ) {
+      throw new ConflictException(
+        'Seule une facture émise avec un solde ouvert peut recevoir un paiement.',
+      );
+    }
+    if (dto.contractId && !contract) {
+      throw new NotFoundException(
+        'Le contrat ne correspond pas au client et au dossier sélectionnés.',
+      );
+    }
+    if (contract && invoice && contract.invoiceId !== invoice.id) {
+      throw new ConflictException(
+        'Le contrat et la facture sélectionnés ne correspondent pas.',
+      );
+    }
+    const paymentCurrency = (dto.currency || 'DZD').toUpperCase();
+    if (
+      (invoice && invoice.currency.toUpperCase() !== paymentCurrency) ||
+      (contract && contract.currency.toUpperCase() !== paymentCurrency)
+    ) {
+      throw new BadRequestException(
+        'La devise du paiement doit correspondre au document financier.',
+      );
     }
 
     if (dto.idempotencyKey) {
@@ -69,6 +139,14 @@ export class PaymentsService {
     }
 
     const paymentAmount = new Prisma.Decimal(dto.amount);
+    if (
+      invoice &&
+      paymentAmount.greaterThan(invoice.total.minus(invoice.paidAmount))
+    ) {
+      throw new BadRequestException(
+        'Le paiement ne peut pas dépasser le solde restant de la facture.',
+      );
+    }
     const paymentDate = dto.paymentDate
       ? new Date(dto.paymentDate)
       : new Date();
@@ -78,14 +156,16 @@ export class PaymentsService {
         data: {
           organizationId,
           clientId: dto.clientId,
-          dossierId: dto.dossierId,
+          dossierId:
+            dto.dossierId ?? invoice?.dossierId ?? contract?.dossierId,
           orderId: dto.orderId,
           invoiceId: dto.invoiceId,
+          contractId: dto.contractId,
           installmentId: dto.installmentId,
           amount: paymentAmount,
           allocatedAmount: new Prisma.Decimal(0),
           unallocatedAmount: paymentAmount,
-          currency: dto.currency || 'DZD',
+          currency: paymentCurrency,
           paymentMethod: dto.paymentMethod,
           reference: dto.reference,
           idempotencyKey: dto.idempotencyKey,

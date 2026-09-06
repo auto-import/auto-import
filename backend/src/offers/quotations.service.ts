@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -14,6 +13,7 @@ import {
   ReviseQuotationDto,
   TransitionQuotationDto,
 } from './dto/quotation.dto';
+import { QuotationPricingService } from './quotation-pricing.service';
 
 const TRANSITIONS: Record<string, readonly string[]> = {
   DRAFT: ['SENT', 'REJECTED', 'EXPIRED'],
@@ -25,30 +25,34 @@ const TRANSITIONS: Record<string, readonly string[]> = {
 
 @Injectable()
 export class QuotationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pricing: QuotationPricingService,
+  ) {}
 
-  private amounts(dto: QuotationAmountsDto) {
-    const values = {
-      vehicleAmount: new Prisma.Decimal(dto.vehicleAmount ?? 0),
-      freightAmount: new Prisma.Decimal(dto.freightAmount ?? 0),
-      insuranceAmount: new Prisma.Decimal(dto.insuranceAmount ?? 0),
-      customsAmount: new Prisma.Decimal(dto.customsAmount ?? 0),
-      transitAmount: new Prisma.Decimal(dto.transitAmount ?? 0),
-      otherCostsAmount: new Prisma.Decimal(dto.otherCostsAmount ?? 0),
-      marginAmount: new Prisma.Decimal(dto.marginAmount ?? 0),
-      finalCustomerPrice: new Prisma.Decimal(dto.finalCustomerPrice),
+  async preview(
+    organizationId: string,
+    dto: CreateQuotationDto,
+  ) {
+    const calculated = this.pricing.calculate(dto.priceBasis, dto);
+    const exchange = await this.prisma.$transaction((tx) =>
+      this.pricing.usdToDzdSnapshot(tx, organizationId, new Date()),
+    );
+    return {
+      ...Object.fromEntries(
+        Object.entries(calculated).map(([key, value]) => [
+          key,
+          value instanceof Prisma.Decimal ? value.toString() : value,
+        ]),
+      ),
+      currency: 'USD',
+      exchangeRateId: exchange.exchangeRateId,
+      exchangeRateSnapshot: exchange.rate.toString(),
+      finalCustomerPriceDzd: calculated.finalCustomerPrice
+        .mul(exchange.rate)
+        .toDecimalPlaces(2)
+        .toString(),
     };
-    const calculated = Object.entries(values)
-      .filter(([key]) => key !== 'finalCustomerPrice')
-      .reduce((sum, [, value]) => sum.add(value), new Prisma.Decimal(0));
-    if (!calculated.equals(values.finalCustomerPrice)) {
-      throw new BadRequestException({
-        code: 'QUOTATION_TOTAL_MISMATCH',
-        message: 'Final customer price must equal all pricing components',
-        calculatedTotal: calculated.toFixed(2),
-      });
-    }
-    return values;
   }
 
   private async nextNumber(
@@ -66,8 +70,20 @@ export class QuotationsService {
     return `DEV-${year}-${String(row.value).padStart(5, '0')}`;
   }
 
-  private snapshot(dto: QuotationAmountsDto): Prisma.InputJsonObject {
+  private snapshot(
+    dto: QuotationAmountsDto,
+    calculated: ReturnType<QuotationPricingService['calculate']>,
+    exchangeRateSnapshot: Prisma.Decimal,
+  ): Prisma.InputJsonObject {
     return {
+      formula:
+        'CIF=base+fret+assurance+transit+autres+marge; DDP=CIF+douane',
+      containerPrice: calculated.containerPrice.toString(),
+      containerAllocation: `1/${calculated.containerAllocation}`,
+      freightAmount: calculated.freightAmount.toString(),
+      customsIncluded: false,
+      exchangeRatePair: 'USD/DZD',
+      exchangeRateSnapshot: exchangeRateSnapshot.toString(),
       paymentConditions: dto.paymentConditions ?? null,
       validityNote: dto.validityNote ?? null,
       notes: dto.notes ?? null,
@@ -79,34 +95,58 @@ export class QuotationsService {
     userId: string,
     dto: CreateQuotationDto,
   ) {
-    const amounts = this.amounts(dto);
     return this.prisma.$transaction(async (tx) => {
-      const dossier = await tx.dossier.findFirst({
-        where: { id: dto.dossierId, organizationId },
-        select: { id: true, clientId: true },
+      const now = new Date();
+      const offer = await tx.chinaOffer.findFirst({
+        where: {
+          id: dto.sourceOfferId,
+          organizationId,
+          archivedAt: null,
+          validUntil: { gte: now },
+        },
+        include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
       });
-      if (!dossier) throw new NotFoundException('Dossier not found');
-
-      let sourceOfferRevisionId: string | undefined;
-      if (dto.sourceOfferId) {
-        const offer = await tx.chinaOffer.findFirst({
-          where: { id: dto.sourceOfferId, organizationId, archivedAt: null },
-          select: { id: true, currentRevisionId: true },
-        });
-        if (!offer) throw new NotFoundException('Supplier offer not found');
-        sourceOfferRevisionId = offer.currentRevisionId ?? undefined;
+      if (!offer) throw new NotFoundException('Offre Chine active introuvable.');
+      if (!offer.currentRevisionId) {
+        throw new ConflictException(
+          "L'offre ne possède pas de révision tarifaire exploitable.",
+        );
       }
+      const sourceVehicle = dto.sourceOfferVehicleId
+        ? offer.vehicles.find((vehicle) => vehicle.id === dto.sourceOfferVehicleId)
+        : offer.vehicles[0];
+      if (!sourceVehicle) {
+        throw new NotFoundException("Véhicule de l'offre introuvable.");
+      }
+      if (
+        ['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(sourceVehicle.status) ||
+        sourceVehicle.purchasedQuantity >= sourceVehicle.quantity
+      ) {
+        throw new ConflictException(
+          "Ce véhicule de l'offre n'est plus commercialisable.",
+        );
+      }
+      const calculated = this.pricing.calculate(dto.priceBasis, dto);
+      const rate = await this.pricing.usdToDzdSnapshot(
+        tx,
+        organizationId,
+        now,
+      );
+      const finalCustomerPriceDzd = calculated.finalCustomerPrice
+        .mul(rate.rate)
+        .toDecimalPlaces(2);
 
       const quotation = await tx.customerQuotation.create({
         data: {
           organizationId,
           quotationNumber: await this.nextNumber(tx, organizationId),
-          dossierId: dossier.id,
-          clientId: dossier.clientId,
-          sourceOfferId: dto.sourceOfferId,
-          sourceOfferRevisionId,
+          sourceOfferId: offer.id,
+          sourceOfferRevisionId: offer.currentRevisionId,
+          sourceOfferVehicleId: sourceVehicle.id,
           priceBasis: dto.priceBasis,
-          currency: dto.currency.toUpperCase(),
+          currency: 'USD',
+          cataloguePublished: true,
+          publishedAt: now,
           expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
           createdBy: userId,
         },
@@ -116,19 +156,63 @@ export class QuotationsService {
           organizationId,
           quotationId: quotation.id,
           revisionNumber: 1,
-          ...amounts,
+          ...calculated,
+          exchangeRateId: rate.exchangeRateId,
+          exchangeRateSnapshot: rate.rate,
+          finalCustomerPriceDzd,
           paymentConditions: dto.paymentConditions,
           validityNote: dto.validityNote,
           notes: dto.notes,
           reason: 'Création du devis',
-          snapshot: this.snapshot(dto),
+          snapshot: {
+            ...this.snapshot(dto, calculated, rate.rate),
+            customsIncluded: dto.priceBasis === 'DDP',
+            sourceOfferPrice: String(sourceVehicle.supplierPrice),
+            sourceOfferCurrency: sourceVehicle.currency,
+          },
           createdBy: userId,
+          otherCosts: {
+            create: (dto.otherCosts ?? []).map((cost, index) => ({
+              organizationId,
+              description: cost.description.trim(),
+              amount: cost.amount,
+              currency: 'USD',
+              sortOrder: index + 1,
+            })),
+          },
         },
       });
       const updated = await tx.customerQuotation.update({
         where: { id: quotation.id },
         data: { currentRevisionId: revision.id },
-        include: { currentRevision: true },
+        include: { currentRevision: { include: { otherCosts: true } } },
+      });
+      const existingCatalogueItem = await tx.catalogueItem.findUnique({
+        where: { sourceOfferVehicleId: sourceVehicle.id },
+      });
+      const availableQuantity = Math.max(
+        existingCatalogueItem?.reservedQuantity ?? 0,
+        sourceVehicle.quantity - sourceVehicle.purchasedQuantity,
+      );
+      await tx.catalogueItem.upsert({
+        where: { sourceOfferVehicleId: sourceVehicle.id },
+        create: {
+          organizationId,
+          sourceOfferVehicleId: sourceVehicle.id,
+          availableQuantity,
+          publishedAt: now,
+          ...(dto.priceBasis === 'CIF'
+            ? { activeCifQuotationId: quotation.id }
+            : { activeDdpQuotationId: quotation.id }),
+        },
+        update: {
+          availableQuantity,
+          archivedAt: null,
+          publishedAt: now,
+          ...(dto.priceBasis === 'CIF'
+            ? { activeCifQuotationId: quotation.id }
+            : { activeDdpQuotationId: quotation.id }),
+        },
       });
       await tx.auditLog.create({
         data: {
@@ -138,9 +222,10 @@ export class QuotationsService {
           entityType: 'CustomerQuotation',
           entityId: updated.id,
           newValues: {
-            dossierId: dossier.id,
-            sourceOfferId: dto.sourceOfferId,
+            sourceOfferId: offer.id,
+            sourceOfferVehicleId: sourceVehicle.id,
             priceBasis: dto.priceBasis,
+            finalCustomerPriceDzd: finalCustomerPriceDzd.toString(),
           },
         },
       });
@@ -154,28 +239,54 @@ export class QuotationsService {
     userId: string,
     dto: ReviseQuotationDto,
   ) {
-    const amounts = this.amounts(dto);
     return this.prisma.$transaction(async (tx) => {
       const quotation = await tx.customerQuotation.findFirst({
         where: { id, organizationId },
         include: { _count: { select: { revisions: true } } },
       });
-      if (!quotation) throw new NotFoundException('Quotation not found');
+      if (!quotation) throw new NotFoundException('Devis introuvable.');
       if (!['DRAFT', 'SENT'].includes(quotation.status)) {
-        throw new ConflictException('Accepted or closed quotations are immutable');
+        throw new ConflictException(
+          'Un devis accepté ou clôturé ne peut plus être modifié.',
+        );
       }
+      const priceBasis = quotation.priceBasis as 'CIF' | 'DDP';
+      const calculated = this.pricing.calculate(priceBasis, dto);
+      const rate = await this.pricing.usdToDzdSnapshot(
+        tx,
+        organizationId,
+        new Date(),
+      );
+      const finalCustomerPriceDzd = calculated.finalCustomerPrice
+        .mul(rate.rate)
+        .toDecimalPlaces(2);
       const revision = await tx.customerQuotationRevision.create({
         data: {
           organizationId,
           quotationId: id,
           revisionNumber: quotation._count.revisions + 1,
-          ...amounts,
+          ...calculated,
+          exchangeRateId: rate.exchangeRateId,
+          exchangeRateSnapshot: rate.rate,
+          finalCustomerPriceDzd,
           paymentConditions: dto.paymentConditions,
           validityNote: dto.validityNote,
           notes: dto.notes,
           reason: dto.reason.trim(),
-          snapshot: this.snapshot(dto),
+          snapshot: {
+            ...this.snapshot(dto, calculated, rate.rate),
+            customsIncluded: priceBasis === 'DDP',
+          },
           createdBy: userId,
+          otherCosts: {
+            create: (dto.otherCosts ?? []).map((cost, index) => ({
+              organizationId,
+              description: cost.description.trim(),
+              amount: cost.amount,
+              currency: 'USD',
+              sortOrder: index + 1,
+            })),
+          },
         },
       });
       const updated = await tx.customerQuotation.update({
@@ -186,7 +297,7 @@ export class QuotationsService {
           sentAt: null,
           ...(dto.expiresAt ? { expiresAt: new Date(dto.expiresAt) } : {}),
         },
-        include: { currentRevision: true },
+        include: { currentRevision: { include: { otherCosts: true } } },
       });
       await tx.auditLog.create({
         data: {
@@ -212,22 +323,47 @@ export class QuotationsService {
       const quotation = await tx.customerQuotation.findFirst({
         where: { id, organizationId },
       });
-      if (!quotation) throw new NotFoundException('Quotation not found');
+      if (!quotation) throw new NotFoundException('Devis introuvable.');
       if (quotation.status === dto.status) return quotation;
       if (!TRANSITIONS[quotation.status]?.includes(dto.status)) {
         throw new ConflictException(
-          `${quotation.status} cannot transition to ${dto.status}`,
+          'Cette transition de statut du devis n’est pas autorisée.',
         );
       }
       const updated = await tx.customerQuotation.update({
         where: { id },
         data: {
           status: dto.status,
+          cataloguePublished: !['REJECTED', 'EXPIRED'].includes(dto.status),
           sentAt: dto.status === 'SENT' ? new Date() : quotation.sentAt,
           acceptedAt:
             dto.status === 'ACCEPTED' ? new Date() : quotation.acceptedAt,
         },
       });
+      if (['REJECTED', 'EXPIRED'].includes(dto.status)) {
+        const fallback = quotation.sourceOfferVehicleId
+          ? await tx.customerQuotation.findFirst({
+              where: {
+                organizationId,
+                id: { not: id },
+                sourceOfferVehicleId: quotation.sourceOfferVehicleId,
+                priceBasis: quotation.priceBasis,
+                cataloguePublished: true,
+                status: { notIn: ['REJECTED', 'EXPIRED'] },
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            })
+          : null;
+        await tx.catalogueItem.updateMany({
+          where: { activeCifQuotationId: id },
+          data: { activeCifQuotationId: fallback?.id ?? null },
+        });
+        await tx.catalogueItem.updateMany({
+          where: { activeDdpQuotationId: id },
+          data: { activeDdpQuotationId: fallback?.id ?? null },
+        });
+      }
       await tx.auditLog.create({
         data: {
           organizationId,
@@ -251,6 +387,9 @@ export class QuotationsService {
       ...(filter.dossierId ? { dossierId: filter.dossierId } : {}),
       ...(filter.clientId ? { clientId: filter.clientId } : {}),
       ...(filter.sourceOfferId ? { sourceOfferId: filter.sourceOfferId } : {}),
+      ...(filter.sourceOfferVehicleId
+        ? { sourceOfferVehicleId: filter.sourceOfferVehicleId }
+        : {}),
       ...(filter.status ? { status: filter.status } : {}),
     };
     const [items, total] = await Promise.all([
@@ -260,10 +399,13 @@ export class QuotationsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          currentRevision: true,
+          currentRevision: { include: { otherCosts: true } },
           dossier: { select: { id: true, reference: true } },
           client: { select: { id: true, firstName: true, lastName: true } },
           sourceOffer: { select: { id: true, reference: true, brand: true, model: true } },
+          sourceOfferVehicle: {
+            select: { id: true, lineNumber: true, brand: true, model: true, version: true },
+          },
         },
       }),
       this.prisma.customerQuotation.count({ where }),
@@ -275,17 +417,21 @@ export class QuotationsService {
     const quotation = await this.prisma.customerQuotation.findFirst({
       where: { id, organizationId },
       include: {
-        currentRevision: true,
+        currentRevision: { include: { otherCosts: true, exchangeRate: true } },
         revisions: {
           orderBy: { revisionNumber: 'desc' },
-          include: { creator: { select: { id: true, firstName: true, lastName: true } } },
+          include: {
+            otherCosts: { orderBy: { sortOrder: 'asc' } },
+            creator: { select: { id: true, firstName: true, lastName: true } },
+          },
         },
         dossier: { select: { id: true, reference: true } },
         client: { select: { id: true, firstName: true, lastName: true } },
         sourceOffer: { select: { id: true, reference: true, brand: true, model: true } },
+        sourceOfferVehicle: true,
       },
     });
-    if (!quotation) throw new NotFoundException('Quotation not found');
+    if (!quotation) throw new NotFoundException('Devis introuvable.');
     return quotation;
   }
 }

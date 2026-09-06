@@ -298,9 +298,21 @@ export class FinanceService {
   }
 
   async getOrganizationFinancialOverview(organizationId: string) {
-    const [contracts, transactions] = await Promise.all([
+    const [contracts, invoices, transactions] = await Promise.all([
       this.prisma.contract.findMany({
         where: { organizationId, archivedAt: null, status: 'SIGNED' },
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          organizationId,
+          status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] },
+        },
+        select: {
+          total: true,
+          currency: true,
+          issueDate: true,
+          createdAt: true,
+        },
       }),
       this.prisma.financeTransaction.findMany({
         where: { organizationId, status: 'VALIDATED' },
@@ -328,6 +340,19 @@ export class FinanceService {
             );
       totalContracted = totalContracted.add(contract.totalAmount.mul(rate));
     }
+    let totalInvoiced = new Prisma.Decimal(0);
+    for (const invoice of invoices) {
+      const rate =
+        invoice.currency === 'DZD'
+          ? new Prisma.Decimal(1)
+          : await this.exchangeRates.findEffectiveRate(
+              organizationId,
+              'DZD',
+              invoice.currency,
+              invoice.issueDate ?? invoice.createdAt,
+            );
+      totalInvoiced = totalInvoiced.add(invoice.total.mul(rate));
+    }
     const totalCollected = transactions
       .filter((transaction) => transaction.customerPaymentId)
       .reduce(
@@ -345,13 +370,13 @@ export class FinanceService {
       new Prisma.Decimal(0),
     );
 
-    const outstanding = totalContracted.minus(totalCollected);
+    const outstanding = totalInvoiced.minus(totalCollected);
     const grossProfit = totalContracted.minus(totalCosts);
 
     return {
       baseCurrency: 'DZD',
       totalContracted: totalContracted.toString(),
-      totalInvoiced: totalContracted.toString(),
+      totalInvoiced: totalInvoiced.toString(),
       totalCollected: totalCollected.toString(),
       totalOutstanding: outstanding.greaterThan(0)
         ? outstanding.toString()
@@ -359,7 +384,7 @@ export class FinanceService {
       totalCosts: totalCosts.toString(),
       grossProfit: grossProfit.toString(),
       contractCount: contracts.length,
-      invoiceCount: 0,
+      invoiceCount: invoices.length,
       paymentCount: transactions.filter((entry) => entry.customerPaymentId)
         .length,
       costCount: transactions.filter(

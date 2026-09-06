@@ -83,6 +83,24 @@ export interface LeadVehicleRequirement {
   currency?: string | null;
   preferredColor?: string | null;
   requirements?: string | null;
+  vehicleId?: string;
+  customRequest?: boolean;
+  candidates?: Array<{
+    id: string;
+    status: string;
+    vehicle: VehicleOption;
+  }>;
+}
+
+export interface VehicleOption {
+  id: string;
+  brand: string;
+  model: string;
+  year?: number | null;
+  vin?: string | null;
+  status: string;
+  acquisitionType: string;
+  source: string;
 }
 
 export interface CreateLeadInput {
@@ -138,6 +156,9 @@ export interface ApiClient {
     };
   } | null;
   address?: string | null;
+  wilaya?: string | null;
+  city?: string | null;
+  notes?: string | null;
   status: string;
   assignedTo?: string | null;
   assignee?: AgentSummary | null;
@@ -343,6 +364,21 @@ export const crmApi = {
       method: "POST",
       body: JSON.stringify({ reason }),
     });
+  },
+  restoreProspect(id: string) {
+    return apiRequest<ApiProspect>(`/prospects/${id}/restore`, {
+      method: "POST",
+    });
+  },
+  permanentlyDeleteProspect(id: string) {
+    return apiRequest<{ message: string }>(`/prospects/${id}/permanent`, {
+      method: "DELETE",
+    });
+  },
+  vehicleOptions(search?: string) {
+    return apiRequest<VehicleOption[]>(
+      `/prospects/vehicle-options${query({ search })}`,
+    );
   },
   referenceData() {
     return apiRequest<ApiCrmReference[]>("/crm/reference-data");

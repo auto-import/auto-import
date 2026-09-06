@@ -188,15 +188,88 @@ export class OffersService {
       },
       select: { id: true },
     });
-    if (!supplier) throw new NotFoundException('Active supplier not found');
+    if (!supplier) throw new NotFoundException('Fournisseur actif introuvable.');
+  }
+
+  private async validateOfferLookups(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    lines: CreateOfferVehicleDto[],
+  ) {
+    for (const line of lines) {
+      if (!line.brandLookupId && !line.modelLookupId && !line.versionLookupId)
+        continue;
+      if (!line.brandLookupId || !line.modelLookupId) {
+        throw new BadRequestException(
+          'Sélectionnez une marque et un modèle de référence valides.',
+        );
+      }
+      const ids = [
+        line.brandLookupId,
+        line.modelLookupId,
+        line.versionLookupId,
+      ].filter((id): id is string => Boolean(id));
+      const lookups = await tx.vehicleLookupValue.findMany({
+        where: { id: { in: ids }, organizationId, active: true },
+      });
+      const byId = new Map(lookups.map((lookup) => [lookup.id, lookup]));
+      const brand = byId.get(line.brandLookupId);
+      const model = byId.get(line.modelLookupId);
+      const version = line.versionLookupId
+        ? byId.get(line.versionLookupId)
+        : undefined;
+      const normalize = (value?: string) =>
+        value?.trim().toLocaleLowerCase('fr').normalize('NFKC');
+      if (
+        brand?.kind !== 'BRAND' ||
+        model?.kind !== 'MODEL' ||
+        model.parentId !== brand.id ||
+        normalize(line.brand) !== brand.normalizedValue ||
+        normalize(line.model) !== model.normalizedValue ||
+        (line.versionLookupId &&
+          (version?.kind !== 'VERSION' ||
+            version.parentId !== model.id ||
+            normalize(line.version) !== version.normalizedValue))
+      ) {
+        throw new BadRequestException(
+          'La marque, le modèle ou la version ne correspond pas au référentiel véhicule.',
+        );
+      }
+    }
   }
 
   private supplierPrice(dto: { supplierPrice?: number }) {
     const price = dto.supplierPrice;
     if (price == null || price <= 0) {
-      throw new BadRequestException('A positive supplier price is required');
+      throw new BadRequestException(
+        'Le prix fournisseur doit être supérieur à zéro.',
+      );
     }
     return price;
+  }
+
+  private offerPricing(
+    incoterm: string,
+    supplierPrice: number,
+    localCost?: number | null,
+  ) {
+    if (!['FCA', 'FOB'].includes(incoterm)) {
+      throw new BadRequestException(
+        "L'incoterm de l'offre Chine doit être FCA ou FOB.",
+      );
+    }
+    if (incoterm === 'FCA' && localCost == null) {
+      throw new BadRequestException('Les frais locaux sont requis en FCA.');
+    }
+    const normalizedLocalCost =
+      incoterm === 'FCA' ? new Prisma.Decimal(localCost ?? 0) : new Prisma.Decimal(0);
+    if (normalizedLocalCost.isNegative()) {
+      throw new BadRequestException('Les frais locaux ne peuvent pas être négatifs.');
+    }
+    return {
+      localCost: normalizedLocalCost,
+      totalOfferPrice: new Prisma.Decimal(supplierPrice).add(normalizedLocalCost),
+    };
   }
 
   private vehicleLines(dto: CreateOfferDto): CreateOfferVehicleDto[] {
@@ -205,8 +278,11 @@ export class OffersService {
       : [
           {
             brand: dto.brand,
+            brandLookupId: dto.brandLookupId,
             model: dto.model,
+            modelLookupId: dto.modelLookupId,
             version: dto.version,
+            versionLookupId: dto.versionLookupId,
             year: dto.year,
             condition: dto.condition,
             mileage: dto.mileage,
@@ -228,6 +304,11 @@ export class OffersService {
   ): Prisma.ChinaOfferCreateInput {
     const lines = this.vehicleLines(dto);
     const first = lines[0];
+    const offerPricing = this.offerPricing(
+      dto.incoterm,
+      first.supplierPrice,
+      dto.localCost,
+    );
     const availableQuantity = lines.reduce(
       (sum, line) => sum + (line.quantity ?? 1),
       0,
@@ -239,6 +320,15 @@ export class OffersService {
       brand: first.brand,
       model: first.model,
       version: first.version,
+      brandLookup: first.brandLookupId
+        ? { connect: { id: first.brandLookupId } }
+        : undefined,
+      modelLookup: first.modelLookupId
+        ? { connect: { id: first.modelLookupId } }
+        : undefined,
+      versionLookup: first.versionLookupId
+        ? { connect: { id: first.versionLookupId } }
+        : undefined,
       year: first.year,
       condition: first.condition,
       mileage: first.mileage,
@@ -249,6 +339,8 @@ export class OffersService {
       ddpPrice: null,
       currency: first.currency,
       incoterm: dto.incoterm,
+      localCost: offerPricing.localCost,
+      totalOfferPrice: offerPricing.totalOfferPrice,
       location: dto.location,
       leadTimeDays: dto.leadTimeDays ?? dto.estimatedDelayDays,
       paymentConditions: dto.paymentConditions,
@@ -266,6 +358,15 @@ export class OffersService {
           brand: line.brand,
           model: line.model,
           version: line.version,
+          brandLookup: line.brandLookupId
+            ? { connect: { id: line.brandLookupId } }
+            : undefined,
+          modelLookup: line.modelLookupId
+            ? { connect: { id: line.modelLookupId } }
+            : undefined,
+          versionLookup: line.versionLookupId
+            ? { connect: { id: line.versionLookupId } }
+            : undefined,
           year: line.year,
           condition: line.condition,
           mileage: line.mileage,
@@ -289,6 +390,8 @@ export class OffersService {
       purchasePrice: Prisma.Decimal | null;
       currency: string;
       incoterm: string | null;
+      localCost: Prisma.Decimal | null;
+      totalOfferPrice: Prisma.Decimal | null;
       location: string | null;
       availableQuantity: number;
       leadTimeDays: number | null;
@@ -321,6 +424,8 @@ export class OffersService {
         supplierPrice,
         currency: offer.currency,
         incoterm: offer.incoterm,
+        localCost: offer.localCost,
+        totalOfferPrice: offer.totalOfferPrice,
         location: offer.location,
         quantity: offer.availableQuantity,
         leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
@@ -350,6 +455,11 @@ export class OffersService {
   async create(dto: CreateOfferDto, organizationId: string, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
       await this.requireSupplier(tx, dto.supplierId, organizationId);
+      await this.validateOfferLookups(
+        tx,
+        organizationId,
+        this.vehicleLines(dto),
+      );
       const validFrom = new Date(dto.validFrom);
       const validUntil = new Date(dto.validUntil);
       this.validateDates(validFrom, validUntil);
@@ -382,6 +492,11 @@ export class OffersService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.requireSupplier(tx, dto.supplierId, organizationId);
+        await this.validateOfferLookups(
+          tx,
+          organizationId,
+          this.vehicleLines(dto),
+        );
         const validFrom = new Date(dto.validFrom);
         const validUntil = new Date(dto.validUntil);
         this.validateDates(validFrom, validUntil);
@@ -694,7 +809,7 @@ export class OffersService {
         photos: { include: { file: true }, orderBy: { sortOrder: 'asc' } },
       },
     });
-    if (!offer) throw new NotFoundException('Offer not found');
+    if (!offer) throw new NotFoundException('Offre introuvable.');
     return this.present(offer);
   }
 
@@ -708,7 +823,7 @@ export class OffersService {
       const current = await tx.chinaOffer.findFirst({
         where: { id, organizationId },
       });
-      if (!current) throw new NotFoundException('Offer not found');
+      if (!current) throw new NotFoundException('Offre introuvable.');
       if (dto.supplierId)
         await this.requireSupplier(tx, dto.supplierId, organizationId);
       const validFrom = dto.validFrom
@@ -723,7 +838,7 @@ export class OffersService {
         dto.availableQuantity < current.reservedQuantity
       ) {
         throw new ConflictException(
-          'Quantity cannot be lower than active reservations',
+          'La quantité ne peut pas être inférieure aux réservations actives.',
         );
       }
       const { revisionReason, ...changes } = dto;
@@ -731,6 +846,7 @@ export class OffersService {
         'supplierPrice',
         'currency',
         'incoterm',
+        'localCost',
         'location',
         'availableQuantity',
         'leadTimeDays',
@@ -741,6 +857,9 @@ export class OffersService {
         'brand',
         'model',
         'version',
+        'brandLookupId',
+        'modelLookupId',
+        'versionLookupId',
         'year',
         'condition',
         'mileage',
@@ -750,13 +869,25 @@ export class OffersService {
         (field) => dto[field] !== undefined,
       );
       if (commercialChange && !revisionReason?.trim()) {
-        throw new BadRequestException({
-          code: 'OFFER_REVISION_REASON_REQUIRED',
-          message: 'A revision reason is required for offer changes',
-        });
+        throw new BadRequestException(
+          'Le motif de révision est obligatoire pour modifier l’offre.',
+        );
       }
       const supplierPrice =
         dto.supplierPrice ?? current.supplierPrice?.toNumber();
+      const nextIncoterm = dto.incoterm ?? current.incoterm;
+      const nextPricing =
+        supplierPrice != null && nextIncoterm && ['FCA', 'FOB'].includes(nextIncoterm)
+          ? this.offerPricing(
+              nextIncoterm,
+              supplierPrice,
+              dto.localCost ?? current.localCost?.toNumber(),
+            )
+          : {
+              localCost: current.localCost,
+              totalOfferPrice:
+                current.totalOfferPrice ?? current.supplierPrice ?? current.purchasePrice,
+            };
       if (commercialChange && userId && !current.currentRevisionId) {
         await this.appendRevision(
           tx,
@@ -772,6 +903,8 @@ export class OffersService {
           ...(supplierPrice != null
             ? { supplierPrice, purchasePrice: supplierPrice }
             : {}),
+          localCost: nextPricing.localCost,
+          totalOfferPrice: nextPricing.totalOfferPrice,
           specification: dto.specification as Prisma.InputJsonValue | undefined,
           validFrom,
           validUntil,
@@ -779,6 +912,15 @@ export class OffersService {
         },
         include: { supplier: true },
       });
+      if (dto.supplierPrice !== undefined || dto.currency !== undefined) {
+        await tx.chinaOfferVehicle.updateMany({
+          where: { offerId: id, organizationId, lineNumber: 1 },
+          data: {
+            supplierPrice: dto.supplierPrice,
+            currency: dto.currency,
+          },
+        });
+      }
       if (commercialChange && userId) {
         await this.appendRevision(tx, offer, userId, revisionReason!.trim());
       }
@@ -1112,6 +1254,15 @@ export class OffersService {
             purchasedAt: purchase.purchaseDate,
           },
         });
+        await tx.$executeRaw`
+          UPDATE "CatalogueItem"
+          SET "availableQuantity" = GREATEST(
+                "reservedQuantity",
+                "availableQuantity" - 1
+              ),
+              "updatedAt" = NOW()
+          WHERE "sourceOfferVehicleId" = ${sourceOfferVehicle.id}
+            AND "organizationId" = ${organizationId}`;
         const remainingOfferQuantity = Math.max(
           0,
           reservation.offer.availableQuantity - reservation.quantity,
@@ -1187,19 +1338,18 @@ export class OffersService {
     const offer = await this.prisma.chinaOffer.findFirst({
       where: { id, organizationId },
     });
-    if (!offer) throw new NotFoundException('Offer not found');
+    if (!offer) throw new NotFoundException('Offre introuvable.');
     const current = offer.offerStatus ?? 'RECEIVED';
     if (current === dto.status) return this.present(offer);
     if (dto.status === 'PURCHASED') {
       throw new ConflictException(
-        'Purchase a specific offer vehicle to reach PURCHASED',
+        'Confirmez l’achat d’un véhicule précis pour clôturer l’offre.',
       );
     }
     if (!OFFER_TRANSITIONS[current]?.includes(dto.status)) {
-      throw new ConflictException({
-        code: 'OFFER_INVALID_TRANSITION',
-        message: `${current} cannot transition to ${dto.status}`,
-      });
+      throw new ConflictException(
+        'Cette transition de statut de l’offre n’est pas autorisée.',
+      );
     }
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.chinaOffer.update({
@@ -1219,6 +1369,15 @@ export class OffersService {
             : {}),
         },
       });
+      if (['LOST_DEAL', 'EXPIRED'].includes(dto.status)) {
+        await tx.catalogueItem.updateMany({
+          where: {
+            organizationId,
+            sourceOfferVehicle: { offerId: id },
+          },
+          data: { archivedAt: new Date() },
+        });
+      }
       await tx.chinaOfferStatusHistory.create({
         data: {
           organizationId,
@@ -1553,6 +1712,15 @@ export class OffersService {
             purchasedAt: purchase.purchaseDate,
           },
         });
+        await tx.$executeRaw`
+          UPDATE "CatalogueItem"
+          SET "availableQuantity" = GREATEST(
+                "reservedQuantity",
+                "availableQuantity" - 1
+              ),
+              "updatedAt" = NOW()
+          WHERE "sourceOfferVehicleId" = ${line.id}
+            AND "organizationId" = ${organizationId}`;
         const remainingQuantity = Math.max(0, line.offer.availableQuantity - 1);
         const nextOfferStatus =
           remainingQuantity === 0 ? 'PURCHASED' : line.offer.offerStatus;
@@ -1610,15 +1778,24 @@ export class OffersService {
       const line = await tx.chinaOfferVehicle.findFirst({
         where: { id: offerVehicleId, offerId, organizationId },
       });
-      if (!line) throw new NotFoundException('Offer vehicle not found');
+      if (!line) throw new NotFoundException("Véhicule de l'offre introuvable.");
       if (line.purchasedQuantity >= line.quantity) {
         throw new ConflictException(
-          'Purchased vehicles cannot become lost deals',
+          'Un véhicule déjà acheté ne peut pas être marqué comme perdu.',
+        );
+      }
+      if (line.reservedQuantity > 0) {
+        throw new ConflictException(
+          'Libérez les dossiers actifs avant de marquer ce véhicule comme perdu.',
         );
       }
       const updated = await tx.chinaOfferVehicle.update({
         where: { id: line.id },
         data: { status: 'LOST_DEAL', lostReason: dto.reason },
+      });
+      await tx.catalogueItem.updateMany({
+        where: { sourceOfferVehicleId: line.id, organizationId },
+        data: { archivedAt: new Date() },
       });
       await tx.auditLog.create({
         data: {

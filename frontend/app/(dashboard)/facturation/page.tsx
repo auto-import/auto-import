@@ -13,8 +13,14 @@ import {
   type ApiPayment,
   type OrganizationFinancialOverview,
   fetchContracts,
+  createContract,
+  createInvoice,
+  recordPayment,
   type ApiContract,
 } from "@/lib/finance-api";
+import { commerceApi, type ApiDossier } from "@/lib/commerce-api";
+import { Permission } from "@/lib/api-contract";
+import { useAuth } from "@/components/AuthProvider";
 import { formatMontant, formatDate } from "@/lib/constants";
 import type { Column } from "@/types";
 import {
@@ -29,11 +35,14 @@ import {
   Building2,
   Calendar,
   Layers,
+  Plus,
+  X,
 } from "lucide-react";
 
 type FacturationTab = "contracts" | "payments" | "invoices";
 
 export default function FacturationPage() {
+  const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<FacturationTab>("contracts");
   const [overview, setOverview] =
     useState<OrganizationFinancialOverview | null>(null);
@@ -61,6 +70,13 @@ export default function FacturationPage() {
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [dossiers, setDossiers] = useState<ApiDossier[]>([]);
+  const [dialog, setDialog] = useState<
+    "contract" | "invoice" | "payment" | null
+  >(null);
+  const [selectedSourceId, setSelectedSourceId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [formSaving, setFormSaving] = useState(false);
 
   // Load Overview
   const loadOverview = useCallback(async () => {
@@ -86,6 +102,15 @@ export default function FacturationPage() {
       );
     } finally {
       setContractLoading(false);
+    }
+  }, []);
+
+  const loadDossiers = useCallback(async () => {
+    try {
+      const result = await commerceApi.dossiers.list({ limit: 100 });
+      setDossiers(result.items);
+    } catch {
+      setDossiers([]);
     }
   }, []);
 
@@ -141,9 +166,10 @@ export default function FacturationPage() {
       void loadContracts();
       void loadInvoices();
       void loadPayments();
+      void loadDossiers();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadOverview, loadContracts, loadInvoices, loadPayments]);
+  }, [loadOverview, loadContracts, loadInvoices, loadPayments, loadDossiers]);
 
   useEffect(() => {
     const refresh = () => {
@@ -204,6 +230,85 @@ export default function FacturationPage() {
       );
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const commercialPrice = (dossier: ApiDossier) =>
+    dossier.type === "VEHICLE_SALE_DDP"
+      ? Number(dossier.ddpPrice || 0)
+      : Number(dossier.cifPrice || 0);
+
+  const closeDialog = () => {
+    setDialog(null);
+    setSelectedSourceId("");
+    setPaymentAmount("");
+  };
+
+  const submitCreation = async () => {
+    setFormSaving(true);
+    setErrorMsg(null);
+    try {
+      if (dialog === "contract") {
+        const dossier = dossiers.find((item) => item.id === selectedSourceId);
+        if (!dossier) throw new Error("Sélectionnez un dossier client.");
+        const totalAmount = commercialPrice(dossier);
+        if (totalAmount <= 0)
+          throw new Error("Ce dossier ne possède pas de prix commercial figé.");
+        await createContract({
+          clientId: dossier.clientId,
+          dossierId: dossier.id,
+          totalAmount,
+          currency: dossier.priceCurrency || "DZD",
+          schedule: [{ label: "Montant contractuel", amount: totalAmount }],
+        });
+        await loadContracts();
+      } else if (dialog === "invoice") {
+        const contract = contracts.find((item) => item.id === selectedSourceId);
+        if (!contract) throw new Error("Sélectionnez un contrat.");
+        const created = await createInvoice({
+          clientId: contract.clientId,
+          dossierId: contract.dossierId,
+          contractId: contract.id,
+          currency: contract.currency,
+          items: [
+            {
+              description: `Contrat ${contract.contractNumber}`,
+              quantity: 1,
+              unitPrice: Number(contract.totalAmount),
+              sourceEntity: "CONTRACT",
+            },
+          ],
+        });
+        if (hasPermission(Permission.INVOICES_ISSUE)) {
+          await issueInvoice(created.id);
+        }
+        await Promise.all([loadInvoices(), loadContracts(), loadOverview()]);
+      } else if (dialog === "payment") {
+        const invoice = invoices.find((item) => item.id === selectedSourceId);
+        if (!invoice) throw new Error("Sélectionnez une facture émise.");
+        const amount = Number(paymentAmount);
+        if (!Number.isFinite(amount) || amount <= 0)
+          throw new Error("Renseignez un montant de paiement valide.");
+        const created = await recordPayment({
+          clientId: invoice.clientId,
+          dossierId: invoice.dossierId || undefined,
+          invoiceId: invoice.id,
+          amount,
+          currency: invoice.currency,
+          reference: `Encaissement ${invoice.invoiceNumber}`,
+        });
+        if (hasPermission(Permission.PAYMENTS_CONFIRM)) {
+          await confirmPayment(created.id);
+        }
+        await Promise.all([loadPayments(), loadInvoices(), loadOverview()]);
+      }
+      closeDialog();
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : "Création impossible.",
+      );
+    } finally {
+      setFormSaving(false);
     }
   };
 
@@ -618,15 +723,25 @@ export default function FacturationPage() {
                   className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-input bg-background"
                 />
               </div>
-              <button
-                onClick={() => loadContracts()}
-                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
-                title="Actualiser"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${contractLoading ? "animate-spin" : ""}`}
-                />
-              </button>
+              <div className="flex gap-2">
+                {hasPermission(Permission.CONTRACTS_WRITE) && (
+                  <button
+                    onClick={() => setDialog("contract")}
+                    className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    <Plus className="mr-1 inline h-4 w-4" /> Nouveau contrat
+                  </button>
+                )}
+                <button
+                  onClick={() => loadContracts()}
+                  className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                  title="Actualiser"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${contractLoading ? "animate-spin" : ""}`}
+                  />
+                </button>
+              </div>
             </div>
 
             <div className="card p-0 overflow-hidden">
@@ -667,6 +782,15 @@ export default function FacturationPage() {
                   <option value="REJECTED">Rejeté</option>
                 </select>
               </div>
+              <div className="flex gap-2">
+              {hasPermission(Permission.PAYMENTS_WRITE) && (
+                <button
+                  onClick={() => setDialog("payment")}
+                  className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                >
+                  <Plus className="mr-1 inline h-4 w-4" /> Ajouter un paiement
+                </button>
+              )}
               <button
                 onClick={() => loadPayments()}
                 className="p-2 border border-border rounded-button text-muted hover:text-foreground"
@@ -676,6 +800,7 @@ export default function FacturationPage() {
                   className={`w-4 h-4 ${paymentLoading ? "animate-spin" : ""}`}
                 />
               </button>
+              </div>
             </div>
 
             <div className="card p-0 overflow-hidden">
@@ -717,6 +842,15 @@ export default function FacturationPage() {
                   <option value="VOIDED">Annulée</option>
                 </select>
               </div>
+              <div className="flex gap-2">
+              {hasPermission(Permission.INVOICES_WRITE) && (
+                <button
+                  onClick={() => setDialog("invoice")}
+                  className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                >
+                  <Plus className="mr-1 inline h-4 w-4" /> Nouvelle facture
+                </button>
+              )}
               <button
                 onClick={() => loadInvoices()}
                 className="p-2 border border-border rounded-button text-muted hover:text-foreground"
@@ -726,6 +860,7 @@ export default function FacturationPage() {
                   className={`w-4 h-4 ${invoiceLoading ? "animate-spin" : ""}`}
                 />
               </button>
+              </div>
             </div>
 
             <div className="card p-0 overflow-hidden">
@@ -734,6 +869,128 @@ export default function FacturationPage() {
           </div>
         )}
       </div>
+      {dialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <section className="card max-h-[90vh] w-full max-w-xl overflow-y-auto p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold">
+                {dialog === "contract"
+                  ? "Nouveau contrat"
+                  : dialog === "invoice"
+                    ? "Nouvelle facture"
+                    : "Ajouter un paiement"}
+              </h2>
+              <button onClick={closeDialog} aria-label="Fermer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-muted">
+              {dialog === "contract"
+                ? "Le montant provient du devis commercial figé dans le dossier."
+                : dialog === "invoice"
+                  ? "La facture reprend le client, le dossier et le montant du contrat."
+                  : "Le paiement est rattaché à la facture et à son dossier."}
+            </p>
+            <label className="mt-5 block">
+              <span className="field-label">
+                {dialog === "contract"
+                  ? "Dossier client"
+                  : dialog === "invoice"
+                    ? "Contrat"
+                    : "Facture"}
+              </span>
+              <select
+                className="w-full rounded-input border border-border bg-background px-3 py-2"
+                value={selectedSourceId}
+                onChange={(event) => {
+                  setSelectedSourceId(event.target.value);
+                  if (dialog === "payment") {
+                    const invoice = invoices.find(
+                      (item) => item.id === event.target.value,
+                    );
+                    if (invoice) {
+                      setPaymentAmount(
+                        String(Number(invoice.total) - Number(invoice.paidAmount)),
+                      );
+                    }
+                  }
+                }}
+              >
+                <option value="">Sélectionner</option>
+                {dialog === "contract" &&
+                  dossiers
+                    .filter(
+                      (dossier) =>
+                        !dossier.archivedAt &&
+                        commercialPrice(dossier) > 0 &&
+                        !contracts.some(
+                          (contract) => contract.dossierId === dossier.id,
+                        ),
+                    )
+                    .map((dossier) => (
+                      <option key={dossier.id} value={dossier.id}>
+                        {dossier.reference} · {dossier.client.firstName}{" "}
+                        {dossier.client.lastName} ·{" "}
+                        {formatMontant(commercialPrice(dossier))} DZD
+                      </option>
+                    ))}
+                {dialog === "invoice" &&
+                  contracts
+                    .filter((contract) => !contract.invoiceId)
+                    .map((contract) => (
+                      <option key={contract.id} value={contract.id}>
+                        {contract.contractNumber} · {contract.dossier.reference} ·{" "}
+                        {formatMontant(Number(contract.totalAmount))}{" "}
+                        {contract.currency}
+                      </option>
+                    ))}
+                {dialog === "payment" &&
+                  invoices
+                    .filter(
+                      (invoice) =>
+                        ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(
+                          invoice.status,
+                        ) && Number(invoice.total) > Number(invoice.paidAmount),
+                    )
+                    .map((invoice) => (
+                      <option key={invoice.id} value={invoice.id}>
+                        {invoice.invoiceNumber} · reste{" "}
+                        {formatMontant(
+                          Number(invoice.total) - Number(invoice.paidAmount),
+                        )}{" "}
+                        {invoice.currency}
+                      </option>
+                    ))}
+              </select>
+            </label>
+            {dialog === "payment" && (
+              <label className="mt-4 block">
+                <span className="field-label">Montant encaissé</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  className="w-full rounded-input border border-border bg-background px-3 py-2"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                />
+                <span className="mt-1 block text-xs text-muted">
+                  {hasPermission(Permission.PAYMENTS_CONFIRM)
+                    ? "Le paiement sera confirmé immédiatement et les KPI seront recalculés."
+                    : "Le paiement sera enregistré en attente de confirmation Finance."}
+                </span>
+              </label>
+            )}
+            <button
+              disabled={!selectedSourceId || formSaving}
+              onClick={() => void submitCreation()}
+              className="mt-6 w-full rounded-button bg-primary px-4 py-2.5 font-semibold text-white disabled:opacity-50"
+            >
+              {formSaving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </section>
+        </div>
+      )}
     </>
   );
 }

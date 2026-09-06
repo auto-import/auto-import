@@ -21,6 +21,8 @@ import { DocumentsService } from '../documents/documents.service';
 import { ConfigurationService } from '../configuration/configuration.service';
 import { CostsService } from '../finance/costs.service';
 import { FinanceProjectionService } from '../finance/finance-projection.service';
+import { DossierStatisticsDto } from './dto/dossier-statistics.dto';
+import { dossierCreatedRange } from '../common/helpers/zoned-date-range.helper';
 
 @Injectable()
 export class DossiersService {
@@ -82,6 +84,7 @@ export class DossiersService {
       vehicleIds,
       orderId,
       offerReservationId,
+      catalogueItemId,
       opsUserId,
       chinaResponsibleId,
     } = createDossierDto;
@@ -177,6 +180,20 @@ export class DossiersService {
     const dossierType = type || DossierType.VEHICLE_SALE_CIF;
     const initialStatus = this.workflowService.getInitialStatus(dossierType);
 
+    if (offerReservationId && catalogueItemId) {
+      throw new ConflictException(
+        'Sélectionnez soit un article catalogue, soit une réservation historique, pas les deux.',
+      );
+    }
+    if (
+      catalogueItemId &&
+      (uniqueVehicleIds.length > 0 || createDossierDto.vehicleRequestId)
+    ) {
+      throw new ConflictException(
+        'Un article catalogue ne peut pas être combiné avec une autre source véhicule.',
+      );
+    }
+
     if (offerReservationId) {
       if (dossierType === DossierType.SHIPPING_ONLY) {
         throw new ConflictException(
@@ -201,6 +218,73 @@ export class DossiersService {
 
     const dossier = await this.prisma.$transaction(async (prisma) => {
       const reference = await this.generateReference(prisma, organizationId);
+      let commercialQuotationId: string | undefined;
+      let cataloguePricing:
+        | { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal }
+        | undefined;
+      if (catalogueItemId) {
+        if (dossierType === DossierType.SHIPPING_ONLY) {
+          throw new ConflictException(
+            'Un dossier Expédition seule ne peut pas réserver un article du catalogue commercial.',
+          );
+        }
+        const catalogueItem = await prisma.catalogueItem.findFirst({
+          where: { id: catalogueItemId, organizationId, archivedAt: null },
+          include: {
+            sourceOfferVehicle: true,
+            activeCifQuotation: { include: { currentRevision: true } },
+            activeDdpQuotation: { include: { currentRevision: true } },
+          },
+        });
+        if (!catalogueItem) {
+          throw new NotFoundException('Véhicule catalogue introuvable.');
+        }
+        const quotation =
+          dossierType === DossierType.VEHICLE_SALE_DDP
+            ? catalogueItem.activeDdpQuotation
+            : catalogueItem.activeCifQuotation;
+        if (
+          !quotation?.cataloguePublished ||
+          !quotation.currentRevision ||
+          ['REJECTED', 'EXPIRED'].includes(quotation.status)
+        ) {
+          throw new ConflictException(
+            `Aucun devis ${dossierType === DossierType.VEHICLE_SALE_DDP ? 'DDP' : 'CIF'} publié n'est disponible pour ce véhicule.`,
+          );
+        }
+        const reservedCatalogue = await prisma.$executeRaw`
+          UPDATE "CatalogueItem"
+          SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
+          WHERE "id" = ${catalogueItem.id}
+            AND "organizationId" = ${organizationId}
+            AND "archivedAt" IS NULL
+            AND "reservedQuantity" + 1 <= "availableQuantity"`;
+        if (reservedCatalogue !== 1) {
+          throw new ConflictException(
+            'Ce véhicule catalogue vient d’être réservé par un autre dossier.',
+          );
+        }
+        const reservedOfferVehicle = await prisma.$executeRaw`
+          UPDATE "ChinaOfferVehicle"
+          SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
+          WHERE "id" = ${catalogueItem.sourceOfferVehicleId}
+            AND "organizationId" = ${organizationId}
+            AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
+        if (reservedOfferVehicle !== 1) {
+          throw new ConflictException(
+            "La quantité disponible de l'offre a changé. Rechargez le catalogue.",
+          );
+        }
+        await prisma.chinaOffer.update({
+          where: { id: catalogueItem.sourceOfferVehicle.offerId },
+          data: { reservedQuantity: { increment: 1 } },
+        });
+        commercialQuotationId = quotation.id;
+        cataloguePricing =
+          dossierType === DossierType.VEHICLE_SALE_DDP
+            ? { ddpPrice: quotation.currentRevision.finalCustomerPriceDzd }
+            : { cifPrice: quotation.currentRevision.finalCustomerPriceDzd };
+      }
       if (uniqueVehicleIds.length > 0) {
         const reserved = await prisma.vehicle.updateMany({
           where: {
@@ -225,6 +309,11 @@ export class DossiersService {
           clientId,
           vehicleRequestId: createDossierDto.vehicleRequestId,
           orderId,
+          catalogueItemId,
+          commercialQuotationId,
+          ...cataloguePricing,
+          priceCurrency: cataloguePricing ? 'DZD' : undefined,
+          priceLockedAt: cataloguePricing ? new Date() : undefined,
           status: initialStatus,
           workflowVersion: 2,
           salesUserId: salesUserIdToUse,
@@ -257,6 +346,10 @@ export class DossiersService {
           offerReservation: {
             include: { offer: { include: { supplier: true } } },
           },
+          catalogueItem: {
+            include: { sourceOfferVehicle: { include: { offer: true } } },
+          },
+          commercialQuotation: { include: { currentRevision: true } },
         },
       });
 
@@ -521,7 +614,14 @@ export class DossiersService {
   ) {
     const skip = (page - 1) * limit;
 
-    const where: Prisma.DossierWhereInput = { organizationId };
+    const where: Prisma.DossierWhereInput = {
+      organizationId,
+      ...(filters?.archivedOnly
+        ? { archivedAt: { not: null } }
+        : filters?.includeArchived
+          ? {}
+          : { archivedAt: null }),
+    };
 
     if (filters?.type) where.type = filters.type;
     if (filters?.status) where.status = filters.status;
@@ -566,6 +666,14 @@ export class DossiersService {
             orderBy: { createdAt: 'desc' },
             take: 1,
           },
+          catalogueItem: {
+            include: {
+              sourceOfferVehicle: true,
+              activeCifQuotation: { include: { currentRevision: true } },
+              activeDdpQuotation: { include: { currentRevision: true } },
+            },
+          },
+          commercialQuotation: { include: { currentRevision: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -625,6 +733,20 @@ export class DossiersService {
         },
         offerReservation: {
           include: { offer: { include: { supplier: true } } },
+        },
+        catalogueItem: {
+          include: {
+            sourceOfferVehicle: { include: { offer: true } },
+            activeCifQuotation: { include: { currentRevision: true } },
+            activeDdpQuotation: { include: { currentRevision: true } },
+          },
+        },
+        commercialQuotation: {
+          include: {
+            currentRevision: {
+              include: { otherCosts: true, exchangeRate: true },
+            },
+          },
         },
         forwarderSupplier: true,
         purchases: {
@@ -1101,6 +1223,14 @@ export class DossiersService {
         data: {
           status,
           closedAt: isClosing ? new Date() : undefined,
+          archivedAt:
+            status === DossierStatus.CANCELLED ? new Date() : undefined,
+          archivedById:
+            status === DossierStatus.CANCELLED ? userId : undefined,
+          archiveReason:
+            status === DossierStatus.CANCELLED
+              ? updateStatusDto.comment || 'Dossier annulé'
+              : undefined,
           priceLockedAt:
             status === DossierStatus.CONTRACT_SIGNED && !dossier.priceLockedAt
               ? new Date()
@@ -1121,6 +1251,7 @@ export class DossiersService {
             },
           },
           order: true,
+          catalogueItem: { include: { sourceOfferVehicle: true } },
         },
       });
 
@@ -1227,6 +1358,41 @@ export class DossiersService {
               reservedQuantity: { decrement: offerReservation.quantity },
             },
           });
+        }
+        if (updated.catalogueItemId && updated.catalogueItem) {
+          const releasedCatalogue = await prisma.$executeRaw`
+            UPDATE "CatalogueItem"
+            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
+            WHERE "id" = ${updated.catalogueItemId}
+              AND "organizationId" = ${updated.organizationId}
+              AND "reservedQuantity" > 0`;
+          if (releasedCatalogue !== 1) {
+            throw new ConflictException(
+              'La réservation catalogue de ce dossier est incohérente.',
+            );
+          }
+          const releasedOfferVehicle = await prisma.$executeRaw`
+            UPDATE "ChinaOfferVehicle"
+            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
+            WHERE "id" = ${updated.catalogueItem.sourceOfferVehicleId}
+              AND "organizationId" = ${updated.organizationId}
+              AND "reservedQuantity" > 0`;
+          if (releasedOfferVehicle !== 1) {
+            throw new ConflictException(
+              "La réservation du véhicule de l'offre est incohérente.",
+            );
+          }
+          const releasedOffer = await prisma.$executeRaw`
+            UPDATE "ChinaOffer"
+            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
+            WHERE "id" = ${updated.catalogueItem.sourceOfferVehicle.offerId}
+              AND "organizationId" = ${updated.organizationId}
+              AND "reservedQuantity" > 0`;
+          if (releasedOffer !== 1) {
+            throw new ConflictException(
+              "La quantité réservée de l'offre est incohérente.",
+            );
+          }
         }
       } else {
         await this.vehicleStatusSync.syncForTransition(prisma, {
@@ -1467,9 +1633,305 @@ export class DossiersService {
     );
   }
 
-  async getStatistics(organizationId: string) {
-    const [total, statuses, types] = await Promise.all([
+  async restore(id: string, organizationId: string, actorId: string) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id, organizationId },
+      include: {
+        history: {
+          where: { toStatus: DossierStatus.CANCELLED },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+        dossierVehicles: { include: { vehicle: true } },
+        offerReservation: { include: { offer: true } },
+        catalogueItem: { include: { sourceOfferVehicle: true } },
+      },
+    });
+    if (!dossier) throw new NotFoundException('Dossier introuvable.');
+    if (!dossier.archivedAt) return this.findOne(id, organizationId);
+    const restoredStatus =
+      dossier.history[0]?.fromStatus ||
+      this.workflowService.getInitialStatus(dossier.type);
+    const vehicleIds = dossier.dossierVehicles.map((link) => link.vehicleId);
+    const conflicting = vehicleIds.length
+      ? await this.prisma.dossierVehicle.findFirst({
+          where: {
+            vehicleId: { in: vehicleIds },
+            dossierId: { not: id },
+            dossier: {
+              organizationId,
+              archivedAt: null,
+              status: {
+                notIn: [
+                  DossierStatus.CLOSED,
+                  DossierStatus.SERVICE_COMPLETED,
+                  DossierStatus.CANCELLED,
+                ],
+              },
+            },
+          },
+        })
+      : null;
+    if (conflicting) {
+      throw new ConflictException(
+        'Ce dossier ne peut pas être restauré car un véhicule est déjà affecté à un autre dossier actif.',
+      );
+    }
+    const offerReservation = dossier.offerReservation;
+    if (offerReservation?.status === 'released') {
+      const remaining =
+        offerReservation.offer.availableQuantity -
+        offerReservation.offer.reservedQuantity;
+      if (
+        offerReservation.offer.archivedAt ||
+        offerReservation.offer.validUntil <= new Date() ||
+        remaining < offerReservation.quantity
+      ) {
+        throw new ConflictException(
+          "Ce dossier ne peut pas être restauré car l'offre Chine n'est plus disponible.",
+        );
+      }
+    } else if (
+      offerReservation &&
+      !['active', 'released'].includes(offerReservation.status)
+    ) {
+      throw new ConflictException(
+        "Ce dossier ne peut pas être restauré car sa réservation d'offre est clôturée.",
+      );
+    }
+    if (
+      dossier.catalogueItem &&
+      (dossier.catalogueItem.archivedAt ||
+        dossier.catalogueItem.reservedQuantity + 1 >
+          dossier.catalogueItem.availableQuantity)
+    ) {
+      throw new ConflictException(
+        "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const conflictInTransaction = vehicleIds.length
+        ? await tx.dossierVehicle.findFirst({
+            where: {
+              vehicleId: { in: vehicleIds },
+              dossierId: { not: id },
+              dossier: {
+                organizationId,
+                archivedAt: null,
+                status: {
+                  notIn: [
+                    DossierStatus.CLOSED,
+                    DossierStatus.SERVICE_COMPLETED,
+                    DossierStatus.CANCELLED,
+                  ],
+                },
+              },
+            },
+          })
+        : null;
+      if (conflictInTransaction) {
+        throw new ConflictException(
+          'Ce dossier ne peut pas être restauré car un véhicule est déjà affecté à un autre dossier actif.',
+        );
+      }
+      if (offerReservation?.status === 'released') {
+        const currentOffer = await tx.chinaOffer.findUniqueOrThrow({
+          where: { id: offerReservation.offerId },
+        });
+        if (
+          currentOffer.archivedAt ||
+          currentOffer.validUntil <= new Date() ||
+          currentOffer.availableQuantity - currentOffer.reservedQuantity <
+            offerReservation.quantity
+        ) {
+          throw new ConflictException(
+            "Ce dossier ne peut pas être restauré car l'offre Chine n'est plus disponible.",
+          );
+        }
+      }
+      if (dossier.catalogueItem) {
+        const reservedCatalogue = await tx.$executeRaw`
+          UPDATE "CatalogueItem"
+          SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
+          WHERE "id" = ${dossier.catalogueItem.id}
+            AND "organizationId" = ${organizationId}
+            AND "archivedAt" IS NULL
+            AND "reservedQuantity" + 1 <= "availableQuantity"`;
+        if (reservedCatalogue !== 1) {
+          throw new ConflictException(
+            "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
+          );
+        }
+        const reservedOfferVehicle = await tx.$executeRaw`
+          UPDATE "ChinaOfferVehicle"
+          SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
+          WHERE "id" = ${dossier.catalogueItem.sourceOfferVehicleId}
+            AND "organizationId" = ${organizationId}
+            AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
+        if (reservedOfferVehicle !== 1) {
+          throw new ConflictException(
+            "Ce dossier ne peut pas être restauré car la quantité de l'offre n'est plus disponible.",
+          );
+        }
+        await tx.chinaOffer.update({
+          where: { id: dossier.catalogueItem.sourceOfferVehicle.offerId },
+          data: { reservedQuantity: { increment: 1 } },
+        });
+      }
+      await tx.dossier.update({
+        where: { id },
+        data: {
+          status: restoredStatus,
+          archivedAt: null,
+          archivedById: null,
+          archiveReason: null,
+          closedAt: null,
+        },
+      });
+      await tx.vehicle.updateMany({
+        where: {
+          id: { in: vehicleIds },
+          organizationId,
+          status: VehicleStatus.AVAILABLE,
+        },
+        data: { status: VehicleStatus.RESERVED },
+      });
+      if (offerReservation?.status === 'released') {
+        await tx.offerReservation.update({
+          where: { id: offerReservation.id },
+          data: {
+            status: 'active',
+            releasedAt: null,
+            releaseReason: null,
+          },
+        });
+        await tx.chinaOffer.update({
+          where: { id: offerReservation.offerId },
+          data: {
+            reservedQuantity: { increment: offerReservation.quantity },
+          },
+        });
+      }
+      await tx.dossierStatusHistory.create({
+        data: {
+          dossierId: id,
+          fromStatus: DossierStatus.CANCELLED,
+          toStatus: restoredStatus,
+          changedBy: actorId,
+          comment: 'Dossier restauré depuis les archives',
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'DOSSIER_RESTORED',
+          entityType: 'Dossier',
+          entityId: id,
+          newValues: { restoredStatus },
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return this.findOne(id, organizationId);
+  }
+
+  async permanentlyDelete(
+    id: string,
+    organizationId: string,
+    actorId: string,
+  ) {
+    const dossier = await this.prisma.dossier.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true,
+        reference: true,
+        archivedAt: true,
+        orderId: true,
+        vehicleRequestId: true,
+        offerReservation: { select: { id: true } },
+        catalogueItemId: true,
+        _count: {
+          select: {
+            purchases: true,
+            invoices: true,
+            paymentPlans: true,
+            payments: true,
+            customerDeposits: true,
+            costs: true,
+            documents: true,
+            notes: true,
+            customsFiles: true,
+            tasks: true,
+            checkpointEvidence: true,
+            gedLinks: true,
+            supplierLinks: true,
+            contracts: true,
+            financeTransactions: true,
+            customerQuotations: true,
+            calls: true,
+          },
+        },
+      },
+    });
+    if (!dossier) throw new NotFoundException('Dossier introuvable.');
+    if (!dossier.archivedAt) {
+      throw new ConflictException(
+        'Le dossier doit être archivé avant sa suppression définitive.',
+      );
+    }
+    const hasRelations =
+      Boolean(dossier.orderId || dossier.vehicleRequestId || dossier.offerReservation) ||
+      Object.values(dossier._count).some((count) => count > 0);
+    if (hasRelations) {
+      throw new ConflictException(
+        'Ce dossier contient des données financières, des documents ou un historique métier lié et ne peut pas être supprimé définitivement.',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dossierStatusHistory.deleteMany({ where: { dossierId: id } });
+      await tx.dossier.delete({ where: { id } });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'DOSSIER_PERMANENTLY_DELETED',
+          entityType: 'Dossier',
+          entityId: id,
+          oldValues: { reference: dossier.reference },
+        },
+      });
+    });
+    return { message: 'Dossier supprimé définitivement.' };
+  }
+
+  async getStatistics(
+    organizationId: string,
+    query: DossierStatisticsDto = new DossierStatisticsDto(),
+  ) {
+    const settings = this.prisma.organizationSettings?.findUnique
+      ? await this.prisma.organizationSettings.findUnique({
+          where: { organizationId },
+          select: { timezone: true },
+        })
+      : null;
+    const range = dossierCreatedRange(
+      query.period ?? 'month',
+      settings?.timezone ?? 'Africa/Algiers',
+      query.from,
+      query.to,
+    );
+    const [total, active, archived, created, statuses, types] = await Promise.all([
       this.prisma.dossier.count({ where: { organizationId } }),
+      this.prisma.dossier.count({ where: { organizationId, archivedAt: null } }),
+      this.prisma.dossier.count({
+        where: { organizationId, archivedAt: { not: null } },
+      }),
+      this.prisma.dossier.count({
+        where: {
+          organizationId,
+          createdAt: { gte: range.from, lt: range.toExclusive },
+        },
+      }),
       this.prisma.dossier.groupBy({
         by: ['status'],
         where: { organizationId },
@@ -1494,9 +1956,18 @@ export class DossiersService {
 
     return {
       total,
+      active,
+      archived,
       byStatus,
       byType,
       completionRate: total > 0 ? (completed / total) * 100 : 0,
+      created: {
+        count: created,
+        period: query.period ?? 'month',
+        from: range.from.toISOString(),
+        toExclusive: range.toExclusive.toISOString(),
+        timezone: range.timezone,
+      },
     };
   }
 }

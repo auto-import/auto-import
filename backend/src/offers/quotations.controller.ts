@@ -39,6 +39,15 @@ export class QuotationsController {
     return this.quotations.create(user.organizationId, user.id, dto);
   }
 
+  @Post('preview')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  preview(
+    @Body() dto: CreateQuotationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.quotations.preview(user.organizationId, dto);
+  }
+
   @Post(':id/revisions')
   @RequirePermission(Permission.OFFERS_WRITE)
   revise(

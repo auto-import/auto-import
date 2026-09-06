@@ -14,6 +14,7 @@ import {
 export const VEHICLE_LOOKUP_KINDS = [
   'BRAND',
   'MODEL',
+  'VERSION',
   'ENGINE',
   'TRANSMISSION',
   'FUEL_TYPE',

@@ -20,12 +20,9 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateOfferDto,
-  AssignOfferDto,
-  CreatePurchaseFromOfferDto,
   FilterOfferDto,
   MaterializeOfferDto,
   ReleaseOfferDto,
-  ReserveOfferDto,
   UpdateOfferDto,
   TransitionOfferDto,
   PurchaseOfferVehicleDto,
@@ -138,31 +135,6 @@ export class OffersController {
     return this.offers.transition(id, dto, user.id, user.organizationId);
   }
 
-  @Post(':id/assign')
-  @RequirePermission(Permission.OFFERS_WRITE)
-  assign(
-    @Param('id') id: string,
-    @Body() dto: AssignOfferDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.offers.assignToDossier(id, dto, user.id, user.organizationId);
-  }
-
-  @Post(':id/create-purchase')
-  @RequirePermission(Permission.PURCHASES_WRITE)
-  createPurchase(
-    @Param('id') id: string,
-    @Body() dto: CreatePurchaseFromOfferDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.offers.createPurchaseFromOffer(
-      id,
-      dto,
-      user.id,
-      user.organizationId,
-    );
-  }
-
   @Post(':id/vehicles/:vehicleId/purchase')
   @RequirePermission(Permission.PURCHASES_WRITE)
   purchaseOfferVehicle(
@@ -201,16 +173,6 @@ export class OffersController {
   @RequirePermission(Permission.OFFERS_WRITE)
   archive(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.offers.archive(id, user.organizationId);
-  }
-
-  @Post(':id/reservations')
-  @RequirePermission(Permission.OFFERS_WRITE)
-  reserve(
-    @Param('id') id: string,
-    @Body() dto: ReserveOfferDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.offers.reserve(id, dto, user.id, user.organizationId);
   }
 
   @Post('reservations/:id/release')

@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { crmApi, type ApiCrmReference } from "@/lib/crm-api";
+import {
+  crmApi,
+  type ApiCrmReference,
+  type VehicleOption,
+} from "@/lib/crm-api";
 import { LeadQualification } from "@/lib/api-contract";
+import AlgeriaLocationFields from "./AlgeriaLocationFields";
 
 export default function LeadFormDialog({
   onClose,
@@ -28,6 +33,9 @@ export default function LeadFormDialog({
     brand: "",
     model: "",
     requirements: "",
+    vehicleMode: "inventory" as "inventory" | "custom",
+    vehicleId: "",
+    vehicleSearch: "",
     notes: "",
     needType: "VEHICLE" as "VEHICLE" | "SHIPPING",
     shippingDescription: "",
@@ -38,6 +46,8 @@ export default function LeadFormDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [references, setReferences] = useState<ApiCrmReference[]>([]);
+  const [vehicleOptions, setVehicleOptions] = useState<VehicleOption[]>([]);
+  const [vehicleLoading, setVehicleLoading] = useState(false);
   const byKind = useMemo(
     () => (kind: ApiCrmReference["kind"]) =>
       references.filter((item) => item.kind === kind && item.active),
@@ -80,6 +90,25 @@ export default function LeadFormDialog({
         ),
       );
   }, []);
+  useEffect(() => {
+    if (values.needType !== "VEHICLE" || values.vehicleMode !== "inventory") {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setVehicleLoading(true);
+      void crmApi
+        .vehicleOptions(values.vehicleSearch)
+        .then(setVehicleOptions)
+        .catch(() =>
+          setError("Impossible de charger les véhicules disponibles."),
+        )
+        .finally(() => setVehicleLoading(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [values.needType, values.vehicleMode, values.vehicleSearch]);
+  const selectedVehicle = vehicleOptions.find(
+    (vehicle) => vehicle.id === values.vehicleId,
+  );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -118,10 +147,24 @@ export default function LeadFormDialog({
             : undefined,
         requirement:
           values.needType === "VEHICLE" &&
-          (values.brand || values.model || values.requirements)
+          (values.vehicleId ||
+            values.brand ||
+            values.model ||
+            values.requirements)
             ? {
-                brand: values.brand || undefined,
-                model: values.model || undefined,
+                vehicleId:
+                  values.vehicleMode === "inventory"
+                    ? values.vehicleId || undefined
+                    : undefined,
+                customRequest: values.vehicleMode === "custom",
+                brand:
+                  values.vehicleMode === "custom"
+                    ? values.brand || undefined
+                    : selectedVehicle?.brand,
+                model:
+                  values.vehicleMode === "custom"
+                    ? values.model || undefined
+                    : selectedVehicle?.model,
                 requirements: values.requirements || undefined,
               }
             : undefined,
@@ -206,22 +249,6 @@ export default function LeadFormDialog({
               setValues({ ...values, email: event.target.value })
             }
           />
-          <input
-            className={input}
-            placeholder="Wilaya"
-            value={values.wilaya}
-            onChange={(event) =>
-              setValues({ ...values, wilaya: event.target.value })
-            }
-          />
-          <input
-            className={input}
-            placeholder="Ville"
-            value={values.city}
-            onChange={(event) =>
-              setValues({ ...values, city: event.target.value })
-            }
-          />
           <select
             className={input}
             required
@@ -252,20 +279,14 @@ export default function LeadFormDialog({
               </option>
             ))}
           </select>
-          <select
-            className={input}
-            value={values.countryId}
-            onChange={(event) =>
-              setValues({ ...values, countryId: event.target.value })
-            }
-          >
-            <option value="">Pays</option>
-            {byKind("COUNTRY").map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.labelFr}
-              </option>
-            ))}
-          </select>
+          <AlgeriaLocationFields
+            references={references}
+            inputClass={input}
+            countryId={values.countryId}
+            wilaya={values.wilaya}
+            city={values.city}
+            onChange={(location) => setValues({ ...values, ...location })}
+          />
           <select
             className={input}
             value={values.qualification}
@@ -308,22 +329,98 @@ export default function LeadFormDialog({
           </label>
           {values.needType === "VEHICLE" ? (
             <>
-              <input
-                className={input}
-                placeholder="Marque"
-                value={values.brand}
-                onChange={(event) =>
-                  setValues({ ...values, brand: event.target.value })
-                }
-              />
-              <input
-                className={input}
-                placeholder="Modèle"
-                value={values.model}
-                onChange={(event) =>
-                  setValues({ ...values, model: event.target.value })
-                }
-              />
+              <label className="md:col-span-2">
+                <span className="mb-1 block text-xs text-muted">
+                  Source du besoin
+                </span>
+                <select
+                  className={input}
+                  value={values.vehicleMode}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      vehicleMode: event.target.value as
+                        | "inventory"
+                        | "custom",
+                      vehicleId: "",
+                    })
+                  }
+                >
+                  <option value="inventory">Véhicule disponible dans l’ERP</option>
+                  <option value="custom">Recherche personnalisée</option>
+                </select>
+              </label>
+              {values.vehicleMode === "inventory" ? (
+                <>
+                  <input
+                    className={`${input} md:col-span-2`}
+                    placeholder="Rechercher une marque, un modèle ou un VIN…"
+                    value={values.vehicleSearch}
+                    onChange={(event) =>
+                      setValues({
+                        ...values,
+                        vehicleSearch: event.target.value,
+                        vehicleId: "",
+                      })
+                    }
+                  />
+                  <select
+                    required
+                    aria-label="Véhicule"
+                    className={`${input} md:col-span-2`}
+                    disabled={vehicleLoading}
+                    value={values.vehicleId}
+                    onChange={(event) =>
+                      setValues({ ...values, vehicleId: event.target.value })
+                    }
+                  >
+                    <option value="">
+                      {vehicleLoading
+                        ? "Chargement…"
+                        : "Sélectionner un véhicule"}
+                    </option>
+                    {vehicleOptions.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.brand} {vehicle.model}
+                        {vehicle.year ? ` — ${vehicle.year}` : ""}
+                        {vehicle.vin ? ` — ${vehicle.vin}` : ""}
+                        {` — ${vehicle.source}`}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedVehicle && (
+                    <div className="md:col-span-2 rounded-card bg-surface p-3 text-sm">
+                      <strong>
+                        {selectedVehicle.brand} {selectedVehicle.model}
+                      </strong>
+                      <span className="ml-2 text-muted">
+                        Disponible · {selectedVehicle.source}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input
+                    required
+                    className={input}
+                    placeholder="Marque"
+                    value={values.brand}
+                    onChange={(event) =>
+                      setValues({ ...values, brand: event.target.value })
+                    }
+                  />
+                  <input
+                    required
+                    className={input}
+                    placeholder="Modèle"
+                    value={values.model}
+                    onChange={(event) =>
+                      setValues({ ...values, model: event.target.value })
+                    }
+                  />
+                </>
+              )}
               <textarea
                 className={`${input} md:col-span-2`}
                 rows={2}

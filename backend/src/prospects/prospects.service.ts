@@ -23,6 +23,8 @@ import {
   legacyStatusProjection,
 } from '../crm/crm-lead-workflow';
 import { TransitionProspectDto } from './dto/transition-prospect.dto';
+import { normalizeAndValidateCrmLocation } from '../crm/algeria-location.validation';
+import { DossierStatus, VehicleStatus } from '@auto-import/contracts';
 
 function isPrismaConcurrencyError(error: unknown): boolean {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -112,6 +114,24 @@ export class ProspectsService {
               leadData.countryId,
               CrmReferenceKind.COUNTRY,
             );
+            const location = await normalizeAndValidateCrmLocation(
+              transaction,
+              organizationId,
+              {
+                countryId: leadData.countryId,
+                wilaya: leadData.wilaya,
+                city: leadData.city,
+              },
+            );
+            const { vehicleId, customRequest: _customRequest, ...requirementData } =
+              requirement ?? {};
+            if (vehicleId) {
+              await this.assertEligibleVehicle(
+                transaction,
+                organizationId,
+                vehicleId,
+              );
+            }
             const phoneNormalized =
               await this.contacts!.normalizePhoneForCountry(
                 transaction,
@@ -122,6 +142,7 @@ export class ProspectsService {
             const created = await transaction.prospect.create({
               data: {
                 ...leadData,
+                ...location,
                 organizationId,
                 assignedTo,
                 phoneNormalized,
@@ -131,7 +152,22 @@ export class ProspectsService {
                 needType: leadData.needType ?? 'VEHICLE',
                 vehicleRequests:
                   requirement && (leadData.needType ?? 'VEHICLE') === 'VEHICLE'
-                    ? { create: { ...requirement, organizationId, assignedTo } }
+                    ? {
+                        create: {
+                          ...requirementData,
+                          organizationId,
+                          assignedTo,
+                          candidates: vehicleId
+                            ? {
+                                create: {
+                                  vehicleId,
+                                  status: 'proposed',
+                                  presentedAt: new Date(),
+                                },
+                              }
+                            : undefined,
+                        },
+                      }
                     : undefined,
               },
               include: this.prospectInclude(),
@@ -307,6 +343,8 @@ export class ProspectsService {
             archivedAt: true,
             countryId: true,
             needType: true,
+            wilaya: true,
+            city: true,
           },
         });
         if (!existing) throw new NotFoundException('Prospect not found');
@@ -337,6 +375,23 @@ export class ProspectsService {
           updateProspectDto.countryId,
           CrmReferenceKind.COUNTRY,
         );
+        const effectiveCountryId =
+          updateProspectDto.countryId ?? existing.countryId;
+        const locationChanged =
+          updateProspectDto.countryId !== undefined ||
+          updateProspectDto.wilaya !== undefined ||
+          updateProspectDto.city !== undefined;
+        const location = locationChanged
+          ? await normalizeAndValidateCrmLocation(
+              transaction,
+              organizationId,
+              {
+                countryId: effectiveCountryId,
+                wilaya: updateProspectDto.wilaya ?? existing.wilaya,
+                city: updateProspectDto.city ?? existing.city,
+              },
+            )
+          : null;
         const { nextActionAt, requirement, ...data } = updateProspectDto;
         const phoneNormalized =
           data.phone === undefined
@@ -351,6 +406,7 @@ export class ProspectsService {
           where: { id },
           data: {
             ...data,
+            ...(location ?? {}),
             ...(phoneNormalized !== undefined ? { phoneNormalized } : {}),
             ...(nextActionAt !== undefined
               ? { nextActionAt: nextActionAt ? new Date(nextActionAt) : null }
@@ -377,6 +433,18 @@ export class ProspectsService {
           requirement &&
           (data.needType ?? existing.needType ?? 'VEHICLE') === 'VEHICLE'
         ) {
+          const {
+            vehicleId,
+            customRequest,
+            ...requirementData
+          } = requirement;
+          if (vehicleId) {
+            await this.assertEligibleVehicle(
+              transaction,
+              organizationId,
+              vehicleId,
+            );
+          }
           const openRequest = await transaction.vehicleRequest.findFirst({
             where: {
               organizationId,
@@ -388,15 +456,58 @@ export class ProspectsService {
           if (openRequest) {
             await transaction.vehicleRequest.update({
               where: { id: openRequest.id },
-              data: requirement,
+              data: {
+                ...requirementData,
+                ...(customRequest
+                  ? {
+                      candidates: {
+                        updateMany: {
+                          where: { status: 'proposed' },
+                          data: { status: 'rejected' },
+                        },
+                      },
+                    }
+                  : vehicleId
+                    ? {
+                        candidates: {
+                          upsert: {
+                            where: {
+                              vehicleRequestId_vehicleId: {
+                                vehicleRequestId: openRequest.id,
+                                vehicleId,
+                              },
+                            },
+                            create: {
+                              vehicleId,
+                              status: 'proposed',
+                              presentedAt: new Date(),
+                            },
+                            update: {
+                              status: 'proposed',
+                              presentedAt: new Date(),
+                            },
+                          },
+                        },
+                      }
+                    : {}),
+              },
             });
           } else {
             await transaction.vehicleRequest.create({
               data: {
-                ...requirement,
+                ...requirementData,
                 organizationId,
                 prospectId: id,
                 assignedTo: updateProspectDto.assignedTo ?? existing.assignedTo,
+                candidates: vehicleId
+                  ? {
+                      create: {
+                        vehicleId,
+                        status: 'proposed',
+                        presentedAt: new Date(),
+                      },
+                    }
+                  : undefined,
               },
             });
           }
@@ -556,6 +667,149 @@ export class ProspectsService {
     return { message: 'Prospect archived successfully', archivedAt };
   }
 
+  async restore(id: string, organizationId: string, actorId: string) {
+    const prospect = await this.prisma.prospect.findFirst({
+      where: { id, organizationId },
+      select: { id: true, archivedAt: true },
+    });
+    if (!prospect) throw new NotFoundException('Lead introuvable.');
+    if (!prospect.archivedAt) return { message: 'Ce lead est déjà actif.' };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.prospect.update({
+        where: { id },
+        data: { archivedAt: null, archivedById: null, archiveReason: null },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'CRM_LEAD_RESTORED',
+          entityType: 'Prospect',
+          entityId: id,
+        },
+      });
+    });
+    return this.findOne(id, organizationId);
+  }
+
+  async permanentlyDelete(
+    id: string,
+    organizationId: string,
+    actorId: string,
+  ) {
+    const prospect = await this.prisma.prospect.findFirst({
+      where: { id, organizationId },
+      select: { id: true, archivedAt: true },
+    });
+    if (!prospect) throw new NotFoundException('Lead introuvable.');
+    if (!prospect.archivedAt) {
+      throw new ConflictException(
+        'Le lead doit être archivé avant sa suppression définitive.',
+      );
+    }
+    const blockers = await Promise.all([
+      this.prisma.client.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.prospectConversion.count({
+        where: { organizationId, prospectId: id },
+      }),
+      this.prisma.prospectActivity.count({ where: { prospectId: id } }),
+      this.prisma.vehicleRequest.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.order.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.customerDeposit.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.callSession.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.whatsappConversation.count({
+        where: { organizationId, prospectId: id },
+      }),
+      this.prisma.appointment.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.crmNote.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.gedDocumentLink.count({
+        where: { organizationId, prospectId: id },
+      }),
+      this.prisma.task.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.contract.count({ where: { organizationId, prospectId: id } }),
+      this.prisma.financeTransaction.count({
+        where: { organizationId, prospectId: id },
+      }),
+    ]);
+    if (blockers.some(Boolean)) {
+      throw new ConflictException(
+        'Ce lead contient une conversion, une activité ou des données métier et ne peut pas être supprimé définitivement.',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contactPoint.deleteMany({ where: { organizationId, prospectId: id } });
+      await tx.prospectStatusHistory.deleteMany({
+        where: { organizationId, prospectId: id },
+      });
+      await tx.prospect.delete({ where: { id } });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId: actorId,
+          action: 'CRM_LEAD_PERMANENTLY_DELETED',
+          entityType: 'Prospect',
+          entityId: id,
+        },
+      });
+    });
+    return { message: 'Lead supprimé définitivement.' };
+  }
+
+  async listVehicleOptions(organizationId: string, search?: string) {
+    const normalizedSearch = search?.trim();
+    const vehicles = await this.prisma.vehicle.findMany({
+      where: {
+        organizationId,
+        archivedAt: null,
+        status: VehicleStatus.AVAILABLE,
+        acquisitionType: { in: ['stock', 'chinaOffer', 'clientRequest'] },
+        dossierVehicles: {
+          none: {
+            dossier: {
+              archivedAt: null,
+              status: {
+                notIn: [
+                  DossierStatus.CLOSED,
+                  DossierStatus.SERVICE_COMPLETED,
+                  DossierStatus.CANCELLED,
+                ],
+              },
+            },
+          },
+        },
+        ...(normalizedSearch
+          ? {
+              OR: [
+                { brand: { contains: normalizedSearch, mode: 'insensitive' } },
+                { model: { contains: normalizedSearch, mode: 'insensitive' } },
+                { vin: { contains: normalizedSearch, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        brand: true,
+        model: true,
+        year: true,
+        vin: true,
+        status: true,
+        acquisitionType: true,
+      },
+      orderBy: [{ brand: 'asc' }, { model: 'asc' }],
+      take: 50,
+    });
+    return vehicles.map((vehicle) => ({
+      ...vehicle,
+      source:
+        vehicle.acquisitionType === 'chinaOffer'
+          ? 'Offre Chine achetée'
+          : vehicle.acquisitionType === 'stock'
+            ? 'Stock'
+            : 'Achat sur demande',
+    }));
+  }
+
   async addActivity(
     createActivityDto: CreateActivityDto,
     userId: string,
@@ -677,6 +931,9 @@ export class ProspectsService {
                   phoneNormalized: resolved.normalizedValue,
                   email: convertProspectDto.email ?? prospect.email,
                   countryId: convertProspectDto.countryId ?? prospect.countryId,
+                  wilaya: prospect.wilaya,
+                  city: prospect.city,
+                  notes: prospect.notes,
                   nationalityCountryId: convertProspectDto.nationalityCountryId,
                   address: convertProspectDto.address,
                   assignedTo: prospect.assignedTo,
@@ -869,7 +1126,15 @@ export class ProspectsService {
       entryChannel: true,
       marketingSource: true,
       country: true,
-      vehicleRequests: { orderBy: { createdAt: 'desc' as const } },
+      vehicleRequests: {
+        orderBy: { createdAt: 'desc' as const },
+        include: {
+          candidates: {
+            include: { vehicle: true },
+            orderBy: { presentedAt: 'desc' as const },
+          },
+        },
+      },
       tasks: {
         where: { status: { notIn: ['completed', 'cancelled'] } },
         orderBy: { dueDate: 'asc' as const },
@@ -889,11 +1154,50 @@ export class ProspectsService {
       countryId: true,
       nationalityCountryId: true,
       address: true,
+      wilaya: true,
+      city: true,
+      notes: true,
       status: true,
       assignedTo: true,
       createdAt: true,
       updatedAt: true,
     } as const;
+  }
+
+  private async assertEligibleVehicle(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    vehicleId: string,
+  ) {
+    const vehicle = await tx.vehicle.findFirst({
+      where: {
+        id: vehicleId,
+        organizationId,
+        archivedAt: null,
+        status: VehicleStatus.AVAILABLE,
+        acquisitionType: { in: ['stock', 'chinaOffer', 'clientRequest'] },
+        dossierVehicles: {
+          none: {
+            dossier: {
+              archivedAt: null,
+              status: {
+                notIn: [
+                  DossierStatus.CLOSED,
+                  DossierStatus.SERVICE_COMPLETED,
+                  DossierStatus.CANCELLED,
+                ],
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (!vehicle) {
+      throw new ConflictException(
+        "Ce véhicule n'est plus disponible. Actualisez la sélection.",
+      );
+    }
   }
 
   private async syncFollowUpTask(

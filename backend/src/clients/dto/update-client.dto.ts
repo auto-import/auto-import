@@ -65,6 +65,18 @@ export class UpdateClientDto {
   address?: string;
 
   @IsOptional()
+  @IsString()
+  wilaya?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
   @IsUUID()
   assignedTo?: string;
 

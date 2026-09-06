@@ -60,6 +60,18 @@ export class ProspectsController {
     return this.prospectsService.listAssignees(user.organizationId);
   }
 
+  @Get('vehicle-options')
+  @RequirePermission(Permission.PROSPECTS_READ)
+  vehicleOptions(
+    @Query('search') search: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.listVehicleOptions(
+      user.organizationId,
+      search,
+    );
+  }
+
   @Get(':id')
   @RequirePermission(Permission.PROSPECTS_READ)
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
@@ -146,6 +158,28 @@ export class ProspectsController {
       user.organizationId,
       user.id,
       dto.reason ?? 'Archived through CRM action',
+    );
+  }
+
+  @Post(':id/restore')
+  @RequirePermission(Permission.PROSPECTS_ARCHIVE_MANAGE)
+  restore(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.restore(id, user.organizationId, user.id);
+  }
+
+  @Delete(':id/permanent')
+  @RequirePermission(Permission.PROSPECTS_ARCHIVE_MANAGE)
+  permanentlyDelete(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.prospectsService.permanentlyDelete(
+      id,
+      user.organizationId,
+      user.id,
     );
   }
 

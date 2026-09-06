@@ -49,6 +49,10 @@ export class CreateInvoiceDto {
 
   @IsOptional()
   @IsString()
+  contractId?: string;
+
+  @IsOptional()
+  @IsString()
   orderId?: string;
 
   @IsOptional()

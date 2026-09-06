@@ -3,7 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
-import { ALL_PERMISSIONS } from '@auto-import/contracts';
+import { ALL_PERMISSIONS, Permission } from '@auto-import/contracts';
 
 dotenv.config();
 
@@ -120,7 +120,13 @@ async function main() {
     {
       name: 'Direction',
       description: 'Executive Management (full business and management access)',
-      permissions: [...ALL_PERMISSIONS],
+      permissions: ALL_PERMISSIONS.filter(
+        (permission) =>
+          !([
+            Permission.PROSPECTS_ARCHIVE_MANAGE,
+            Permission.DOSSIERS_ARCHIVE_MANAGE,
+          ] as string[]).includes(permission),
+      ),
     },
     {
       name: 'Manager',

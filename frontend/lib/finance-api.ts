@@ -275,6 +275,7 @@ export interface ApiContract {
   contractNumber: string;
   clientId: string;
   dossierId: string;
+  invoiceId?: string | null;
   totalAmount: string | number;
   requiredDeposit: string | number;
   totalPaid: string;
@@ -312,6 +313,18 @@ export interface ApiTreasuryAccount {
 }
 
 export const fetchContracts = () => apiRequest<ApiContract[]>("/contracts");
+export const createContract = (data: {
+  clientId: string;
+  dossierId: string;
+  totalAmount: number;
+  currency: string;
+  requiredDeposit?: number;
+  schedule: Array<{ label?: string; amount: number; dueDate?: string }>;
+}) =>
+  apiRequest<ApiContract>("/contracts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 export const fetchFinanceTransactions = (status?: string) =>
   apiRequest<ApiFinanceTransaction[]>(
     `/finance/transactions${status ? `?status=${encodeURIComponent(status)}` : ""}`,
@@ -353,6 +366,7 @@ export async function fetchInvoice(id: string): Promise<ApiInvoice> {
 export async function createInvoice(data: {
   clientId: string;
   dossierId?: string;
+  contractId?: string;
   orderId?: string;
   currency?: string;
   dueDate?: string;
@@ -453,6 +467,7 @@ export async function recordPayment(data: {
   dossierId?: string;
   orderId?: string;
   invoiceId?: string;
+  contractId?: string;
   installmentId?: string;
   amount: number;
   currency: string;

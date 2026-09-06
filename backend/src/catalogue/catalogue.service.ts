@@ -11,97 +11,130 @@ export class CatalogueService {
   async findAll(organizationId: string, filters: FilterCatalogueDto) {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 20;
-    const ownership: Prisma.VehicleWhereInput = {
+    const publishedPricing: Prisma.CatalogueItemWhereInput = {
       OR: [
-        {
-          purchases: {
-            some: { organizationId, status: { not: 'cancelled' } },
-          },
-        },
-        {
-          acquisitionType: 'stock',
-          acquiredAt: { not: null },
-        },
+        { activeCifQuotationId: { not: null } },
+        { activeDdpQuotationId: { not: null } },
       ],
     };
-    const where: Prisma.VehicleWhereInput = {
+    const where: Prisma.CatalogueItemWhereInput = {
       organizationId,
       archivedAt: null,
-      ...ownership,
-      ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.acquisitionType
-        ? { acquisitionType: filters.acquisitionType }
-        : {}),
-      ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
-      ...(filters.search
-        ? {
-            AND: [
-              ownership,
+      AND: [
+        publishedPricing,
+        {
+          sourceOfferVehicle: {
+            offer: {
+              archivedAt: null,
+              validUntil: { gte: new Date() },
+              OR: [
+                { offerStatus: null },
+                { offerStatus: { notIn: ['LOST_DEAL', 'EXPIRED'] } },
+              ],
+              ...(filters.supplierId
+                ? { supplierId: filters.supplierId }
+                : {}),
+            },
+          },
+        },
+        ...(filters.search
+          ? [
               {
                 OR: [
                   {
-                    brand: {
-                      contains: filters.search,
-                      mode: 'insensitive' as const,
+                    sourceOfferVehicle: {
+                      brand: { contains: filters.search, mode: 'insensitive' },
                     },
                   },
                   {
-                    model: {
-                      contains: filters.search,
-                      mode: 'insensitive' as const,
+                    sourceOfferVehicle: {
+                      model: { contains: filters.search, mode: 'insensitive' },
                     },
                   },
                   {
-                    trim: {
-                      contains: filters.search,
-                      mode: 'insensitive' as const,
+                    sourceOfferVehicle: {
+                      version: { contains: filters.search, mode: 'insensitive' },
                     },
                   },
                   {
-                    vin: {
-                      contains: filters.search,
-                      mode: 'insensitive' as const,
+                    sourceOfferVehicle: {
+                      vin: { contains: filters.search, mode: 'insensitive' },
                     },
                   },
                 ],
-              },
-            ],
-          }
-        : {}),
+              } satisfies Prisma.CatalogueItemWhereInput,
+            ]
+          : []),
+      ],
     };
     const [items, total] = await Promise.all([
-      this.prisma.vehicle.findMany({
+      this.prisma.catalogueItem.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
         include: {
-          specs: true,
-          supplier: { select: { id: true, name: true, country: true } },
-          currentLocation: {
-            include: { warehouse: { select: { id: true, name: true } } },
-          },
-          photos: {
-            include: { file: true },
-            orderBy: { sortOrder: 'asc' },
-          },
-          purchases: {
-            where: { organizationId, status: { not: 'cancelled' } },
+          sourceOfferVehicle: {
             include: {
-              sourceOffer: {
-                select: { id: true, reference: true, offerStatus: true },
-              },
-              sourceOfferVehicle: {
-                select: { id: true, lineNumber: true, status: true },
+              offer: {
+                include: {
+                  supplier: { select: { id: true, name: true, country: true } },
+                  photos: {
+                    include: { file: true },
+                    orderBy: { sortOrder: 'asc' },
+                  },
+                },
               },
             },
-            orderBy: { purchaseDate: 'desc' },
-            take: 1,
           },
+          activeCifQuotation: { include: { currentRevision: true } },
+          activeDdpQuotation: { include: { currentRevision: true } },
         },
-        orderBy: [{ acquiredAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       }),
-      this.prisma.vehicle.count({ where }),
+      this.prisma.catalogueItem.count({ where }),
     ]);
-    return paginate(items, total, page, limit);
+    const presented = items
+      .map((item) => {
+        const vehicle = item.sourceOfferVehicle;
+        const remainingQuantity = Math.max(
+          0,
+          item.availableQuantity - item.reservedQuantity,
+        );
+        return {
+          id: item.id,
+          catalogueItemId: item.id,
+          sourceOfferVehicleId: item.sourceOfferVehicleId,
+          brand: vehicle.brand,
+          model: vehicle.model,
+          version: vehicle.version,
+          trim: vehicle.version,
+          year: vehicle.year,
+          condition: vehicle.condition,
+          mileage: vehicle.mileage,
+          vin: vehicle.vin,
+          status: remainingQuantity > 0 ? 'available' : 'reserved',
+          availableQuantity: item.availableQuantity,
+          reservedQuantity: item.reservedQuantity,
+          remainingQuantity,
+          currency: 'DZD',
+          cifPrice:
+            item.activeCifQuotation?.currentRevision?.finalCustomerPriceDzd ??
+            null,
+          ddpPrice:
+            item.activeDdpQuotation?.currentRevision?.finalCustomerPriceDzd ??
+            null,
+          activeCifQuotationId: item.activeCifQuotationId,
+          activeDdpQuotationId: item.activeDdpQuotationId,
+          offer: {
+            id: vehicle.offer.id,
+            reference: vehicle.offer.reference,
+          },
+          supplier: vehicle.offer.supplier,
+          photos: vehicle.offer.photos,
+          publishedAt: item.publishedAt,
+        };
+      })
+      .filter((item) => !filters.status || item.status === filters.status);
+    return paginate(presented, total, page, limit);
   }
 }

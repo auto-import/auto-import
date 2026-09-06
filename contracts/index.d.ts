@@ -1,5 +1,12 @@
 export type ValueOf<T> = T[keyof T];
 
+export {
+  ALGERIA_WILAYAS,
+  findAlgerianWilaya,
+  isValidAlgerianCommune,
+} from "./algeria-locations";
+export type { AlgerianWilaya } from "./algeria-locations";
+
 export const DossierType: {
   readonly VEHICLE_SALE_CIF: "VEHICLE_SALE_CIF";
   readonly VEHICLE_SALE_DDP: "VEHICLE_SALE_DDP";
@@ -443,6 +450,8 @@ export const Permission: {
   readonly PROSPECTS_TRANSITION: "prospects:transition";
   readonly PROSPECTS_CONVERT: "prospects:convert";
   readonly PROSPECTS_ARCHIVE: "prospects:archive";
+  readonly PROSPECTS_ARCHIVE_MANAGE: "prospects:archiveManage";
+  readonly DOSSIERS_ARCHIVE_MANAGE: "dossiers:archiveManage";
   readonly CRM_REFERENCE_MANAGE: "crmReference:manage";
   readonly CRM_REFERENCE_READ: "crmReference:read";
 };

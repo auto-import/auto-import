@@ -113,6 +113,7 @@ export interface ApiVehicleLookup {
   kind:
     | "BRAND"
     | "MODEL"
+    | "VERSION"
     | "ENGINE"
     | "TRANSMISSION"
     | "FUEL_TYPE"
@@ -213,6 +214,9 @@ export interface ApiOfferVehicle {
   brand: string;
   model: string;
   version?: string | null;
+  brandLookupId?: string | null;
+  modelLookupId?: string | null;
+  versionLookupId?: string | null;
   year?: number | null;
   condition: string;
   mileage?: number | null;
@@ -255,11 +259,16 @@ export interface ApiOffer {
   brand: string;
   model: string;
   version?: string | null;
+  brandLookupId?: string | null;
+  modelLookupId?: string | null;
+  versionLookupId?: string | null;
   year?: number | null;
   condition: string;
   mileage?: number | null;
   specification: Record<string, unknown>;
   supplierPrice?: string | number | null;
+  localCost?: string | number | null;
+  totalOfferPrice?: string | number | null;
   supplierReference?: string | null;
   incoterm?: string | null;
   location?: string | null;
@@ -285,6 +294,8 @@ export interface ApiOffer {
     id: string;
     revisionNumber: number;
     supplierPrice: string | number;
+    localCost?: string | number | null;
+    totalOfferPrice?: string | number | null;
     currency: string;
     reason: string;
     createdAt: string;
@@ -309,6 +320,16 @@ export interface ApiCustomerQuotationRevision {
   otherCostsAmount: string | number;
   marginAmount: string | number;
   finalCustomerPrice: string | number;
+  containerPrice: string | number;
+  containerAllocation?: 3 | 4 | null;
+  exchangeRateId?: string | null;
+  exchangeRateSnapshot: string | number;
+  finalCustomerPriceDzd: string | number;
+  otherCosts?: Array<{
+    id: string;
+    amount: string | number;
+    description: string;
+  }>;
   paymentConditions?: string | null;
   validityNote?: string | null;
   notes?: string | null;
@@ -319,17 +340,48 @@ export interface ApiCustomerQuotationRevision {
 export interface ApiCustomerQuotation {
   id: string;
   quotationNumber: string;
-  dossierId: string;
-  clientId: string;
+  dossierId?: string | null;
+  clientId?: string | null;
   sourceOfferId?: string | null;
+  sourceOfferVehicleId?: string | null;
   priceBasis: "CIF" | "DDP";
   currency: string;
   status: string;
+  cataloguePublished?: boolean;
+  publishedAt?: string | null;
   expiresAt?: string | null;
   currentRevision?: ApiCustomerQuotationRevision | null;
   revisions?: ApiCustomerQuotationRevision[];
-  dossier?: { id: string; reference: string };
-  client?: { id: string; firstName: string; lastName: string };
+  dossier?: { id: string; reference: string } | null;
+  client?: { id: string; firstName: string; lastName: string } | null;
+  sourceOfferVehicle?: ApiOfferVehicle | null;
+}
+
+export interface ApiCatalogueItem {
+  id: string;
+  catalogueItemId: string;
+  sourceOfferVehicleId: string;
+  brand: string;
+  model: string;
+  version?: string | null;
+  trim?: string | null;
+  year?: number | null;
+  condition?: string | null;
+  mileage?: number | null;
+  specification?: Record<string, unknown>;
+  vin?: string | null;
+  status: ApiVehicleStatus;
+  availableQuantity: number;
+  reservedQuantity: number;
+  remainingQuantity: number;
+  currency: "DZD";
+  cifPrice?: string | number | null;
+  ddpPrice?: string | number | null;
+  activeCifQuotationId?: string | null;
+  activeDdpQuotationId?: string | null;
+  offer: { id: string; reference: string };
+  supplier?: { id: string; name: string } | null;
+  photos?: ApiVehicle["photos"];
 }
 
 export interface ApiDossierEvidence {
@@ -373,8 +425,14 @@ export interface ApiDossier {
   chinaResponsibleId?: string | null;
   openedAt: string;
   closedAt?: string | null;
+  archivedAt?: string | null;
+  archiveReason?: string | null;
   vehicles: ApiVehicle[];
   offerReservation?: ApiOfferReservation & { offer: ApiOffer };
+  catalogueItemId?: string | null;
+  commercialQuotationId?: string | null;
+  catalogueItem?: ApiCatalogueItem | null;
+  commercialQuotation?: ApiCustomerQuotation | null;
   vehicleRequest?: unknown;
   order?: unknown;
   purchases?: unknown[];
@@ -452,6 +510,19 @@ export const commerceApi = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    offerLookups: (filters: Record<string, string | undefined> = {}) =>
+      apiRequest<ApiVehicleLookup[]>(
+        `/offer-vehicle-lookups${queryString(filters)}`,
+      ),
+    createOfferLookup: (data: {
+      kind: ApiVehicleLookup["kind"];
+      value: string;
+      parentId?: string;
+    }) =>
+      apiRequest<ApiVehicleLookup>("/offer-vehicle-lookups", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     updateLookup: (id: string, data: { value?: string; active?: boolean }) =>
       apiRequest<ApiVehicleLookup>(`/vehicle-lookups/${id}`, {
         method: "PATCH",
@@ -478,7 +549,9 @@ export const commerceApi = {
       }),
   },
   partners: {
-    list: (filters: Record<string, string | number | undefined> = {}) =>
+    list: (
+      filters: Record<string, string | number | boolean | undefined> = {},
+    ) =>
       apiRequest<PaginatedData<ApiPartner>>(`/partners${queryString(filters)}`),
     get: (id: string) => apiRequest<ApiPartner>(`/partners/${id}`),
     create: (data: Record<string, unknown>) =>
@@ -616,16 +689,6 @@ export const commerceApi = {
         method: "POST",
         body: JSON.stringify({ status, reason }),
       }),
-    assign: (id: string, dossierId: string, expiresAt?: string) =>
-      apiRequest<ApiOfferReservation>(`/offers/${id}/assign`, {
-        method: "POST",
-        body: JSON.stringify({ dossierId, expiresAt }),
-      }),
-    createPurchase: (id: string, data: Record<string, unknown>) =>
-      apiRequest(`/offers/${id}/create-purchase`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
     purchaseVehicle: (
       offerId: string,
       vehicleId: string,
@@ -642,19 +705,6 @@ export const commerceApi = {
       }),
     archive: (id: string) =>
       apiRequest<ApiOffer>(`/offers/${id}`, { method: "DELETE" }),
-    reserve: (
-      id: string,
-      data: { clientId: string; quantity?: number; expiresAt?: string },
-    ) =>
-      apiRequest<ApiOfferReservation>(`/offers/${id}/reservations`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    release: (id: string, reason?: string) =>
-      apiRequest<ApiOfferReservation>(`/offers/reservations/${id}/release`, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      }),
     materialize: (
       id: string,
       data: {
@@ -676,7 +726,7 @@ export const commerceApi = {
   },
   catalogue: {
     list: (filters: Record<string, string | number | undefined> = {}) =>
-      apiRequest<PaginatedData<ApiVehicle>>(
+      apiRequest<PaginatedData<ApiCatalogueItem>>(
         `/catalogue${queryString(filters)}`,
       ),
   },
@@ -688,6 +738,11 @@ export const commerceApi = {
     get: (id: string) => apiRequest<ApiCustomerQuotation>(`/quotations/${id}`),
     create: (data: Record<string, unknown>) =>
       apiRequest<ApiCustomerQuotation>("/quotations", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    preview: (data: Record<string, unknown>) =>
+      apiRequest<Record<string, string | number>>("/quotations/preview", {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -703,7 +758,9 @@ export const commerceApi = {
       }),
   },
   dossiers: {
-    list: (filters: Record<string, string | number | undefined> = {}) =>
+    list: (
+      filters: Record<string, string | number | boolean | undefined> = {},
+    ) =>
       apiRequest<PaginatedData<ApiDossier>>(`/dossiers${queryString(filters)}`),
     get: (id: string) => apiRequest<ApiDossier>(`/dossiers/${id}`),
     create: (data: Record<string, unknown>) =>
@@ -737,13 +794,34 @@ export const commerceApi = {
       apiRequest<{ allowedTransitions: ApiDossierStatus[] }>(
         `/dossiers/${id}/allowed-transitions`,
       ),
-    statistics: () =>
+    statistics: (
+      filters: {
+        period?: "today" | "week" | "month" | "year" | "custom";
+        from?: string;
+        to?: string;
+      } = {},
+    ) =>
       apiRequest<{
         total: number;
+        active: number;
+        archived: number;
         byStatus: Record<string, number>;
         byType: Record<string, number>;
         completionRate: number;
-      }>("/dossiers/statistics"),
+        created: {
+          count: number;
+          period: string;
+          from: string;
+          toExclusive: string;
+          timezone: string;
+        };
+      }>(`/dossiers/statistics${queryString(filters)}`),
+    restore: (id: string) =>
+      apiRequest<ApiDossier>(`/dossiers/${id}/restore`, { method: "POST" }),
+    permanentlyDelete: (id: string) =>
+      apiRequest<{ message: string }>(`/dossiers/${id}/permanent`, {
+        method: "DELETE",
+      }),
     evidence: (id: string) =>
       apiRequest<{
         vehicles: Array<{
