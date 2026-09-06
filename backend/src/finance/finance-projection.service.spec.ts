@@ -59,8 +59,8 @@ describe('FinanceProjectionService', () => {
   it('projects a supplier payment with the historical DZD rate and dossier link', async () => {
     tx.exchangeRate.findFirst.mockResolvedValue({
       id: 'rate-1',
-      baseCurrency: 'DZD',
-      quoteCurrency: 'USD',
+      baseCurrency: 'USD',
+      quoteCurrency: 'DZD',
       rate: new Prisma.Decimal(140),
     });
 

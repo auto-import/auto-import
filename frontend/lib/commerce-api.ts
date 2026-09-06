@@ -325,9 +325,21 @@ export interface ApiCustomerQuotationRevision {
   exchangeRateId?: string | null;
   exchangeRateSnapshot: string | number;
   finalCustomerPriceDzd: string | number;
-  otherCosts?: Array<{
+  sellingPriceDzd: string | number;
+  estimatedCifCostDzd: string | number;
+  estimatedLandedCostDzd: string | number;
+  estimatedTotalCostDzd: string | number;
+  estimatedProfitDzd: string | number;
+  estimatedMarginPercent: string | number;
+  costItems?: Array<{
     id: string;
-    amount: string | number;
+    costType: string;
+    status?: "ESTIMATED" | "ACTUAL";
+    costStatus?: "ESTIMATED" | "ACTUAL";
+    originalAmount: string | number;
+    currency: string;
+    exchangeRateUsed: string | number;
+    amountDzd: string | number;
     description: string;
   }>;
   paymentConditions?: string | null;
@@ -368,6 +380,9 @@ export interface ApiCatalogueItem {
   year?: number | null;
   condition?: string | null;
   mileage?: number | null;
+  fuel?: string | null;
+  transmission?: string | null;
+  color?: string | null;
   specification?: Record<string, unknown>;
   vin?: string | null;
   status: ApiVehicleStatus;
@@ -382,6 +397,36 @@ export interface ApiCatalogueItem {
   offer: { id: string; reference: string };
   supplier?: { id: string; name: string } | null;
   photos?: ApiVehicle["photos"];
+  pricing: {
+    cif?: ApiCataloguePricing | null;
+    ddp?: ApiCataloguePricing | null;
+  };
+}
+
+export interface ApiCataloguePricing {
+  quotationId: string;
+  quotationNumber: string;
+  priceBasis: "CIF" | "DDP";
+  sellingPriceDzd: string | number;
+  estimatedCifCostDzd: string | number;
+  estimatedLandedCostDzd: string | number;
+  estimatedTotalCostDzd: string | number;
+  estimatedProfitDzd: string | number;
+  estimatedMarginPercent: string | number;
+  estimatedCosts: NonNullable<ApiCustomerQuotationRevision["costItems"]>;
+  actual?: ApiActualProfitability | null;
+  actualOperations: ApiActualProfitability[];
+}
+
+export interface ApiActualProfitability {
+  dossierId: string;
+  dossierReference: string;
+  available: boolean;
+  finalized: boolean;
+  totalCostDzd?: string | null;
+  profitDzd?: string | null;
+  marginPercent?: string | null;
+  error?: string | null;
 }
 
 export interface ApiDossierEvidence {
@@ -729,8 +774,18 @@ export const commerceApi = {
       apiRequest<PaginatedData<ApiCatalogueItem>>(
         `/catalogue${queryString(filters)}`,
       ),
+    get: (id: string) => apiRequest<ApiCatalogueItem>(`/catalogue/${id}`),
   },
   quotations: {
+    currentDzdRates: () =>
+      apiRequest<{
+        baseCurrency: "DZD";
+        rates: Array<{
+          currency: string;
+          exchangeRateId: string | null;
+          exchangeRateUsed: string;
+        }>;
+      }>("/quotations/dzd-rates"),
     currentUsdDzdRate: () =>
       apiRequest<{
         exchangeRateId: string;

@@ -9,10 +9,20 @@ import {
   ReverseCostDto,
 } from './dto/finance.dto';
 import { CostsService } from './costs.service';
+import { ExchangeRatesService } from './exchange-rates.service';
 
 @Controller('finance/costs')
 export class CostsController {
-  constructor(private readonly costs: CostsService) {}
+  constructor(
+    private readonly costs: CostsService,
+    private readonly exchangeRates: ExchangeRatesService,
+  ) {}
+
+  @Get('dzd-rates')
+  @RequirePermission(Permission.COSTS_WRITE)
+  currentDzdRates(@CurrentUser() user: AuthenticatedUser) {
+    return this.exchangeRates.currentDzdRates(user.organizationId);
+  }
 
   @Get()
   @RequirePermission(Permission.COSTS_READ)

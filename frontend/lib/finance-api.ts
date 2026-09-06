@@ -186,6 +186,7 @@ export interface ApiCost {
   costScope?: "DIRECT" | "OPERATING";
   amount: string | number;
   currency: string;
+  exchangeRateSnapshot: string | number;
   amountInBaseCurrency?: string | number | null;
   dossierId?: string | null;
   orderId?: string | null;
@@ -636,6 +637,17 @@ export async function createCost(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function fetchCurrentDzdRates(): Promise<{
+  referenceCurrency: "DZD";
+  rates: Array<{
+    currency: string;
+    exchangeRateId: string | null;
+    exchangeRateUsed: string;
+  }>;
+}> {
+  return apiRequest("/finance/costs/dzd-rates");
 }
 
 // Exchange Rates API

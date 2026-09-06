@@ -169,16 +169,16 @@ export class FinanceProjectionService {
             organizationId,
             effectiveAt: { lte: occurredAt },
             OR: [
-              { baseCurrency: 'DZD', quoteCurrency: currency },
               { baseCurrency: currency, quoteCurrency: 'DZD' },
+              { baseCurrency: 'DZD', quoteCurrency: currency },
             ],
           },
         })
       : await tx.exchangeRate.findFirst({
           where: {
             organizationId,
-            baseCurrency: 'DZD',
-            quoteCurrency: currency,
+            baseCurrency: currency,
+            quoteCurrency: 'DZD',
             effectiveAt: { lte: occurredAt },
           },
           orderBy: { effectiveAt: 'desc' },
@@ -187,10 +187,10 @@ export class FinanceProjectionService {
     if (!selected || selected.rate.isZero()) {
       throw new ConflictException({
         code: 'HISTORICAL_EXCHANGE_RATE_REQUIRED',
-        message: `A historical DZD/${currency} exchange rate is required before validation`,
+        message: `A historical ${currency}/DZD exchange rate is required before validation`,
       });
     }
-    return selected.baseCurrency === 'DZD'
+    return selected.quoteCurrency === 'DZD'
       ? selected.rate
       : new Prisma.Decimal(1).dividedBy(selected.rate);
   }

@@ -72,14 +72,21 @@ describe('QuotationsService commercial publication', () => {
       sourceOfferId: 'offer-1',
       sourceOfferVehicleId: 'offer-vehicle-1',
       priceBasis: 'CIF' as const,
-      currency: 'USD',
+      currency: 'DZD',
       vehicleAmount: 8_000,
+      vehicleCurrency: 'USD',
       containerPrice: 6_000,
+      containerCurrency: 'USD',
       containerAllocation: 3 as const,
       insuranceAmount: 300,
+      insuranceCurrency: 'USD',
       customsAmount: 1_000,
       transitAmount: 200,
-      otherCosts: [{ amount: 500, description: 'Manutention' }],
+      transitCurrency: 'USD',
+      sellingPriceDzd: 2_000_000,
+      otherCosts: [
+        { amount: 500, currency: 'USD', description: 'Manutention' },
+      ],
     };
 
     await service.create('org-1', 'user-1', input);
@@ -98,16 +105,24 @@ describe('QuotationsService commercial publication', () => {
       expect.objectContaining({
         vehicleAmount: new Prisma.Decimal(8_000),
         freightAmount: new Prisma.Decimal(2_000),
-        otherCostsAmount: new Prisma.Decimal(500),
-        finalCustomerPrice: new Prisma.Decimal(11_000),
-        finalCustomerPriceDzd: new Prisma.Decimal(1_540_000),
+        otherCostsAmount: new Prisma.Decimal(70_000),
+        finalCustomerPrice: new Prisma.Decimal(2_000_000),
+        finalCustomerPriceDzd: new Prisma.Decimal(2_000_000),
+        estimatedTotalCostDzd: new Prisma.Decimal(1_540_000),
+        estimatedProfitDzd: new Prisma.Decimal(460_000),
         exchangeRateSnapshot: new Prisma.Decimal(140),
-        otherCosts: {
+        costItems: {
           create: [
             expect.objectContaining({
-              amount: 500,
-              description: 'Manutention',
+              costType: 'VEHICLE',
+              originalAmount: new Prisma.Decimal(8_000),
+              amountDzd: new Prisma.Decimal(1_120_000),
             }),
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ costType: 'OTHER' }),
+            expect.objectContaining({ costType: 'CUSTOMS' }),
           ],
         },
       }),
@@ -205,14 +220,21 @@ describe('QuotationsService commercial publication', () => {
       sourceOfferId: 'offer-legacy',
       sourceOfferVehicleId: sourceVehicle.id,
       priceBasis: 'DDP',
-      currency: 'USD',
+      currency: 'DZD',
       vehicleAmount: 8_000,
+      vehicleCurrency: 'USD',
       containerPrice: 6_000,
+      containerCurrency: 'USD',
       containerAllocation: 3,
       insuranceAmount: 300,
+      insuranceCurrency: 'USD',
       customsAmount: 1_000,
       transitAmount: 200,
-      otherCosts: [{ amount: 500, description: 'Manutention' }],
+      transitCurrency: 'USD',
+      sellingPriceDzd: 3_000_000,
+      otherCosts: [
+        { amount: 500, currency: 'USD', description: 'Manutention' },
+      ],
     });
 
     expect(tx.chinaOfferRevision.create).toHaveBeenCalledWith(

@@ -104,7 +104,7 @@ model Organization {
   vehicleDutyRates      VehicleDutyRate[]
   localDeliveryRates    LocalDeliveryRate[]
   catalogueItems        CatalogueItem[]
-  quotationOtherCosts   QuotationOtherCost[]
+  quotationCosts        QuotationCost[]
 
   @@index([status])
 }
@@ -1227,6 +1227,8 @@ model Dossier {
   catalogueItem    CatalogueItem?    @relation(fields: [catalogueItemId], references: [id], onDelete: Restrict)
   commercialQuotationId String?
   commercialQuotation CustomerQuotation? @relation("DossierCommercialQuotation", fields: [commercialQuotationId], references: [id], onDelete: Restrict)
+  commercialQuotationRevisionId String?
+  commercialQuotationRevision CustomerQuotationRevision? @relation("DossierCommercialQuotationRevision", fields: [commercialQuotationRevisionId], references: [id], onDelete: Restrict)
   status           String            @default("offerSelected")
   workflowVersion  Int               @default(2)
   forwarderSupplierId String?
@@ -1288,6 +1290,7 @@ model Dossier {
   @@index([chinaResponsibleId])
   @@index([catalogueItemId])
   @@index([commercialQuotationId])
+  @@index([commercialQuotationRevisionId])
     @@index([forwarderSupplierId])
     @@index([archivedById])
 }
@@ -2560,6 +2563,7 @@ model ExchangeRate {
   supplierPayments SupplierPayment[]
   costs            Cost[]
   quotationRevisions CustomerQuotationRevision[]
+  quotationCosts     QuotationCost[]
 
   @@index([organizationId, baseCurrency, quoteCurrency, effectiveAt])
 }
@@ -2574,6 +2578,7 @@ model Cost {
   currency             String
   exchangeRateId       String?
   exchangeRate         ExchangeRate? @relation(fields: [exchangeRateId], references: [id])
+  exchangeRateSnapshot Decimal       @default(1) @db.Decimal(18, 8)
   amountInBaseCurrency Decimal?      @db.Decimal(12, 2)
   dossierId            String?
   dossier              Dossier?      @relation(fields: [dossierId], references: [id])
@@ -2726,6 +2731,12 @@ model CustomerQuotationRevision {
   exchangeRate       ExchangeRate?     @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
   exchangeRateSnapshot Decimal         @default(1) @db.Decimal(18, 8)
   finalCustomerPriceDzd Decimal         @default(0) @db.Decimal(14, 2)
+  sellingPriceDzd      Decimal         @default(0) @db.Decimal(14, 2)
+  estimatedCifCostDzd  Decimal         @default(0) @db.Decimal(14, 2)
+  estimatedLandedCostDzd Decimal       @default(0) @db.Decimal(14, 2)
+  estimatedTotalCostDzd Decimal        @default(0) @db.Decimal(14, 2)
+  estimatedProfitDzd   Decimal         @default(0) @db.Decimal(14, 2)
+  estimatedMarginPercent Decimal       @default(0) @db.Decimal(9, 4)
   paymentConditions  String?
   validityNote       String?
   notes              String?
@@ -2736,27 +2747,41 @@ model CustomerQuotationRevision {
   createdAt          DateTime          @default(now())
 
   currentFor CustomerQuotation? @relation("CustomerQuotationCurrentRevision")
-  otherCosts QuotationOtherCost[]
+  costItems  QuotationCost[]
+  commercialForDossiers Dossier[] @relation("DossierCommercialQuotationRevision")
 
   @@unique([quotationId, revisionNumber])
   @@index([organizationId, quotationId, createdAt])
   @@index([exchangeRateId])
 }
 
-model QuotationOtherCost {
+/// Immutable estimated cost lines captured with a quotation revision. The
+/// underlying table name is retained to migrate the existing implementation
+/// in place without creating a parallel quotation-cost store.
+model QuotationCost {
   id             String                    @id @default(uuid())
   organizationId String
   organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   revisionId     String
   revision       CustomerQuotationRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  costType       String                    @default("OTHER")
+  costStatus     String                    @default("ESTIMATED")
   description    String
-  amount         Decimal                   @db.Decimal(14, 2)
+  originalAmount Decimal                   @map("amount") @db.Decimal(14, 2)
   currency       String                    @default("USD")
+  exchangeRateId String?
+  exchangeRate   ExchangeRate?             @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+  exchangeRateUsed Decimal                 @default(1) @db.Decimal(18, 8)
+  amountDzd      Decimal                   @default(0) @db.Decimal(14, 2)
   sortOrder      Int
   createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
 
   @@unique([revisionId, sortOrder])
   @@index([organizationId, createdAt])
+  @@index([exchangeRateId])
+  @@index([revisionId, costStatus, costType])
+  @@map("QuotationOtherCost")
 }
 
 /// Commercial projection of one supplier-offer vehicle line. Supplier pricing

@@ -219,6 +219,7 @@ export class DossiersService {
     const dossier = await this.prisma.$transaction(async (prisma) => {
       const reference = await this.generateReference(prisma, organizationId);
       let commercialQuotationId: string | undefined;
+      let commercialQuotationRevisionId: string | undefined;
       let cataloguePricing:
         | { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal }
         | undefined;
@@ -280,6 +281,7 @@ export class DossiersService {
           data: { reservedQuantity: { increment: 1 } },
         });
         commercialQuotationId = quotation.id;
+        commercialQuotationRevisionId = quotation.currentRevision.id;
         cataloguePricing =
           dossierType === DossierType.VEHICLE_SALE_DDP
             ? { ddpPrice: quotation.currentRevision.finalCustomerPriceDzd }
@@ -311,6 +313,7 @@ export class DossiersService {
           orderId,
           catalogueItemId,
           commercialQuotationId,
+          commercialQuotationRevisionId,
           ...cataloguePricing,
           priceCurrency: cataloguePricing ? 'DZD' : undefined,
           priceLockedAt: cataloguePricing ? new Date() : undefined,
@@ -744,7 +747,7 @@ export class DossiersService {
         commercialQuotation: {
           include: {
             currentRevision: {
-              include: { otherCosts: true, exchangeRate: true },
+              include: { costItems: true, exchangeRate: true },
             },
           },
         },

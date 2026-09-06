@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Topbar, StatusBadge, DataTable } from "@/components";
 import {
   fetchOrganizationFinancialOverview,
@@ -76,6 +76,19 @@ export default function FinanceDashboardPage() {
   // Exchange rates
   const [exchangeRates, setExchangeRates] = useState<ApiExchangeRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
+  const configuredCurrencies = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          "DZD",
+          ...exchangeRates.flatMap((rate) => [
+            rate.baseCurrency,
+            rate.quoteCurrency,
+          ]),
+        ]),
+      ).sort(),
+    [exchangeRates],
+  );
 
   // Modals
   const [showCostModal, setShowCostModal] = useState(false);
@@ -311,8 +324,8 @@ export default function FinanceDashboardPage() {
     if (!newRateValue || Number(newRateValue) <= 0) return;
     try {
       await createExchangeRate({
-        baseCurrency: newRateBase,
-        quoteCurrency: newRateQuote,
+        baseCurrency: newRateQuote,
+        quoteCurrency: newRateBase,
         rate: Number(newRateValue),
       });
       setShowRateModal(false);
@@ -570,7 +583,7 @@ export default function FinanceDashboardPage() {
       header: "Contre-valeur DZD",
       render: (row) => (
         <span className="font-semibold text-foreground">
-          {formatMontant(Number(row.amountInBaseCurrency || row.amount))} DZD
+          {formatMontant(Number(row.amountInBaseCurrency ?? row.amount))} DZD
         </span>
       ),
     },
@@ -598,8 +611,8 @@ export default function FinanceDashboardPage() {
       header: "Paire",
       render: (row) => (
         <span className="font-bold text-foreground">
-          1 {row.quoteCurrency} = {Number(row.rate).toFixed(4)}{" "}
-          {row.baseCurrency}
+          1 {row.baseCurrency} = {Number(row.rate).toFixed(4)}{" "}
+          {row.quoteCurrency}
         </span>
       ),
     },
@@ -1158,10 +1171,11 @@ export default function FinanceDashboardPage() {
                     onChange={(e) => setNewCostCurrency(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                   >
-                    <option value="DZD">DZD</option>
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                    <option value="CNY">CNY</option>
+                    {configuredCurrencies.map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1233,21 +1247,20 @@ export default function FinanceDashboardPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">
-                    Devise de Cotation
+                    Devise étrangère
                   </label>
-                  <select
+                  <input
                     value={newRateQuote}
-                    onChange={(e) => setNewRateQuote(e.target.value)}
+                    onChange={(e) => setNewRateQuote(e.target.value.toUpperCase())}
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
-                  >
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="CNY">CNY (¥)</option>
-                  </select>
+                    maxLength={12}
+                    required
+                    placeholder="USD, CNY, EUR…"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">
-                    Devise de Base
+                    Devise de référence
                   </label>
                   <input
                     type="text"

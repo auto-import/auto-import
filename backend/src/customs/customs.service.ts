@@ -13,6 +13,7 @@ import {
   TransitionCustomsFileDto,
   UpdateCustomsFileDto,
 } from './dto/customs.dto';
+import { CostsService } from '../finance/costs.service';
 
 const CUSTOMS_TRANSITIONS: Record<string, readonly string[]> = {
   TO_PREPARE: ['AWAITING_ARRIVAL'],
@@ -60,7 +61,10 @@ const LEGACY_CUSTOMS_TRANSITIONS: Record<string, readonly string[]> = {
 
 @Injectable()
 export class CustomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly costsService: CostsService,
+  ) {}
 
   private async generateCustomsReference(
     tx: Prisma.TransactionClient,
@@ -82,6 +86,9 @@ export class CustomsService {
     userId: string,
     dto: CreateCustomsFileDto,
   ) {
+    if (dto.currency && dto.currency.toUpperCase() !== 'DZD') {
+      throw new BadRequestException('Customs costs must be recorded in DZD');
+    }
     const scopedLinks = [dto.shipmentId, dto.vehicleId, dto.dossierId].filter(
       Boolean,
     );
@@ -103,7 +110,11 @@ export class CustomsService {
       });
       if (!dossier) throw new NotFoundException('Dossier not found');
       const existing = await this.prisma.customsFile.findFirst({
-        where: { organizationId, dossierId: dto.dossierId, v2Status: { not: null } },
+        where: {
+          organizationId,
+          dossierId: dto.dossierId,
+          v2Status: { not: null },
+        },
       });
       if (existing) return this.findOne(existing.id, organizationId);
     }
@@ -209,7 +220,7 @@ export class CustomsService {
             dutyAmount: duty,
             taxAmount: tax,
             feesAmount: fees,
-            currency: dto.currency || 'DZD',
+            currency: 'DZD',
             status: 'open',
             v2Status: scopedLinks.length === 3 ? 'TO_PREPARE' : undefined,
             reconciliationRequired: scopedLinks.length !== 3,
@@ -274,6 +285,28 @@ export class CustomsService {
       where: { id, organizationId },
     });
     if (!file) throw new NotFoundException('Customs file not found');
+    const changesFinancialAmount =
+      dto.dutyAmount !== undefined ||
+      dto.taxAmount !== undefined ||
+      dto.feesAmount !== undefined;
+    if (changesFinancialAmount) {
+      const postedActual = await this.prisma.cost.findFirst({
+        where: {
+          organizationId,
+          customsFileId: id,
+          type: 'CUSTOMS',
+          status: 'POSTED',
+        },
+        select: { id: true },
+      });
+      if (postedActual) {
+        throw new ConflictException({
+          code: 'CUSTOMS_ACTUAL_ALREADY_POSTED',
+          message:
+            'The actual customs cost is frozen. Reverse it before recording a correction.',
+        });
+      }
+    }
     const duty =
       dto.dutyAmount !== undefined
         ? new Prisma.Decimal(dto.dutyAmount)
@@ -354,7 +387,7 @@ export class CustomsService {
             comment: dto.comment,
           },
         });
-        return tx.customsFile.update({
+        const updated = await tx.customsFile.update({
           where: { id },
           data: {
             status: dto.status,
@@ -377,6 +410,15 @@ export class CustomsService {
             statusHistory: true,
           },
         });
+        if (dto.status === 'cleared') {
+          await this.costsService.recordCustomsActual(
+            tx,
+            organizationId,
+            userId,
+            updated,
+          );
+        }
+        return updated;
       });
     }
     const current = file.v2Status ?? LEGACY_TO_V2[file.status];
@@ -409,7 +451,10 @@ export class CustomsService {
           message: 'The parent DDP dossier must be at Arrivée au port.',
         });
       }
-      if (dto.status === 'RELEASE' && parentDossier.status !== 'customsClearance') {
+      if (
+        dto.status === 'RELEASE' &&
+        parentDossier.status !== 'customsClearance'
+      ) {
         throw new ConflictException({
           code: 'DDP_DOSSIER_NOT_IN_CLEARANCE',
           message: 'The parent DDP dossier must first enter Dédouanement.',
@@ -461,6 +506,15 @@ export class CustomsService {
           },
         },
       });
+
+      if (dto.status === 'RELEASE') {
+        await this.costsService.recordCustomsActual(
+          tx,
+          organizationId,
+          userId,
+          updated,
+        );
+      }
 
       const dossierStatus =
         dto.status === 'CLEARANCE_IN_PROGRESS'

@@ -2,47 +2,68 @@ export type QuotationPriceBasis = "CIF" | "DDP";
 
 export interface QuotationFormAmounts {
   vehicleAmount: string;
+  vehicleCurrency: string;
   containerPrice: string;
+  containerCurrency: string;
   containerAllocation: string;
   insuranceAmount: string;
+  insuranceCurrency: string;
   customsAmount: string;
   transitAmount: string;
-  marginAmount: string;
+  transitCurrency: string;
+  sellingPriceDzd: string;
 }
 
 export interface QuotationOtherCostInput {
   amount: string;
+  currency: string;
   description: string;
 }
 
+export interface QuotationCostCalculation {
+  amountOriginal: number;
+  currency: string;
+  exchangeRateUsed: number;
+  amountDzd: number;
+}
+
 export interface QuotationCalculation {
-  vehicleAmount: number;
+  vehicle: QuotationCostCalculation;
   containerPrice: number;
+  containerCurrency: string;
   containerAllocation: 3 | 4;
-  freightAmount: number;
-  insuranceAmount: number;
-  customsAmount: number;
-  transitAmount: number;
-  otherCostsAmount: number;
-  marginAmount: number;
-  cifAmount: number;
-  ddpAmount: number;
-  finalCustomerPrice: number;
-  cifAmountDzd: number | null;
-  ddpAmountDzd: number | null;
-  finalCustomerPriceDzd: number | null;
+  freight: QuotationCostCalculation;
+  insurance: QuotationCostCalculation;
+  customs: QuotationCostCalculation;
+  transit: QuotationCostCalculation;
+  otherCosts: QuotationCostCalculation[];
+  otherCostsDzd: number;
+  estimatedCifCostDzd: number;
+  estimatedLandedCostDzd: number;
+  estimatedTotalCostDzd: number;
+  sellingPriceDzd: number;
+  estimatedProfitDzd: number;
+  estimatedMarginPercent: number;
 }
 
 export interface QuotationDraft {
   amounts: {
     vehicleAmount: number;
+    vehicleCurrency: string;
     containerPrice: number;
+    containerCurrency: string;
     containerAllocation: 3 | 4;
     insuranceAmount: number;
+    insuranceCurrency: string;
     customsAmount: number;
     transitAmount: number;
-    marginAmount: number;
-    otherCosts: Array<{ amount: number; description: string }>;
+    transitCurrency: string;
+    sellingPriceDzd: number;
+    otherCosts: Array<{
+      amount: number;
+      currency: string;
+      description: string;
+    }>;
   } | null;
   calculation: QuotationCalculation | null;
   errors: string[];
@@ -82,7 +103,7 @@ export function buildQuotationDraft(
   priceBasis: QuotationPriceBasis,
   form: QuotationFormAmounts,
   otherCostInputs: QuotationOtherCostInput[],
-  usdToDzdRate?: string | number | null,
+  dzdRates: Record<string, string | number | undefined>,
 ): QuotationDraft {
   const fields = {
     vehicleAmount: parseAmount(form.vehicleAmount, "Le prix fournisseur", {
@@ -96,7 +117,10 @@ export function buildQuotationDraft(
     insuranceAmount: parseAmount(form.insuranceAmount, "L’assurance"),
     customsAmount: parseAmount(form.customsAmount, "La douane"),
     transitAmount: parseAmount(form.transitAmount, "Le transit"),
-    marginAmount: parseAmount(form.marginAmount, "La marge"),
+    sellingPriceDzd: parseAmount(form.sellingPriceDzd, "Le prix de vente", {
+      required: true,
+      strictlyPositive: true,
+    }),
   };
   const allocation = Number(form.containerAllocation);
   const errors = Object.values(fields)
@@ -106,7 +130,11 @@ export function buildQuotationDraft(
     errors.push("La part du conteneur doit être 1/3 ou 1/4.");
   }
 
-  const otherCosts: Array<{ amount: number; description: string }> = [];
+  const otherCosts: Array<{
+    amount: number;
+    currency: string;
+    description: string;
+  }> = [];
   otherCostInputs.forEach((cost, index) => {
     const parsed = parseAmount(cost.amount, `L’autre coût ${index + 1}`);
     if (parsed.error) {
@@ -119,8 +147,23 @@ export function buildQuotationDraft(
       errors.push(`La description de l’autre coût ${index + 1} est requise.`);
       return;
     }
-    otherCosts.push({ amount: parsed.value!, description });
+    otherCosts.push({
+      amount: parsed.value!,
+      currency: cost.currency.toUpperCase(),
+      description,
+    });
   });
+
+  const rateFor = (currencyValue: string, amount: number, label: string) => {
+    const currency = currencyValue.trim().toUpperCase();
+    if (currency === "DZD") return 1;
+    const rate = Number(dzdRates[currency]);
+    if (amount > 0 && (!Number.isFinite(rate) || rate <= 0)) {
+      errors.push(`Le taux ${currency}/DZD est indisponible pour ${label}.`);
+      return null;
+    }
+    return Number.isFinite(rate) && rate > 0 ? rate : 1;
+  };
 
   if (errors.length > 0) {
     return { amounts: null, calculation: null, errors };
@@ -132,58 +175,105 @@ export function buildQuotationDraft(
   const insuranceAmount = fields.insuranceAmount.value!;
   const customsAmount = fields.customsAmount.value!;
   const transitAmount = fields.transitAmount.value!;
-  const marginAmount = fields.marginAmount.value!;
+  const sellingPriceDzd = fields.sellingPriceDzd.value!;
   const freightAmount = roundMoney(containerPrice / containerAllocation);
-  const otherCostsAmount = otherCosts.reduce(
-    (total, cost) => total + cost.amount,
-    0,
+  const vehicleRate = rateFor(form.vehicleCurrency, vehicleAmount, "le véhicule");
+  const freightRate = rateFor(
+    form.containerCurrency,
+    freightAmount,
+    "le fret",
   );
-  const cifAmount = roundMoney(
-    vehicleAmount +
-      freightAmount +
-      insuranceAmount +
-      transitAmount +
-      otherCostsAmount,
+  const insuranceRate = rateFor(
+    form.insuranceCurrency,
+    insuranceAmount,
+    "l’assurance",
   );
-  const ddpAmount = roundMoney(cifAmount + customsAmount);
-  const rate =
-    usdToDzdRate === null || usdToDzdRate === undefined
-      ? null
-      : Number(usdToDzdRate);
-  const validRate =
-    rate !== null && Number.isFinite(rate) && rate > 0 ? rate : null;
-  const finalCustomerPrice = priceBasis === "CIF" ? cifAmount : ddpAmount;
+  const transitRate = rateFor(form.transitCurrency, transitAmount, "le transit");
+  const otherRates = otherCosts.map((cost, index) =>
+    rateFor(cost.currency, cost.amount, `l’autre coût ${index + 1}`),
+  );
+  if (errors.length > 0) return { amounts: null, calculation: null, errors };
+
+  const convert = (
+    amountOriginal: number,
+    currency: string,
+    exchangeRateUsed: number,
+  ): QuotationCostCalculation => ({
+    amountOriginal,
+    currency: currency.toUpperCase(),
+    exchangeRateUsed,
+    amountDzd: roundMoney(amountOriginal * exchangeRateUsed),
+  });
+  const vehicle = convert(vehicleAmount, form.vehicleCurrency, vehicleRate!);
+  const freight = convert(
+    freightAmount,
+    form.containerCurrency,
+    freightRate!,
+  );
+  const insurance = convert(
+    insuranceAmount,
+    form.insuranceCurrency,
+    insuranceRate!,
+  );
+  const transit = convert(transitAmount, form.transitCurrency, transitRate!);
+  const customs = convert(customsAmount, "DZD", 1);
+  const calculatedOtherCosts = otherCosts.map((cost, index) =>
+    convert(cost.amount, cost.currency, otherRates[index]!),
+  );
+  const otherCostsDzd = roundMoney(
+    calculatedOtherCosts.reduce((total, cost) => total + cost.amountDzd, 0),
+  );
+  const estimatedCifCostDzd = roundMoney(
+    vehicle.amountDzd +
+      freight.amountDzd +
+      insurance.amountDzd +
+      transit.amountDzd +
+      otherCostsDzd,
+  );
+  const estimatedLandedCostDzd = roundMoney(
+    estimatedCifCostDzd + customs.amountDzd,
+  );
+  const estimatedTotalCostDzd =
+    priceBasis === "DDP" ? estimatedLandedCostDzd : estimatedCifCostDzd;
+  const estimatedProfitDzd = roundMoney(
+    sellingPriceDzd - estimatedTotalCostDzd,
+  );
+  const estimatedMarginPercent = roundMoney(
+    (estimatedProfitDzd / sellingPriceDzd) * 100,
+  );
 
   return {
     amounts: {
       vehicleAmount,
+      vehicleCurrency: form.vehicleCurrency.toUpperCase(),
       containerPrice,
+      containerCurrency: form.containerCurrency.toUpperCase(),
       containerAllocation,
       insuranceAmount,
+      insuranceCurrency: form.insuranceCurrency.toUpperCase(),
       customsAmount,
       transitAmount,
-      marginAmount,
+      transitCurrency: form.transitCurrency.toUpperCase(),
+      sellingPriceDzd,
       otherCosts,
     },
     calculation: {
-      vehicleAmount,
+      vehicle,
       containerPrice,
+      containerCurrency: form.containerCurrency.toUpperCase(),
       containerAllocation,
-      freightAmount,
-      insuranceAmount,
-      customsAmount,
-      transitAmount,
-      otherCostsAmount,
-      marginAmount,
-      cifAmount,
-      ddpAmount,
-      finalCustomerPrice,
-      cifAmountDzd:
-        validRate === null ? null : roundMoney(cifAmount * validRate),
-      ddpAmountDzd:
-        validRate === null ? null : roundMoney(ddpAmount * validRate),
-      finalCustomerPriceDzd:
-        validRate === null ? null : roundMoney(finalCustomerPrice * validRate),
+      freight,
+      insurance,
+      customs,
+      transit,
+      otherCosts: calculatedOtherCosts,
+      otherCostsDzd,
+      estimatedCifCostDzd,
+      estimatedLandedCostDzd,
+      estimatedTotalCostDzd,
+      sellingPriceDzd,
+      estimatedProfitDzd,
+      estimatedMarginPercent,
     },
     errors: [],
   };

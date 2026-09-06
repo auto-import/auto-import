@@ -14,7 +14,7 @@ import OfferDetailWorkspace from "./OfferDetailWorkspace";
 const mocks = vi.hoisted(() => ({
   getOffer: vi.fn(),
   listQuotations: vi.fn(),
-  currentRate: vi.fn(),
+  currentRates: vi.fn(),
   preview: vi.fn(),
   create: vi.fn(),
 }));
@@ -37,7 +37,7 @@ vi.mock("@/lib/commerce-api", () => ({
     },
     quotations: {
       list: mocks.listQuotations,
-      currentUsdDzdRate: mocks.currentRate,
+      currentDzdRates: mocks.currentRates,
       preview: mocks.preview,
       create: mocks.create,
     },
@@ -67,8 +67,8 @@ const offer = {
   model: "Coolray",
   condition: "new",
   specification: {},
-  supplierPrice: 8000,
-  totalOfferPrice: 8500,
+  supplierPrice: 10000,
+  totalOfferPrice: 10000,
   currency: "USD",
   validFrom: "2026-09-01T00:00:00.000Z",
   validUntil: "2026-12-01T00:00:00.000Z",
@@ -84,7 +84,7 @@ const offer = {
       model: "Coolray",
       condition: "new",
       specification: {},
-      supplierPrice: 8000,
+      supplierPrice: 10000,
       currency: "USD",
       quantity: 1,
       reservedQuantity: 0,
@@ -110,24 +110,24 @@ async function openAndFillQuotation() {
   await renderWorkspace();
   await screen.findByText("OFF-001 · China Motors");
   fireEvent.click(screen.getByRole("button", { name: "Créer un devis" }));
-  await waitFor(() => expect(mocks.currentRate).toHaveBeenCalled());
-  fireEvent.change(screen.getByLabelText("Prix du conteneur (USD)"), {
-    target: { value: "6000" },
+  await waitFor(() => expect(mocks.currentRates).toHaveBeenCalled());
+  fireEvent.change(screen.getByLabelText("Prix du conteneur"), {
+    target: { value: "4500" },
   });
   fireEvent.change(screen.getByLabelText("Assurance"), {
-    target: { value: "300" },
+    target: { value: "0" },
   });
-  fireEvent.change(screen.getByLabelText("Douane estimée (non incluse)"), {
-    target: { value: "1000" },
+  fireEvent.change(screen.getByLabelText("Douane estimée (DZD)"), {
+    target: { value: "500000" },
   });
   fireEvent.change(screen.getByLabelText("Transit"), {
-    target: { value: "200" },
+    target: { value: "80000" },
   });
-  fireEvent.change(screen.getByLabelText("Montant autre coût 1"), {
-    target: { value: "500" },
+  fireEvent.change(screen.getByLabelText("Prix de vente client (DZD)"), {
+    target: { value: "2600000" },
   });
-  fireEvent.change(screen.getByLabelText("Description autre coût 1"), {
-    target: { value: "Frais de manutention" },
+  fireEvent.change(screen.getByLabelText("Base tarifaire *"), {
+    target: { value: "DDP" },
   });
 }
 
@@ -138,37 +138,43 @@ describe("OfferDetailWorkspace quotation workflow", () => {
     vi.clearAllMocks();
     mocks.getOffer.mockResolvedValue(offer);
     mocks.listQuotations.mockResolvedValue({ items: [], pagination });
-    mocks.currentRate.mockResolvedValue({
-      exchangeRateId: "rate-1",
-      exchangeRateSnapshot: "250",
-      baseCurrency: "USD",
-      quoteCurrency: "DZD",
+    mocks.currentRates.mockResolvedValue({
+      baseCurrency: "DZD",
+      rates: [
+        { currency: "DZD", exchangeRateId: null, exchangeRateUsed: "1" },
+        { currency: "USD", exchangeRateId: "rate-1", exchangeRateUsed: "145" },
+      ],
     });
-    mocks.preview.mockResolvedValue({ exchangeRateSnapshot: "250" });
+    mocks.preview.mockResolvedValue({ estimatedTotalCostDzd: "2247500" });
     mocks.create.mockResolvedValue({ id: "quotation-1" });
   });
 
   it("updates CIF/DDP immediately and submits the exact API payload", async () => {
     await openAndFillQuotation();
 
-    const cif = screen.getByText("Prix CIF").parentElement!;
-    const ddp = screen.getByText("Prix DDP").parentElement!;
-    expect(within(cif).getByText(/11[^\d]*000 USD/)).toBeTruthy();
-    expect(within(cif).getByText(/2[^\d]*750[^\d]*000 DZD/)).toBeTruthy();
-    expect(within(ddp).getByText(/12[^\d]*000 USD/)).toBeTruthy();
-    expect(within(ddp).getByText(/3[^\d]*000[^\d]*000 DZD/)).toBeTruthy();
+    const total = screen.getByText("Total estimé DDP").parentElement!;
+    const profit = screen.getByText("Profit estimé").parentElement!;
+    const margin = screen.getByText("Marge estimée").parentElement!;
+    expect(within(total).getByText(/2[^\d]*247[^\d]*500 DZD/)).toBeTruthy();
+    expect(within(profit).getByText(/352[^\d]*500 DZD/)).toBeTruthy();
+    expect(within(margin).getByText("13.6 %")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Créer le devis" }));
     await waitFor(() =>
       expect(mocks.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          vehicleAmount: 8000,
-          containerPrice: 6000,
+          vehicleAmount: 10000,
+          vehicleCurrency: "USD",
+          containerPrice: 4500,
+          containerCurrency: "USD",
           containerAllocation: 3,
-          insuranceAmount: 300,
-          customsAmount: 1000,
-          transitAmount: 200,
-          otherCosts: [{ amount: 500, description: "Frais de manutention" }],
+          insuranceAmount: 0,
+          insuranceCurrency: "USD",
+          customsAmount: 500000,
+          transitAmount: 80000,
+          transitCurrency: "DZD",
+          sellingPriceDzd: 2600000,
+          otherCosts: [],
         }),
       ),
     );

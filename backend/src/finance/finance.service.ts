@@ -196,8 +196,8 @@ export class FinanceService {
           ? new Prisma.Decimal(1)
           : await this.exchangeRates.findEffectiveRate(
               organizationId,
-              'DZD',
               p.currency,
+              'DZD',
               p.purchaseDate ?? p.createdAt,
             );
       const committedBase = p.purchasePrice.mul(purchaseRate).toDecimalPlaces(2);
@@ -229,8 +229,8 @@ export class FinanceService {
     if (currency !== 'DZD') {
       const rate = await this.exchangeRates.findEffectiveRate(
         organizationId,
-        'DZD',
         currency,
+        'DZD',
         commercialContract?.signedAt ?? commercialContract?.createdAt,
       );
       totalRevenueBase = totalRevenue.mul(rate).toDecimalPlaces(2);
@@ -334,8 +334,8 @@ export class FinanceService {
           ? new Prisma.Decimal(1)
           : await this.exchangeRates.findEffectiveRate(
               organizationId,
-              'DZD',
               contract.currency,
+              'DZD',
               contract.signedAt ?? contract.createdAt,
             );
       totalContracted = totalContracted.add(contract.totalAmount.mul(rate));
@@ -347,8 +347,8 @@ export class FinanceService {
           ? new Prisma.Decimal(1)
           : await this.exchangeRates.findEffectiveRate(
               organizationId,
-              'DZD',
               invoice.currency,
+              'DZD',
               invoice.issueDate ?? invoice.createdAt,
             );
       totalInvoiced = totalInvoiced.add(invoice.total.mul(rate));

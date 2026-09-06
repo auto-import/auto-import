@@ -32,8 +32,8 @@ export class ExchangeRatesController {
   ) {
     const rate = await this.exchangeRates.findEffectiveRate(
       user.organizationId,
-      baseCurrency || 'DZD',
-      quoteCurrency || 'USD',
+      baseCurrency || 'USD',
+      quoteCurrency || 'DZD',
       date ? new Date(date) : undefined,
     );
     return { baseCurrency, quoteCurrency, rate: rate.toString() };

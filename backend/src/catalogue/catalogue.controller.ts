@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,5 +17,11 @@ export class CatalogueController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.catalogue.findAll(user.organizationId, filters);
+  }
+
+  @Get(':id')
+  @RequirePermission(Permission.VEHICLES_READ)
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.catalogue.findOne(id, user.organizationId);
   }
 }

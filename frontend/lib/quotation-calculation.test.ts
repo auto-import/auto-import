@@ -2,49 +2,55 @@ import { describe, expect, it } from "vitest";
 import { buildQuotationDraft } from "./quotation-calculation";
 
 const amounts = {
-  vehicleAmount: "8000",
-  containerPrice: "6000",
+  vehicleAmount: "10000",
+  vehicleCurrency: "USD",
+  containerPrice: "4500",
+  containerCurrency: "USD",
   containerAllocation: "3",
-  insuranceAmount: "300",
-  customsAmount: "1000",
-  transitAmount: "200",
-  marginAmount: "0",
+  insuranceAmount: "0",
+  insuranceCurrency: "USD",
+  customsAmount: "500000",
+  transitAmount: "80000",
+  transitCurrency: "DZD",
+  sellingPriceDzd: "2600000",
 };
 
+const rates = { DZD: 1, USD: 145, CNY: 20 };
+
 describe("quotation live calculation", () => {
-  it("calculates CIF without estimated customs and converts with the Finance rate", () => {
+  it("implements the required DZD profitability scenario exactly", () => {
     const draft = buildQuotationDraft(
-      "CIF",
+      "DDP",
       amounts,
-      [{ amount: "500", description: "Frais de manutention" }],
-      250,
+      [],
+      rates,
     );
 
     expect(draft.errors).toEqual([]);
     expect(draft.calculation).toMatchObject({
-      freightAmount: 2000,
-      cifAmount: 11000,
-      ddpAmount: 12000,
-      finalCustomerPrice: 11000,
-      cifAmountDzd: 2750000,
-      ddpAmountDzd: 3000000,
+      vehicle: { amountDzd: 1450000, exchangeRateUsed: 145 },
+      freight: { amountOriginal: 1500, amountDzd: 217500 },
+      transit: { amountDzd: 80000, exchangeRateUsed: 1 },
+      customs: { amountDzd: 500000, exchangeRateUsed: 1 },
+      estimatedTotalCostDzd: 2247500,
+      sellingPriceDzd: 2600000,
+      estimatedProfitDzd: 352500,
+      estimatedMarginPercent: 13.56,
     });
   });
 
-  it("calculates DDP with customs and supports a 1/4 container share", () => {
+  it("keeps customs outside CIF profitability while showing landed cost", () => {
     const draft = buildQuotationDraft(
-      "DDP",
-      { ...amounts, containerAllocation: "4" },
-      [{ amount: "500", description: "Frais de manutention" }],
-      250,
+      "CIF",
+      amounts,
+      [],
+      rates,
     );
 
     expect(draft.calculation).toMatchObject({
-      freightAmount: 1500,
-      cifAmount: 10500,
-      ddpAmount: 11500,
-      finalCustomerPrice: 11500,
-      finalCustomerPriceDzd: 2875000,
+      estimatedCifCostDzd: 1747500,
+      estimatedLandedCostDzd: 2247500,
+      estimatedTotalCostDzd: 1747500,
     });
   });
 
@@ -53,7 +59,7 @@ describe("quotation live calculation", () => {
       "CIF",
       { ...amounts, insuranceAmount: "not-a-number" },
       [],
-      250,
+      rates,
     );
 
     expect(draft.amounts).toBeNull();
@@ -61,24 +67,27 @@ describe("quotation live calculation", () => {
     expect(draft.errors).toContain("L’assurance doit être un nombre valide.");
   });
 
-  it("does not add the legacy margin field to CIF or DDP", () => {
+  it("converts multiple other costs independently", () => {
     const draft = buildQuotationDraft(
       "DDP",
-      { ...amounts, marginAmount: "900" },
-      [{ amount: "500", description: "Manutention" }],
-      250,
+      amounts,
+      [
+        { amount: "500", currency: "USD", description: "Manutention" },
+        { amount: "10000", currency: "DZD", description: "Stationnement" },
+      ],
+      rates,
     );
 
-    expect(draft.calculation?.cifAmount).toBe(11000);
-    expect(draft.calculation?.ddpAmount).toBe(12000);
+    expect(draft.calculation?.otherCostsDzd).toBe(82500);
+    expect(draft.calculation?.estimatedTotalCostDzd).toBe(2330000);
   });
 
   it("requires a description only when another cost has an amount", () => {
     const draft = buildQuotationDraft(
       "CIF",
       amounts,
-      [{ amount: "500", description: "" }],
-      250,
+      [{ amount: "500", currency: "USD", description: "" }],
+      rates,
     );
 
     expect(draft.errors).toContain(

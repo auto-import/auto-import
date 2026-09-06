@@ -54,13 +54,13 @@ export class CostsService {
     const currency = purchase.currency.toUpperCase();
     const occurredAt =
       purchase.purchaseDate ?? purchase.createdAt ?? new Date();
-    const rate = await this.findEffectiveRateInTransaction(
+    const rateSnapshot = await this.findEffectiveRateInTransaction(
       tx,
       organizationId,
       currency,
       occurredAt,
     );
-    const amountDzd = amount.mul(rate).toDecimalPlaces(2);
+    const amountDzd = amount.mul(rateSnapshot.rate).toDecimalPlaces(2);
     const cost = await tx.cost.create({
       data: {
         organizationId,
@@ -68,6 +68,8 @@ export class CostsService {
         costScope: 'DIRECT',
         amount,
         currency,
+        exchangeRateId: rateSnapshot.exchangeRateId,
+        exchangeRateSnapshot: rateSnapshot.rate,
         amountInBaseCurrency: amountDzd,
         dossierId: purchase.dossierId,
         purchaseId: purchase.id,
@@ -88,11 +90,85 @@ export class CostsService {
         idempotencyKey: `purchase-cost:${purchase.id}`,
         originalAmount: amount,
         currency,
-        exchangeRateSnapshot: rate,
+        exchangeRateSnapshot: rateSnapshot.rate,
         amountDzd,
         dossierId: purchase.dossierId,
         supplierId: purchase.supplierId,
         purchaseId: purchase.id,
+        costId: cost.id,
+        status: 'VALIDATED',
+        createdBy: userId,
+        validatedBy: userId,
+        validatedAt: occurredAt,
+        occurredAt,
+      },
+    });
+  }
+
+  async recordCustomsActual(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    userId: string,
+    customsFile: {
+      id: string;
+      reference: string;
+      dossierId?: string | null;
+      shipmentId?: string | null;
+      customsAmount?: Prisma.Decimal | number | null;
+      releasedAt?: Date | null;
+    },
+  ) {
+    if (!customsFile.dossierId || customsFile.customsAmount == null)
+      return null;
+
+    const amount = new Prisma.Decimal(customsFile.customsAmount);
+    if (!amount.isPositive()) return null;
+
+    const sourceModule = 'CUSTOMS_ACTUAL';
+    const existing = await tx.financeTransaction.findUnique({
+      where: {
+        organizationId_sourceModule_sourceRecordId: {
+          organizationId,
+          sourceModule,
+          sourceRecordId: customsFile.id,
+        },
+      },
+    });
+    if (existing) return existing;
+
+    const occurredAt = customsFile.releasedAt ?? new Date();
+    const cost = await tx.cost.create({
+      data: {
+        organizationId,
+        type: 'CUSTOMS',
+        costScope: 'DIRECT',
+        amount,
+        currency: 'DZD',
+        exchangeRateSnapshot: new Prisma.Decimal(1),
+        amountInBaseCurrency: amount,
+        dossierId: customsFile.dossierId,
+        shipmentId: customsFile.shipmentId,
+        customsFileId: customsFile.id,
+        occurredAt,
+        description: `Actual customs cost ${customsFile.reference}`,
+        actorUserId: userId,
+        status: 'POSTED',
+      },
+    });
+
+    return tx.financeTransaction.create({
+      data: {
+        organizationId,
+        type: 'DIRECT_COST_CUSTOMS',
+        direction: 'DEBIT',
+        sourceModule,
+        sourceRecordId: customsFile.id,
+        idempotencyKey: `customs-cost:${customsFile.id}`,
+        originalAmount: amount,
+        currency: 'DZD',
+        exchangeRateSnapshot: new Prisma.Decimal(1),
+        amountDzd: amount,
+        dossierId: customsFile.dossierId,
         costId: cost.id,
         status: 'VALIDATED',
         createdBy: userId,
@@ -108,21 +184,12 @@ export class CostsService {
     organizationId: string,
     currency: string,
     occurredAt: Date,
-  ): Promise<Prisma.Decimal> {
-    if (currency === 'DZD') return new Prisma.Decimal(1);
+  ): Promise<{ exchangeRateId: string | null; rate: Prisma.Decimal }> {
+    if (currency === 'DZD') {
+      return { exchangeRateId: null, rate: new Prisma.Decimal(1) };
+    }
 
     const direct = await tx.exchangeRate.findFirst({
-      where: {
-        organizationId,
-        baseCurrency: 'DZD',
-        quoteCurrency: currency,
-        effectiveAt: { lte: occurredAt },
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    if (direct) return direct.rate;
-
-    const inverse = await tx.exchangeRate.findFirst({
       where: {
         organizationId,
         baseCurrency: currency,
@@ -131,12 +198,26 @@ export class CostsService {
       },
       orderBy: { effectiveAt: 'desc' },
     });
+    if (direct) return { exchangeRateId: direct.id, rate: direct.rate };
+
+    const inverse = await tx.exchangeRate.findFirst({
+      where: {
+        organizationId,
+        baseCurrency: 'DZD',
+        quoteCurrency: currency,
+        effectiveAt: { lte: occurredAt },
+      },
+      orderBy: { effectiveAt: 'desc' },
+    });
     if (inverse && !inverse.rate.isZero()) {
-      return new Prisma.Decimal(1).dividedBy(inverse.rate);
+      return {
+        exchangeRateId: inverse.id,
+        rate: new Prisma.Decimal(1).dividedBy(inverse.rate),
+      };
     }
 
     throw new BadRequestException(
-      `No DZD/${currency} exchange rate exists at the purchase date`,
+      `No ${currency}/DZD exchange rate exists at the purchase date`,
     );
   }
 
@@ -175,18 +256,35 @@ export class CostsService {
 
     const amount = new Prisma.Decimal(dto.amount);
     const currency = dto.currency.toUpperCase();
+    if (dto.type.toUpperCase() === 'CUSTOMS' && currency !== 'DZD') {
+      throw new BadRequestException('Customs costs must be recorded in DZD');
+    }
     const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
 
     // Convert to base currency (DZD)
     let amountInBaseCurrency = amount;
+    let exchangeRateSnapshot = new Prisma.Decimal(1);
+    let exchangeRateId: string | null = null;
     if (currency !== 'DZD') {
-      const rate = await this.exchangeRates.findEffectiveRate(
+      const selectedRate = await this.exchangeRates.findEffectiveRateSnapshot(
         organizationId,
-        'DZD',
         currency,
+        'DZD',
         occurredAt,
       );
-      amountInBaseCurrency = amount.mul(rate).toDecimalPlaces(2);
+      if (
+        dto.exchangeRateId &&
+        dto.exchangeRateId !== selectedRate.exchangeRateId
+      ) {
+        throw new BadRequestException(
+          'The selected exchange rate is not the effective currency/DZD rate',
+        );
+      }
+      exchangeRateId = selectedRate.exchangeRateId;
+      exchangeRateSnapshot = selectedRate.rate;
+      amountInBaseCurrency = amount
+        .mul(exchangeRateSnapshot)
+        .toDecimalPlaces(2);
     }
 
     const costScope = dto.costScope ?? (dto.dossierId ? 'DIRECT' : 'OPERATING');
@@ -240,7 +338,8 @@ export class CostsService {
           costScope,
           amount,
           currency,
-          exchangeRateId: dto.exchangeRateId,
+          exchangeRateId,
+          exchangeRateSnapshot,
           amountInBaseCurrency,
           dossierId: dto.dossierId,
           orderId: dto.orderId,
@@ -259,9 +358,6 @@ export class CostsService {
           customsFile: { select: { id: true, reference: true } },
         },
       });
-      const snapshot = amount.equals(0)
-        ? new Prisma.Decimal(1)
-        : amountInBaseCurrency.div(amount);
       await tx.financeTransaction.upsert({
         where: {
           organizationId_sourceModule_sourceRecordId: {
@@ -282,7 +378,7 @@ export class CostsService {
           idempotencyKey: `cost:${created.id}`,
           originalAmount: amount,
           currency,
-          exchangeRateSnapshot: snapshot,
+          exchangeRateSnapshot,
           amountDzd: amountInBaseCurrency,
           dossierId: dto.dossierId,
           purchaseId: dto.purchaseId,

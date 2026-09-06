@@ -2,7 +2,7 @@
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Plus,
   ReceiptText,
   Ship,
   UserRound,
@@ -32,11 +33,17 @@ import {
   type ApiDossierStatus,
 } from "@/lib/api-contract";
 import { adminApi, type User } from "@/lib/admin-api";
-import { commerceApi, type ApiDossier, type ApiPartner } from "@/lib/commerce-api";
+import {
+  commerceApi,
+  type ApiDossier,
+  type ApiPartner,
+} from "@/lib/commerce-api";
 import { ErrorState, LoadingState, inputClass } from "./common";
 import DossierEvidencePanel from "./DossierEvidencePanel";
 import { downloadDocument } from "@/lib/documents-api";
 import {
+  createCost,
+  fetchCurrentDzdRates,
   fetchDossierFinancialSummary,
   type DossierFinancialSummary,
 } from "@/lib/finance-api";
@@ -101,10 +108,10 @@ const workflows: Record<string, ApiDossierStatus[]> = {
 const legacyWorkflows: Record<string, ApiDossierStatus[]> = {
   VEHICLE_SALE_CIF: workflows.VEHICLE_SALE_CIF.filter(
     (status) => status !== "vehicleBooking",
-  ).map((status) => status === "shipmentBooking" ? "booking" : status),
+  ).map((status) => (status === "shipmentBooking" ? "booking" : status)),
   VEHICLE_SALE_DDP: workflows.VEHICLE_SALE_DDP.filter(
     (status) => status !== "vehicleBooking",
-  ).map((status) => status === "shipmentBooking" ? "booking" : status),
+  ).map((status) => (status === "shipmentBooking" ? "booking" : status)),
   SHIPPING_ONLY: workflows.SHIPPING_ONLY,
 };
 
@@ -123,7 +130,9 @@ export default function DossierDetailExperience({
   const [allowed, setAllowed] = useState<ApiDossierStatus[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [partners, setPartners] = useState<ApiPartner[]>([]);
-  const [pendingStatus, setPendingStatus] = useState<ApiDossierStatus | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<ApiDossierStatus | null>(
+    null,
+  );
   const [salesUserId, setSalesUserId] = useState("");
   const [opsUserId, setOpsUserId] = useState("");
   const [chinaResponsibleId, setChinaResponsibleId] = useState("");
@@ -136,15 +145,16 @@ export default function DossierDetailExperience({
   const load = useCallback(async () => {
     setError("");
     try {
-      const [record, transitions, userPage, finance, partnerPage] = await Promise.all([
-        commerceApi.dossiers.get(id),
-        commerceApi.dossiers.allowed(id),
-        adminApi.listUsers({ status: "active", limit: 100 }),
-        hasPermission(Permission.FINANCE_READ)
-          ? fetchDossierFinancialSummary(id)
-          : Promise.resolve(null),
-        commerceApi.partners.list({ status: "active", limit: 100 }),
-      ]);
+      const [record, transitions, userPage, finance, partnerPage] =
+        await Promise.all([
+          commerceApi.dossiers.get(id),
+          commerceApi.dossiers.allowed(id),
+          adminApi.listUsers({ status: "active", limit: 100 }),
+          hasPermission(Permission.FINANCE_READ)
+            ? fetchDossierFinancialSummary(id)
+            : Promise.resolve(null),
+          commerceApi.partners.list({ status: "active", limit: 100 }),
+        ]);
       setDossier(record);
       setAllowed(transitions.allowedTransitions);
       setUsers(userPage.items);
@@ -193,7 +203,8 @@ export default function DossierDetailExperience({
   }
 
   async function upgradeToDdp() {
-    const reason = window.prompt("Motif de l’upgrade CIF → DDP (facultatif)") ?? undefined;
+    const reason =
+      window.prompt("Motif de l’upgrade CIF → DDP (facultatif)") ?? undefined;
     if (reason === undefined) return;
     setWorking(true);
     setError("");
@@ -227,12 +238,16 @@ export default function DossierDetailExperience({
   }
 
   const workflow = dossier
-    ? ((dossier.workflowVersion >= 2 ? workflows : legacyWorkflows)[dossier.type] ?? [])
+    ? ((dossier.workflowVersion >= 2 ? workflows : legacyWorkflows)[
+        dossier.type
+      ] ?? [])
     : [];
   const currentIndex = dossier ? workflow.indexOf(dossier.status) : -1;
   const salesUser = users.find((user) => user.id === dossier?.salesUserId);
   const opsUser = users.find((user) => user.id === dossier?.opsUserId);
-  const chinaUser = users.find((user) => user.id === dossier?.chinaResponsibleId);
+  const chinaUser = users.find(
+    (user) => user.id === dossier?.chinaResponsibleId,
+  );
   const upfront = dossier?.sections?.finance?.paymentPlan?.installments?.find(
     (item) => item.installmentNumber === 1,
   );
@@ -289,11 +304,14 @@ export default function DossierDetailExperience({
                 <p className="mt-2 flex items-center gap-2 text-sm text-muted">
                   <CalendarDays className="h-4 w-4" />
                   Ouvert le{" "}
-                  {new Date(dossier.openedAt).toLocaleDateString(getRuntimeLocale(), {
-                    day: "2-digit",
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  {new Date(dossier.openedAt).toLocaleDateString(
+                    getRuntimeLocale(),
+                    {
+                      day: "2-digit",
+                      month: "long",
+                      year: "numeric",
+                    },
+                  )}
                 </p>
               </div>
               {canWrite && (
@@ -302,7 +320,12 @@ export default function DossierDetailExperience({
                     dossier.status !== "documentsDelivered" &&
                     dossier.status !== "closed" &&
                     dossier.status !== "cancelled" && (
-                      <button type="button" disabled={working} onClick={() => void upgradeToDdp()} className="rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                      <button
+                        type="button"
+                        disabled={working}
+                        onClick={() => void upgradeToDdp()}
+                        className="rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                      >
                         Upgrade to DDP
                       </button>
                     )}
@@ -368,7 +391,11 @@ export default function DossierDetailExperience({
                 icon={Ship}
                 label="Forwarder"
                 value={dossier.forwarderSupplier?.name || "Non affecté"}
-                subvalue={dossier.forwarderSupplier ? "Shipment Booking" : "À renseigner"}
+                subvalue={
+                  dossier.forwarderSupplier
+                    ? "Shipment Booking"
+                    : "À renseigner"
+                }
               />
               <Info
                 icon={UsersRound}
@@ -378,18 +405,16 @@ export default function DossierDetailExperience({
                     ? `${salesUser.firstName} ${salesUser.lastName}`
                     : "Commercial non assigné"
                 }
-                subvalue={
-                  [
-                    opsUser
-                      ? `Opérations · ${opsUser.firstName} ${opsUser.lastName}`
-                      : "Opérations non assignées",
-                    chinaUser
-                      ? `Chine · ${chinaUser.firstName} ${chinaUser.lastName}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                }
+                subvalue={[
+                  opsUser
+                    ? `Opérations · ${opsUser.firstName} ${opsUser.lastName}`
+                    : "Opérations non assignées",
+                  chinaUser
+                    ? `Chine · ${chinaUser.firstName} ${chinaUser.lastName}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               />
             </div>
           </section>
@@ -500,7 +525,12 @@ export default function DossierDetailExperience({
                 />
               )}
               {tab === "finance" && (
-                <Finance dossier={dossier} summary={financialSummary} />
+                <Finance
+                  dossier={dossier}
+                  summary={financialSummary}
+                  canWrite={hasPermission(Permission.COSTS_WRITE)}
+                  onUpdated={load}
+                />
               )}
               {tab === "shipping" && <Logistics dossier={dossier} />}
               {tab === "documents" && <Documents dossier={dossier} />}
@@ -700,10 +730,91 @@ function Overview({
 function Finance({
   dossier,
   summary,
+  canWrite,
+  onUpdated,
 }: {
   dossier: ApiDossier;
   summary: DossierFinancialSummary | null;
+  canWrite: boolean;
+  onUpdated: () => Promise<void>;
 }) {
+  const [costType, setCostType] = useState("OTHER");
+  const [costDescription, setCostDescription] = useState("");
+  const [costAmount, setCostAmount] = useState("");
+  const [costCurrency, setCostCurrency] = useState("DZD");
+  const [rates, setRates] = useState<
+    Array<{ currency: string; exchangeRateUsed: string }>
+  >([{ currency: "DZD", exchangeRateUsed: "1" }]);
+  const [costError, setCostError] = useState("");
+  const [savingCost, setSavingCost] = useState(false);
+
+  useEffect(() => {
+    if (!canWrite) return;
+    let active = true;
+    void fetchCurrentDzdRates()
+      .then((response) => {
+        if (active) setRates(response.rates);
+      })
+      .catch((caught) => {
+        if (active) {
+          setCostError(
+            caught instanceof Error
+              ? caught.message
+              : "Taux de change Finance indisponibles.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [canWrite]);
+
+  const selectedRate = useMemo(
+    () =>
+      rates.find((item) => item.currency === costCurrency)?.exchangeRateUsed,
+    [costCurrency, rates],
+  );
+  const liveDzdEquivalent =
+    costAmount && selectedRate
+      ? Number(costAmount) * Number(selectedRate)
+      : null;
+
+  async function submitActualCost(event: React.FormEvent) {
+    event.preventDefault();
+    setCostError("");
+    const amount = Number(costAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCostError("Saisissez un montant strictement positif.");
+      return;
+    }
+    if (!selectedRate) {
+      setCostError(`Aucun taux ${costCurrency} vers DZD n'est configuré.`);
+      return;
+    }
+    setSavingCost(true);
+    try {
+      await createCost({
+        type: costType,
+        costScope: "DIRECT",
+        amount,
+        currency: costCurrency,
+        dossierId: dossier.id,
+        description: costDescription.trim() || undefined,
+      });
+      setCostAmount("");
+      setCostDescription("");
+      await onUpdated();
+    } catch (caught) {
+      setCostError(
+        caught instanceof Error
+          ? caught.message
+          : "Impossible d'enregistrer le coût réel.",
+      );
+    } finally {
+      setSavingCost(false);
+    }
+  }
+
   const plan = summary?.paymentPlan ?? dossier.sections?.finance?.paymentPlan;
   const currency = summary?.currency ?? plan?.currency ?? "DZD";
   const collected = Number(summary?.revenue.collected ?? 0);
@@ -772,7 +883,8 @@ function Finance({
               </div>
               <p className="text-sm font-bold">
                 {Number(item.paidAmount).toLocaleString(getRuntimeLocale())} /{" "}
-                {Number(item.amount).toLocaleString(getRuntimeLocale())} {plan.currency}
+                {Number(item.amount).toLocaleString(getRuntimeLocale())}{" "}
+                {plan.currency}
               </p>
             </div>
           ))}
@@ -780,7 +892,197 @@ function Finance({
       ) : (
         <p className="mt-4 text-sm text-muted">Aucun échéancier associé.</p>
       )}
+      <ActualCostsSection
+        summary={summary}
+        canWrite={canWrite}
+        costType={costType}
+        setCostType={setCostType}
+        costDescription={costDescription}
+        setCostDescription={setCostDescription}
+        costAmount={costAmount}
+        setCostAmount={setCostAmount}
+        costCurrency={costCurrency}
+        setCostCurrency={setCostCurrency}
+        rates={rates}
+        selectedRate={selectedRate}
+        liveDzdEquivalent={liveDzdEquivalent}
+        costError={costError}
+        savingCost={savingCost}
+        submitActualCost={submitActualCost}
+      />
     </div>
+  );
+}
+
+function ActualCostsSection({
+  summary,
+  canWrite,
+  costType,
+  setCostType,
+  costDescription,
+  setCostDescription,
+  costAmount,
+  setCostAmount,
+  costCurrency,
+  setCostCurrency,
+  rates,
+  selectedRate,
+  liveDzdEquivalent,
+  costError,
+  savingCost,
+  submitActualCost,
+}: {
+  summary: DossierFinancialSummary | null;
+  canWrite: boolean;
+  costType: string;
+  setCostType: (value: string) => void;
+  costDescription: string;
+  setCostDescription: (value: string) => void;
+  costAmount: string;
+  setCostAmount: (value: string) => void;
+  costCurrency: string;
+  setCostCurrency: (value: string) => void;
+  rates: Array<{ currency: string; exchangeRateUsed: string }>;
+  selectedRate?: string;
+  liveDzdEquivalent: number | null;
+  costError: string;
+  savingCost: boolean;
+  submitActualCost: (event: React.FormEvent) => Promise<void>;
+}) {
+  return (
+    <section className="mt-7 rounded-xl border border-neutral-200 p-5">
+      <div>
+        <h2 className="font-bold">Coûts réels du dossier</h2>
+        <p className="mt-1 text-xs text-muted">
+          Les contre-valeurs DZD utilisent le taux Finance actif au jour de
+          l'écriture, puis restent figées.
+        </p>
+      </div>
+
+      {summary?.recentCosts?.length ? (
+        <div className="mt-4 divide-y rounded-lg border border-neutral-200">
+          {summary.recentCosts.map((cost) => (
+            <div
+              key={cost.id}
+              className="grid gap-1 p-3 text-sm sm:grid-cols-[1fr_auto]"
+            >
+              <div>
+                <p className="font-semibold">{cost.description || cost.type}</p>
+                <p className="text-xs text-muted">
+                  {Number(cost.amount).toLocaleString(getRuntimeLocale())}{" "}
+                  {cost.currency} · taux historique{" "}
+                  {Number(cost.exchangeRateSnapshot).toLocaleString(
+                    getRuntimeLocale(),
+                  )}
+                </p>
+              </div>
+              <p className="font-bold">
+                {cost.amountInBaseCurrency == null
+                  ? "Contre-valeur DZD manquante"
+                  : `${Number(cost.amountInBaseCurrency).toLocaleString(
+                      getRuntimeLocale(),
+                    )} DZD`}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-muted">
+          Aucun coût réel comptabilisé pour ce dossier.
+        </p>
+      )}
+
+      {canWrite && (
+        <form
+          onSubmit={(event) => void submitActualCost(event)}
+          className="mt-5 grid gap-3 rounded-lg bg-neutral-50 p-4 md:grid-cols-2"
+        >
+          <label>
+            <span className="field-label">Type de coût réel</span>
+            <select
+              className={inputClass}
+              value={costType}
+              onChange={(event) => {
+                const type = event.target.value;
+                setCostType(type);
+                if (type === "CUSTOMS") setCostCurrency("DZD");
+              }}
+            >
+              <option value="SHIPPING">Fret / transport</option>
+              <option value="INSURANCE">Assurance</option>
+              <option value="TRANSIT">Transit</option>
+              <option value="CUSTOMS">Douane</option>
+              <option value="STORAGE">Stockage</option>
+              <option value="OTHER">Autre coût</option>
+            </select>
+          </label>
+          <label>
+            <span className="field-label">Description</span>
+            <input
+              className={inputClass}
+              value={costDescription}
+              onChange={(event) => setCostDescription(event.target.value)}
+              placeholder="Ex. manutention portuaire"
+            />
+          </label>
+          <label>
+            <span className="field-label">Montant</span>
+            <input
+              className={inputClass}
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              value={costAmount}
+              onChange={(event) => setCostAmount(event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="field-label">Devise</span>
+            <select
+              className={inputClass}
+              value={costCurrency}
+              disabled={costType === "CUSTOMS"}
+              onChange={(event) => setCostCurrency(event.target.value)}
+            >
+              {rates.map((rate) => (
+                <option key={rate.currency} value={rate.currency}>
+                  {rate.currency}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="rounded-lg border border-neutral-200 bg-white p-3 text-sm md:col-span-2">
+            <p>
+              Taux utilisé : <b>{selectedRate ?? "indisponible"}</b>
+            </p>
+            <p className="mt-1">
+              Équivalent :{" "}
+              <b>
+                {liveDzdEquivalent != null && Number.isFinite(liveDzdEquivalent)
+                  ? `${liveDzdEquivalent.toLocaleString(
+                      getRuntimeLocale(),
+                    )} DZD`
+                  : "—"}
+              </b>
+            </p>
+          </div>
+          {costError && (
+            <p role="alert" className="text-sm text-red-700 md:col-span-2">
+              {costError}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={savingCost}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 md:col-span-2"
+          >
+            <Plus className="h-4 w-4" />
+            {savingCost ? "Enregistrement…" : "Ajouter le coût réel"}
+          </button>
+        </form>
+      )}
+    </section>
   );
 }
 
@@ -913,7 +1215,8 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
               Checklist GED & Conformité Dossier
             </h2>
             <p className="text-xs text-muted mt-0.5">
-              Suivi automatisé des pièces obligatoires et règles de passage workflow.
+              Suivi automatisé des pièces obligatoires et règles de passage
+              workflow.
             </p>
           </div>
           {checklist && (
@@ -991,7 +1294,9 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
             })}
           </div>
         ) : !loadingChecklist ? (
-          <p className="text-xs text-muted">Aucune règle de checklist spécifique active pour ce type de dossier.</p>
+          <p className="text-xs text-muted">
+            Aucune règle de checklist spécifique active pour ce type de dossier.
+          </p>
         ) : null}
       </section>
 
@@ -999,7 +1304,8 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
       <div>
         <h2 className="font-bold">Documents physiques déposés</h2>
         <p className="mt-1 text-sm text-muted">
-          Pièces persistées et chiffrées dans le stockage privé de l’organisation.
+          Pièces persistées et chiffrées dans le stockage privé de
+          l’organisation.
         </p>
         {downloadError && (
           <p role="alert" className="mt-3 text-sm text-red-700">
@@ -1019,7 +1325,12 @@ function Documents({ dossier }: { dossier: ApiDossier }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">
                     {document.externalUrl ? (
-                      <a href={document.externalUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline">
+                      <a
+                        href={document.externalUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-700 underline"
+                      >
                         {document.title || "Lien externe"}
                       </a>
                     ) : (

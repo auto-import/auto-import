@@ -86,7 +86,7 @@ async function main() {
         organizationId: organization.id,
         baseCurrency: 'USD',
         quoteCurrency: 'DZD',
-        rate: 250,
+        rate: 145,
         effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
         source: 'workflow verification',
         createdById: user.id,
@@ -107,14 +107,21 @@ async function main() {
     const common = {
       sourceOfferId: offer.id,
       sourceOfferVehicleId,
-      currency: 'USD' as const,
+      currency: 'DZD',
       vehicleAmount: 8_000,
+      vehicleCurrency: 'USD',
       containerPrice: 6_000,
+      containerCurrency: 'USD',
       containerAllocation: 3 as const,
       insuranceAmount: 300,
-      customsAmount: 1_000,
-      transitAmount: 200,
-      otherCosts: [{ amount: 500, description: 'Frais de manutention' }],
+      insuranceCurrency: 'USD',
+      customsAmount: 500_000,
+      transitAmount: 80_000,
+      transitCurrency: 'DZD',
+      sellingPriceDzd: 2_600_000,
+      otherCosts: [
+        { amount: 500, currency: 'USD', description: 'Frais de manutention' },
+      ],
     };
     const cif = await quotations.create(organization.id, user.id, {
       ...common,
@@ -127,7 +134,7 @@ async function main() {
 
     const saved = await prisma.customerQuotation.findMany({
       where: { organizationId: organization.id },
-      include: { currentRevision: { include: { otherCosts: true } } },
+      include: { currentRevision: { include: { costItems: true } } },
       orderBy: { createdAt: 'asc' },
     });
     const catalogue = await prisma.catalogueItem.findUniqueOrThrow({
@@ -139,32 +146,33 @@ async function main() {
 
     assert(saved.length === 2, 'Expected two independent quotations.');
     assert(
-      saved[0].currentRevision?.finalCustomerPrice.equals(11_000),
-      'CIF USD should equal 11000.',
+      saved[0].currentRevision?.sellingPriceDzd.equals(2_600_000),
+      'CIF selling price DZD should equal 2600000.',
     );
     assert(
-      saved[0].currentRevision?.finalCustomerPriceDzd.equals(2_750_000),
-      'CIF DZD should equal 2750000.',
+      saved[0].currentRevision?.estimatedTotalCostDzd.equals(1_646_000),
+      'CIF estimated cost DZD should equal 1646000.',
     );
     assert(
-      saved[1].currentRevision?.finalCustomerPrice.equals(12_000),
-      'DDP USD should equal 12000.',
+      saved[1].currentRevision?.sellingPriceDzd.equals(2_600_000),
+      'DDP selling price DZD should equal 2600000.',
     );
     assert(
-      saved[1].currentRevision?.finalCustomerPriceDzd.equals(3_000_000),
-      'DDP DZD should equal 3000000.',
+      saved[1].currentRevision?.estimatedTotalCostDzd.equals(2_146_000),
+      'DDP estimated cost DZD should equal 2146000.',
     );
     assert(
       saved.every((item) =>
-        item.currentRevision?.exchangeRateSnapshot.equals(250),
+          item.currentRevision?.exchangeRateSnapshot.equals(145),
       ),
       'Each quotation must preserve the USD/DZD rate snapshot.',
     );
     assert(
       saved.every(
         (item) =>
-          item.currentRevision?.otherCosts[0]?.description ===
-          'Frais de manutention',
+          item.currentRevision?.costItems.some(
+            (cost) => cost.description === 'Frais de manutention',
+          ),
       ),
       'Other-cost descriptions were not persisted.',
     );
@@ -182,10 +190,11 @@ async function main() {
       JSON.stringify({
         quotations: saved.length,
         catalogueItems: 1,
-        cifUsd: saved[0].currentRevision?.finalCustomerPrice.toString(),
-        cifDzd: saved[0].currentRevision?.finalCustomerPriceDzd.toString(),
-        ddpUsd: saved[1].currentRevision?.finalCustomerPrice.toString(),
-        ddpDzd: saved[1].currentRevision?.finalCustomerPriceDzd.toString(),
+        cifEstimatedCostDzd:
+          saved[0].currentRevision?.estimatedTotalCostDzd.toString(),
+        ddpEstimatedCostDzd:
+          saved[1].currentRevision?.estimatedTotalCostDzd.toString(),
+        sellingPriceDzd: saved[1].currentRevision?.sellingPriceDzd.toString(),
         exchangeRateSnapshot:
           saved[0].currentRevision?.exchangeRateSnapshot.toString(),
       }),

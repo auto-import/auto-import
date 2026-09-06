@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PackageCheck, Search } from "lucide-react";
 import Topbar from "@/components/Topbar";
@@ -154,6 +155,7 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
   const photo =
     item.photos?.find((photoItem) => photoItem.isPrimary) ?? item.photos?.[0];
   const [url, setUrl] = useState<string | null>(null);
+  const activePricing = item.pricing?.ddp ?? item.pricing?.cif ?? null;
   useEffect(() => {
     if (!photo) return;
     let active = true;
@@ -207,7 +209,29 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
           <Mini label="Prix DDP" value={formatDzd(item.ddpPrice)} />
           <Mini label="Fournisseur" value={item.supplier?.name} />
           <Mini label="Offre" value={item.offer.reference} />
+          <Mini
+            label="Marge estimée"
+            value={
+              activePricing
+                ? `${Number(activePricing.estimatedMarginPercent).toFixed(1)} %`
+                : undefined
+            }
+          />
+          <Mini
+            label="Marge réelle"
+            value={
+              activePricing?.actual?.available
+                ? `${Number(activePricing.actual.marginPercent).toFixed(1)} %`
+                : "Coûts réels non finalisés"
+            }
+          />
         </dl>
+        <Link
+          href={`/catalogue/${item.id}`}
+          className="block rounded-button border border-border px-4 py-2 text-center text-sm font-semibold hover:bg-neutral-50"
+        >
+          Voir le détail financier
+        </Link>
         <div className="border-t border-border pt-3 text-xs text-muted">
           <p>Prix commerciaux en DZD — prix fournisseur non exposé</p>
         </div>

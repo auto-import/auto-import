@@ -30,6 +30,12 @@ export class QuotationsController {
     return this.quotations.currentUsdDzdRate(user.organizationId);
   }
 
+  @Get('dzd-rates')
+  @RequirePermission(Permission.OFFERS_WRITE)
+  currentDzdRates(@CurrentUser() user: AuthenticatedUser) {
+    return this.quotations.currentDzdRates(user.organizationId);
+  }
+
   @Get(':id')
   @RequirePermission(Permission.OFFERS_READ)
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {

@@ -87,11 +87,27 @@ export class ExchangeRatesService {
     quoteCurrency: string,
     atDate?: Date,
   ): Promise<Prisma.Decimal> {
+    return (
+      await this.findEffectiveRateSnapshot(
+        organizationId,
+        baseCurrency,
+        quoteCurrency,
+        atDate,
+      )
+    ).rate;
+  }
+
+  async findEffectiveRateSnapshot(
+    organizationId: string,
+    baseCurrency: string,
+    quoteCurrency: string,
+    atDate?: Date,
+  ): Promise<{ exchangeRateId: string | null; rate: Prisma.Decimal }> {
     const base = baseCurrency.toUpperCase();
     const quote = quoteCurrency.toUpperCase();
 
     if (base === quote) {
-      return new Prisma.Decimal(1);
+      return { exchangeRateId: null, rate: new Prisma.Decimal(1) };
     }
 
     const targetDate = atDate || new Date();
@@ -108,7 +124,7 @@ export class ExchangeRatesService {
     });
 
     if (directRate) {
-      return directRate.rate;
+      return { exchangeRateId: directRate.id, rate: directRate.rate };
     }
 
     // Inverse lookup: quote -> base
@@ -123,12 +139,63 @@ export class ExchangeRatesService {
     });
 
     if (inverseRate && !inverseRate.rate.isZero()) {
-      return new Prisma.Decimal(1).dividedBy(inverseRate.rate);
+      return {
+        exchangeRateId: inverseRate.id,
+        rate: new Prisma.Decimal(1).dividedBy(inverseRate.rate),
+      };
     }
 
     throw new ConflictException({
       code: 'HISTORICAL_EXCHANGE_RATE_REQUIRED',
       message: `No ${base}/${quote} exchange rate exists at the transaction date`,
     });
+  }
+
+  async currentDzdRates(organizationId: string, atDate = new Date()) {
+    const rows = await this.prisma.exchangeRate.findMany({
+      where: {
+        organizationId,
+        effectiveAt: { lte: atDate },
+        OR: [{ quoteCurrency: 'DZD' }, { baseCurrency: 'DZD' }],
+      },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    const snapshots = new Map<
+      string,
+      {
+        currency: string;
+        exchangeRateId: string | null;
+        exchangeRateUsed: string;
+      }
+    >();
+    snapshots.set('DZD', {
+      currency: 'DZD',
+      exchangeRateId: null,
+      exchangeRateUsed: '1',
+    });
+    for (const row of rows) {
+      const currency = (
+        row.quoteCurrency === 'DZD' ? row.baseCurrency : row.quoteCurrency
+      ).toUpperCase();
+      if (
+        currency === 'DZD' ||
+        snapshots.has(currency) ||
+        !row.rate.isPositive()
+      ) {
+        continue;
+      }
+      snapshots.set(currency, {
+        currency,
+        exchangeRateId: row.id,
+        exchangeRateUsed:
+          row.quoteCurrency === 'DZD'
+            ? row.rate.toString()
+            : new Prisma.Decimal(1).div(row.rate).toString(),
+      });
+    }
+    return {
+      referenceCurrency: 'DZD' as const,
+      rates: [...snapshots.values()],
+    };
   }
 }

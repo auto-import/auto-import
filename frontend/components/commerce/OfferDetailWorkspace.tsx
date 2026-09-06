@@ -26,6 +26,7 @@ import {
 import { ApiError } from "@/lib/api";
 import {
   buildQuotationDraft,
+  type QuotationCostCalculation,
   type QuotationPriceBasis,
 } from "@/lib/quotation-calculation";
 import {
@@ -79,21 +80,25 @@ export default function OfferDetailWorkspace({
     sourceOfferVehicleId: "",
     priceBasis: "CIF",
     vehicleAmount: "",
+    vehicleCurrency: "USD",
     containerPrice: "0",
+    containerCurrency: "USD",
     containerAllocation: "3",
     insuranceAmount: "0",
+    insuranceCurrency: "USD",
     customsAmount: "0",
     transitAmount: "0",
-    marginAmount: "0",
+    transitCurrency: "DZD",
+    sellingPriceDzd: "",
     expiresAt: "",
     paymentConditions: "",
   });
   const [otherCosts, setOtherCosts] = useState([
-    { amount: "", description: "" },
+    { amount: "", currency: "DZD", description: "" },
   ]);
-  const [exchangeRateSnapshot, setExchangeRateSnapshot] = useState<
-    string | null
-  >(null);
+  const [dzdRates, setDzdRates] = useState<
+    Array<{ currency: string; exchangeRateUsed: string }>
+  >([{ currency: "DZD", exchangeRateUsed: "1" }]);
   const [quotationError, setQuotationError] = useState("");
   const [pricingError, setPricingError] = useState("");
   const load = useCallback(async () => {
@@ -115,15 +120,22 @@ export default function OfferDetailWorkspace({
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
   }, [load]);
+  const rateMap = useMemo(
+    () =>
+      Object.fromEntries(
+        dzdRates.map((rate) => [rate.currency, rate.exchangeRateUsed]),
+      ),
+    [dzdRates],
+  );
   const quotationDraft = useMemo(
     () =>
       buildQuotationDraft(
         quotationForm.priceBasis as QuotationPriceBasis,
         quotationForm,
         otherCosts,
-        exchangeRateSnapshot,
+        rateMap,
       ),
-    [exchangeRateSnapshot, otherCosts, quotationForm],
+    [otherCosts, quotationForm, rateMap],
   );
   const quotationPayload = useMemo(() => {
     if (!quotationDraft.amounts || !quotationForm.sourceOfferVehicleId) {
@@ -133,7 +145,7 @@ export default function OfferDetailWorkspace({
       sourceOfferId: id,
       sourceOfferVehicleId: quotationForm.sourceOfferVehicleId,
       priceBasis: quotationForm.priceBasis,
-      currency: "USD",
+      currency: "DZD",
       ...quotationDraft.amounts,
       expiresAt: quotationForm.expiresAt
         ? new Date(quotationForm.expiresAt).toISOString()
@@ -147,15 +159,15 @@ export default function OfferDetailWorkspace({
     if (!showQuotation) return;
     let active = true;
     void commerceApi.quotations
-      .currentUsdDzdRate()
+      .currentDzdRates()
       .then((result) => {
-        if (active) setExchangeRateSnapshot(result.exchangeRateSnapshot);
+        if (active) setDzdRates(result.rates);
       })
       .catch((caught) => {
         if (active) {
-          setExchangeRateSnapshot(null);
+          setDzdRates([{ currency: "DZD", exchangeRateUsed: "1" }]);
           setPricingError(
-            offerActionError(caught, "Taux USD/DZD Finance indisponible."),
+            offerActionError(caught, "Taux de change Finance indisponibles."),
           );
         }
       });
@@ -169,9 +181,8 @@ export default function OfferDetailWorkspace({
     const timer = window.setTimeout(() => {
       void commerceApi.quotations
         .preview(quotationPayload)
-        .then((result) => {
+        .then(() => {
           if (!active) return;
-          setExchangeRateSnapshot(String(result.exchangeRateSnapshot));
           setPricingError("");
         })
         .catch((caught) => {
@@ -258,7 +269,7 @@ export default function OfferDetailWorkspace({
     try {
       await commerceApi.quotations.create(quotationPayload);
       setShowQuotation(false);
-      setOtherCosts([{ amount: "", description: "" }]);
+      setOtherCosts([{ amount: "", currency: "DZD", description: "" }]);
       await load();
     } catch (caught) {
       setQuotationError(
@@ -366,14 +377,15 @@ export default function OfferDetailWorkspace({
                         const vehicle = offer.vehicles?.[0];
                         setQuotationError("");
                         setPricingError("");
-                        setExchangeRateSnapshot(null);
                         setQuotationForm((current) => ({
                           ...current,
                           sourceOfferVehicleId: vehicle?.id ?? "",
-                          vehicleAmount:
-                            vehicle?.currency === "USD"
-                              ? String(vehicle.supplierPrice)
-                              : "",
+                          vehicleAmount: vehicle
+                            ? String(vehicle.supplierPrice)
+                            : "",
+                          vehicleCurrency: vehicle?.currency ?? "DZD",
+                          containerCurrency: vehicle?.currency ?? "DZD",
+                          insuranceCurrency: vehicle?.currency ?? "DZD",
                         }));
                         setShowQuotation(true);
                       }}
@@ -587,15 +599,13 @@ export default function OfferDetailWorkspace({
                       </span>
                       <span>
                         {formatMoney(
-                          quotation.currentRevision?.finalCustomerPrice,
-                          "USD",
-                        )}{" "}
-                        ·{" "}
-                        {formatMoney(
-                          quotation.currentRevision?.finalCustomerPriceDzd,
+                          quotation.currentRevision?.sellingPriceDzd ??
+                            quotation.currentRevision?.finalCustomerPriceDzd,
                           "DZD",
                         )}{" "}
-                        · {quotation.status}
+                        · marge estimée {Number(
+                          quotation.currentRevision?.estimatedMarginPercent ?? 0,
+                        ).toFixed(1)} % · {quotation.status}
                       </span>
                     </div>
                   ))}
@@ -726,7 +736,7 @@ export default function OfferDetailWorkspace({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
           <form
             onSubmit={createQuotation}
-            className="card max-h-[92vh] w-full max-w-3xl overflow-y-auto p-6"
+            className="card max-h-[92vh] w-full max-w-5xl overflow-y-auto p-6"
           >
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Nouveau devis client</h2>
@@ -735,14 +745,9 @@ export default function OfferDetailWorkspace({
               </button>
             </div>
             <p className="mt-3 rounded-card border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              Ce devis est indépendant du prix fournisseur et conserve chaque
-              révision de prix client.
-              {offer.currency === "CNY" && (
-                <span className="mt-1 block font-semibold">
-                  Le véhicule sélectionné doit disposer d’un prix fournisseur en
-                  USD pour créer un devis.
-                </span>
-              )}
+              Les coûts sont convertis en DZD avec les taux Finance actifs. À
+              l’enregistrement, chaque montant, devise, taux et contre-valeur DZD
+              est figé dans la révision du devis.
             </p>
             {(quotationError || pricingError) && (
               <div
@@ -767,10 +772,12 @@ export default function OfferDetailWorkspace({
                     setQuotationForm((current) => ({
                       ...current,
                       sourceOfferVehicleId: event.target.value,
-                      vehicleAmount:
-                        vehicle?.currency === "USD"
-                          ? String(vehicle.supplierPrice)
-                          : "",
+                      vehicleAmount: vehicle
+                        ? String(vehicle.supplierPrice)
+                        : "",
+                      vehicleCurrency: vehicle?.currency ?? "DZD",
+                      containerCurrency: vehicle?.currency ?? "DZD",
+                      insuranceCurrency: vehicle?.currency ?? "DZD",
                     }));
                   }}
                 >
@@ -799,71 +806,177 @@ export default function OfferDetailWorkspace({
                   <option value="DDP">DDP</option>
                 </select>
               </label>
-              {(
-                [
-                  ["vehicleAmount", "Prix de base véhicule (USD)"],
-                  ["containerPrice", "Prix du conteneur (USD)"],
-                  ["insuranceAmount", "Assurance"],
-                  [
-                    "customsAmount",
-                    quotationForm.priceBasis === "CIF"
-                      ? "Douane estimée (non incluse)"
-                      : "Douane (incluse)",
-                  ],
-                  ["transitAmount", "Transit"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key}>
-                  <span className="field-label">{label}</span>
-                  <input
-                    required
-                    min={
-                      key === "vehicleAmount" || key === "containerPrice"
-                        ? "0.01"
-                        : "0"
-                    }
-                    step="0.01"
-                    type="number"
-                    readOnly={key === "vehicleAmount"}
-                    className={inputClass}
-                    value={quotationForm[key]}
-                    onChange={(event) =>
+              <fieldset className="rounded-card border border-border p-4 sm:col-span-2">
+                <legend className="px-2 font-semibold">Coût véhicule</legend>
+                <div className="grid gap-3 sm:grid-cols-[1fr_8rem_1fr]">
+                  <label>
+                    <span className="field-label">Montant fournisseur *</span>
+                    <input
+                      aria-label="Montant fournisseur"
+                      readOnly
+                      className={inputClass}
+                      value={quotationForm.vehicleAmount}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Devise</span>
+                    <input
+                      aria-label="Devise du véhicule"
+                      readOnly
+                      className={inputClass}
+                      value={quotationForm.vehicleCurrency}
+                    />
+                  </label>
+                  <RateEquivalent cost={pricingPreview?.vehicle} />
+                </div>
+              </fieldset>
+              <fieldset className="rounded-card border border-border p-4 sm:col-span-2">
+                <legend className="px-2 font-semibold">Fret / conteneur</legend>
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <label>
+                    <span className="field-label">Prix du conteneur *</span>
+                    <input
+                      aria-label="Prix du conteneur"
+                      required
+                      min="0.01"
+                      step="0.01"
+                      type="number"
+                      className={inputClass}
+                      value={quotationForm.containerPrice}
+                      onChange={(event) =>
+                        setQuotationForm((current) => ({
+                          ...current,
+                          containerPrice: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <CurrencySelect
+                    label="Devise du conteneur"
+                    value={quotationForm.containerCurrency}
+                    currencies={dzdRates.map((rate) => rate.currency)}
+                    onChange={(containerCurrency) =>
                       setQuotationForm((current) => ({
                         ...current,
-                        [key]: event.target.value,
+                        containerCurrency,
                       }))
                     }
                   />
-                </label>
+                  <label>
+                    <span className="field-label">Part du véhicule *</span>
+                    <select
+                      className={inputClass}
+                      value={quotationForm.containerAllocation}
+                      onChange={(event) =>
+                        setQuotationForm((current) => ({
+                          ...current,
+                          containerAllocation: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="3">1/3</option>
+                      <option value="4">1/4</option>
+                    </select>
+                  </label>
+                  <RateEquivalent cost={pricingPreview?.freight} />
+                </div>
+              </fieldset>
+              {(
+                [
+                  ["insuranceAmount", "insuranceCurrency", "Assurance", pricingPreview?.insurance],
+                  ["transitAmount", "transitCurrency", "Transit", pricingPreview?.transit],
+                ] as const
+              ).map(([amountKey, currencyKey, label, cost]) => (
+                <fieldset key={amountKey} className="rounded-card border border-border p-4 sm:col-span-2">
+                  <legend className="px-2 font-semibold">{label}</legend>
+                  <div className="grid gap-3 sm:grid-cols-[1fr_8rem_1fr]">
+                    <label>
+                      <span className="field-label">Montant</span>
+                      <input
+                        aria-label={label}
+                        min="0"
+                        step="0.01"
+                        type="number"
+                        className={inputClass}
+                        value={quotationForm[amountKey]}
+                        onChange={(event) =>
+                          setQuotationForm((current) => ({
+                            ...current,
+                            [amountKey]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <CurrencySelect
+                      label={`Devise ${label}`}
+                      value={quotationForm[currencyKey]}
+                      currencies={dzdRates.map((rate) => rate.currency)}
+                      onChange={(currency) =>
+                        setQuotationForm((current) => ({
+                          ...current,
+                          [currencyKey]: currency,
+                        }))
+                      }
+                    />
+                    <RateEquivalent cost={cost} />
+                  </div>
+                </fieldset>
               ))}
-              <label>
-                <span className="field-label">Part du conteneur *</span>
-                <select
+              <fieldset className="rounded-card border border-border p-4 sm:col-span-2">
+                <legend className="px-2 font-semibold">
+                  Douane estimée (DZD)
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label>
+                    <span className="field-label">Montant DZD</span>
+                    <input
+                      aria-label="Douane estimée (DZD)"
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      className={inputClass}
+                      value={quotationForm.customsAmount}
+                      onChange={(event) =>
+                        setQuotationForm((current) => ({
+                          ...current,
+                          customsAmount: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <RateEquivalent cost={pricingPreview?.customs} />
+                </div>
+                {quotationForm.priceBasis === "CIF" && (
+                  <p className="mt-2 text-xs text-muted">
+                    Affichée dans le coût rendu, mais exclue du coût opérationnel
+                    CIF utilisé pour la marge CIF.
+                  </p>
+                )}
+              </fieldset>
+              <label className="sm:col-span-2">
+                <span className="field-label">Prix de vente client (DZD) *</span>
+                <input
+                  aria-label="Prix de vente client (DZD)"
+                  required
+                  min="0.01"
+                  step="0.01"
+                  type="number"
                   className={inputClass}
-                  value={quotationForm.containerAllocation}
+                  value={quotationForm.sellingPriceDzd}
                   onChange={(event) =>
                     setQuotationForm((current) => ({
                       ...current,
-                      containerAllocation: event.target.value,
+                      sellingPriceDzd: event.target.value,
                     }))
                   }
-                >
-                  <option value="3">1/3</option>
-                  <option value="4">1/4</option>
-                </select>
+                />
               </label>
-              <div className="rounded-card border border-border p-3">
-                <span className="field-label">Fret calculé</span>
-                <p className="font-semibold">
-                  {formatMoney(pricingPreview?.freightAmount, "USD")}
-                </p>
-              </div>
               <fieldset className="space-y-3 rounded-card border border-border p-4 sm:col-span-2">
                 <legend className="px-2 font-semibold">Autres coûts</legend>
                 {otherCosts.map((cost, index) => (
                   <div
                     key={index}
-                    className="grid gap-2 sm:grid-cols-[1fr_2fr_auto]"
+                    className="grid gap-2 sm:grid-cols-[1fr_7rem_2fr_1fr_auto]"
                   >
                     <input
                       aria-label={`Montant autre coût ${index + 1}`}
@@ -871,7 +984,7 @@ export default function OfferDetailWorkspace({
                       step="0.01"
                       type="number"
                       className={inputClass}
-                      placeholder="Montant USD"
+                      placeholder="Montant"
                       value={cost.amount}
                       onChange={(event) =>
                         setOtherCosts((current) =>
@@ -883,6 +996,26 @@ export default function OfferDetailWorkspace({
                         )
                       }
                     />
+                    <select
+                      aria-label={`Devise autre coût ${index + 1}`}
+                      className={inputClass}
+                      value={cost.currency}
+                      onChange={(event) =>
+                        setOtherCosts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, currency: event.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      {dzdRates.map((rate) => (
+                        <option key={rate.currency} value={rate.currency}>
+                          {rate.currency}
+                        </option>
+                      ))}
+                    </select>
                     {Number(cost.amount.replace(",", ".")) > 0 && (
                       <input
                         aria-label={`Description autre coût ${index + 1}`}
@@ -901,6 +1034,7 @@ export default function OfferDetailWorkspace({
                         }
                       />
                     )}
+                    <RateEquivalent cost={pricingPreview?.otherCosts[index]} />
                     {otherCosts.length > 1 && (
                       <button
                         type="button"
@@ -924,7 +1058,7 @@ export default function OfferDetailWorkspace({
                   onClick={() =>
                     setOtherCosts((current) => [
                       ...current,
-                      { amount: "", description: "" },
+                      { amount: "", currency: "DZD", description: "" },
                     ])
                   }
                 >
@@ -961,77 +1095,59 @@ export default function OfferDetailWorkspace({
             </div>
             <section className="mt-5 rounded-card border-2 border-foreground/15 bg-neutral-50 p-4">
               <h3 className="font-bold uppercase tracking-wide">
-                Récapitulatif
+                Récapitulatif des coûts estimés
               </h3>
-              <dl className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              <div className="mt-3 divide-y divide-border rounded-card border border-border bg-white px-4">
+                <CostSummaryRow label="Véhicule" cost={pricingPreview?.vehicle} />
+                <CostSummaryRow label="Fret" cost={pricingPreview?.freight} />
+                <CostSummaryRow label="Assurance" cost={pricingPreview?.insurance} />
+                <CostSummaryRow label="Transit" cost={pricingPreview?.transit} />
+                <div className="flex items-center justify-between gap-4 py-3 text-sm">
+                  <span>Autres coûts</span>
+                  <b>{formatMoney(pricingPreview?.otherCostsDzd, "DZD")}</b>
+                </div>
+                <CostSummaryRow
+                  label="Douane estimée"
+                  cost={pricingPreview?.customs}
+                />
+              </div>
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Info
-                  label="Prix de base"
-                  value={formatMoney(pricingPreview?.vehicleAmount, "USD")}
+                  label="Coût opérationnel CIF"
+                  value={formatMoney(pricingPreview?.estimatedCifCostDzd, "DZD")}
                 />
                 <Info
-                  label="Fret"
-                  value={formatMoney(pricingPreview?.freightAmount, "USD")}
-                />
-                <Info
-                  label="Assurance"
-                  value={formatMoney(pricingPreview?.insuranceAmount, "USD")}
-                />
-                <Info
-                  label="Transit"
-                  value={formatMoney(pricingPreview?.transitAmount, "USD")}
-                />
-                <Info
-                  label="Autres coûts"
-                  value={formatMoney(pricingPreview?.otherCostsAmount, "USD")}
-                />
-                <Info
-                  label={
-                    quotationForm.priceBasis === "CIF"
-                      ? "Douane estimée"
-                      : "Douane"
-                  }
-                  value={formatMoney(pricingPreview?.customsAmount, "USD")}
+                  label="Coût rendu avec douane"
+                  value={formatMoney(
+                    pricingPreview?.estimatedLandedCostDzd,
+                    "DZD",
+                  )}
                 />
               </dl>
-              <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-muted">
-                    Prix CIF
-                  </p>
-                  <p className="text-lg font-bold">
-                    {formatMoney(pricingPreview?.cifAmount, "USD")}
-                  </p>
-                  <p className="font-semibold text-primary">
-                    {formatMoney(pricingPreview?.cifAmountDzd, "DZD")}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase text-muted">
-                    Prix DDP
-                  </p>
-                  <p className="text-lg font-bold">
-                    {formatMoney(pricingPreview?.ddpAmount, "USD")}
-                  </p>
-                  <p className="font-semibold text-primary">
-                    {formatMoney(pricingPreview?.ddpAmountDzd, "DZD")}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 border-t border-border pt-4">
-                <p className="text-xs font-semibold uppercase text-muted">
-                  Prix principal {quotationForm.priceBasis}
-                </p>
-                <p className="text-2xl font-bold">
-                  {formatMoney(pricingPreview?.finalCustomerPrice, "USD")}
-                </p>
-                <p className="text-lg font-semibold text-primary">
-                  {formatMoney(pricingPreview?.finalCustomerPriceDzd, "DZD")}
-                </p>
-                {exchangeRateSnapshot && (
-                  <p className="text-xs text-muted">
-                    Taux Finance actif : 1 USD = {exchangeRateSnapshot} DZD
-                  </p>
-                )}
+              <div className="mt-4 grid gap-3 border-t-2 border-foreground/15 pt-4 sm:grid-cols-2">
+                <Info
+                  label={`Total estimé ${quotationForm.priceBasis}`}
+                  value={formatMoney(
+                    pricingPreview?.estimatedTotalCostDzd,
+                    "DZD",
+                  )}
+                />
+                <Info
+                  label="Prix de vente"
+                  value={formatMoney(pricingPreview?.sellingPriceDzd, "DZD")}
+                />
+                <Info
+                  label="Profit estimé"
+                  value={formatMoney(pricingPreview?.estimatedProfitDzd, "DZD")}
+                />
+                <Info
+                  label="Marge estimée"
+                  value={
+                    pricingPreview
+                      ? `${pricingPreview.estimatedMarginPercent.toFixed(1)} %`
+                      : "—"
+                  }
+                />
               </div>
             </section>
             <button
@@ -1053,6 +1169,71 @@ function Info({ label, value }: { label: string; value: string }) {
     <div className="rounded-card border border-border p-3">
       <p className="text-xs text-muted">{label}</p>
       <p className="font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function CurrencySelect({
+  label,
+  value,
+  currencies,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  currencies: string[];
+  onChange: (currency: string) => void;
+}) {
+  return (
+    <label>
+      <span className="field-label">{label}</span>
+      <select
+        aria-label={label}
+        className={inputClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {currencies.map((currency) => (
+          <option key={currency} value={currency}>
+            {currency}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function RateEquivalent({ cost }: { cost?: QuotationCostCalculation }) {
+  return (
+    <div className="rounded-card border border-border p-3">
+      <span className="field-label">Taux / équivalent</span>
+      <p className="text-xs text-muted">
+        {cost ? `1 ${cost.currency} = ${cost.exchangeRateUsed} DZD` : "—"}
+      </p>
+      <p className="font-semibold">
+        {formatMoney(cost?.amountDzd, "DZD")}
+      </p>
+    </div>
+  );
+}
+
+function CostSummaryRow({
+  label,
+  cost,
+}: {
+  label: string;
+  cost?: QuotationCostCalculation;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+      <span className="font-medium">{label}</span>
+      <span className="text-right">
+        <span className="block">
+          {formatMoney(cost?.amountOriginal, cost?.currency ?? "DZD")}
+          {cost && cost.currency !== "DZD" && ` × ${cost.exchangeRateUsed}`}
+        </span>
+        <b>{formatMoney(cost?.amountDzd, "DZD")}</b>
+      </span>
     </div>
   );
 }

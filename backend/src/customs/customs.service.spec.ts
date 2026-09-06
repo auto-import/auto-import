@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomsService } from './customs.service';
 import { Prisma } from '@prisma/client';
+import { CostsService } from '../finance/costs.service';
 
 describe('CustomsService', () => {
   let service: CustomsService;
@@ -17,12 +18,16 @@ describe('CustomsService', () => {
     },
     $transaction: jest.fn(),
   };
+  const mockCostsService = {
+    recordCustomsActual: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CustomsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CostsService, useValue: mockCostsService },
       ],
     }).compile();
 
@@ -61,5 +66,11 @@ describe('CustomsService', () => {
     });
 
     expect(result.status).toBe('cleared');
+    expect(mockCostsService.recordCustomsActual).toHaveBeenCalledWith(
+      expect.anything(),
+      'org-1',
+      'user-1',
+      expect.objectContaining({ id: 'cust-1', status: 'cleared' }),
+    );
   });
 });

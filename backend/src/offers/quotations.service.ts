@@ -32,47 +32,22 @@ export class QuotationsService {
   ) {}
 
   async preview(organizationId: string, dto: CreateQuotationDto) {
-    const { calculated, exchange } = await this.prisma.$transaction(
-      async (tx) => {
-        const sourceVehicle = await this.findSourceVehicle(
-          tx,
-          organizationId,
-          dto,
-        );
-        const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
-        return {
-          calculated: this.pricing.calculate(dto.priceBasis, normalized),
-          exchange: await this.pricing.usdToDzdSnapshot(
-            tx,
-            organizationId,
-            new Date(),
-          ),
-        };
-      },
-    );
-    return {
-      ...Object.fromEntries(
-        Object.entries(calculated).map(([key, value]) => [
-          key,
-          value instanceof Prisma.Decimal ? value.toString() : value,
-        ]),
-      ),
-      currency: 'USD',
-      exchangeRateId: exchange.exchangeRateId,
-      exchangeRateSnapshot: exchange.rate.toString(),
-      cifAmountDzd: calculated.cifAmount
-        .mul(exchange.rate)
-        .toDecimalPlaces(2)
-        .toString(),
-      ddpAmountDzd: calculated.ddpAmount
-        .mul(exchange.rate)
-        .toDecimalPlaces(2)
-        .toString(),
-      finalCustomerPriceDzd: calculated.finalCustomerPrice
-        .mul(exchange.rate)
-        .toDecimalPlaces(2)
-        .toString(),
-    };
+    const calculated = await this.prisma.$transaction(async (tx) => {
+      const sourceVehicle = await this.findSourceVehicle(
+        tx,
+        organizationId,
+        dto,
+      );
+      const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
+      const rates = await this.pricing.resolveRequiredRates(
+        tx,
+        organizationId,
+        normalized,
+        new Date(),
+      );
+      return this.pricing.calculate(dto.priceBasis, normalized, rates);
+    });
+    return this.serialize(calculated);
   }
 
   async currentUsdDzdRate(organizationId: string) {
@@ -85,6 +60,31 @@ export class QuotationsService {
       baseCurrency: 'USD',
       quoteCurrency: 'DZD',
     };
+  }
+
+  async currentDzdRates(organizationId: string) {
+    const rates = await this.prisma.$transaction((tx) =>
+      this.pricing.currentDzdRates(tx, organizationId, new Date()),
+    );
+    return {
+      baseCurrency: 'DZD',
+      rates: rates.map((rate) => ({
+        currency: rate.currency,
+        exchangeRateId: rate.exchangeRateId,
+        exchangeRateUsed: rate.exchangeRateUsed.toString(),
+      })),
+    };
+  }
+
+  private serialize(value: unknown): unknown {
+    if (value instanceof Prisma.Decimal) return value.toString();
+    if (Array.isArray(value)) return value.map((item) => this.serialize(item));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, this.serialize(item)]),
+      );
+    }
+    return value;
   }
 
   private async findSourceVehicle(
@@ -107,22 +107,34 @@ export class QuotationsService {
     return sourceVehicle;
   }
 
-  private normalizeVehicleAmount(
-    dto: CreateQuotationDto,
+  private normalizeVehicleAmount<T extends QuotationAmountsDto>(
+    dto: T,
     sourceVehicle: { supplierPrice: Prisma.Decimal; currency: string },
-  ): CreateQuotationDto {
-    if (sourceVehicle.currency !== 'USD') {
-      throw new ConflictException(
-        'Le prix fournisseur du véhicule doit être en USD pour créer ce devis.',
-      );
-    }
+  ): T {
     const supplierPrice = sourceVehicle.supplierPrice;
     if (!new Prisma.Decimal(dto.vehicleAmount).equals(supplierPrice)) {
       throw new BadRequestException(
         'Le prix de base du devis doit correspondre au prix fournisseur du véhicule sélectionné.',
       );
     }
-    return { ...dto, vehicleAmount: supplierPrice.toNumber() };
+    const sourceCurrency = sourceVehicle.currency.trim().toUpperCase();
+    if (dto.vehicleCurrency.trim().toUpperCase() !== sourceCurrency) {
+      throw new BadRequestException(
+        'La devise du coût véhicule doit correspondre à celle de l’offre.',
+      );
+    }
+    return {
+      ...dto,
+      vehicleAmount: supplierPrice.toNumber(),
+      vehicleCurrency: sourceCurrency,
+      containerCurrency: dto.containerCurrency.trim().toUpperCase(),
+      insuranceCurrency: dto.insuranceCurrency.trim().toUpperCase(),
+      transitCurrency: dto.transitCurrency.trim().toUpperCase(),
+      otherCosts: dto.otherCosts?.map((cost) => ({
+        ...cost,
+        currency: cost.currency.trim().toUpperCase(),
+      })),
+    };
   }
 
   private async nextNumber(
@@ -143,16 +155,27 @@ export class QuotationsService {
   private snapshot(
     dto: QuotationAmountsDto,
     calculated: ReturnType<QuotationPricingService['calculate']>,
-    exchangeRateSnapshot: Prisma.Decimal,
   ): Prisma.InputJsonObject {
     return {
-      formula: 'CIF=base+fret+assurance+transit+autres; DDP=CIF+douane',
+      formula:
+        'DZD: CIF=véhicule+fret+assurance+transit+autres; landed=CIF+douane; profit=vente-coût; marge=profit/vente*100',
       containerPrice: calculated.containerPrice.toString(),
+      containerCurrency: calculated.containerCurrency,
       containerAllocation: `1/${calculated.containerAllocation}`,
-      freightAmount: calculated.freightAmount.toString(),
-      customsIncluded: false,
-      exchangeRatePair: 'USD/DZD',
-      exchangeRateSnapshot: exchangeRateSnapshot.toString(),
+      costs: calculated.costs.map((cost) => ({
+        costType: cost.costType,
+        description: cost.description,
+        originalAmount: cost.originalAmount.toString(),
+        currency: cost.currency,
+        exchangeRateUsed: cost.exchangeRateUsed.toString(),
+        amountDzd: cost.amountDzd.toString(),
+      })),
+      estimatedCifCostDzd: calculated.estimatedCifCostDzd.toString(),
+      estimatedLandedCostDzd: calculated.estimatedLandedCostDzd.toString(),
+      estimatedTotalCostDzd: calculated.estimatedTotalCostDzd.toString(),
+      sellingPriceDzd: calculated.sellingPriceDzd.toString(),
+      estimatedProfitDzd: calculated.estimatedProfitDzd.toString(),
+      estimatedMarginPercent: calculated.estimatedMarginPercent.toString(),
       paymentConditions: dto.paymentConditions ?? null,
       validityNote: dto.validityNote ?? null,
       notes: dto.notes ?? null,
@@ -241,11 +264,17 @@ export class QuotationsService {
           data: { currentRevisionId: sourceOfferRevisionId },
         });
       }
-      const calculated = this.pricing.calculate(dto.priceBasis, normalized);
-      const rate = await this.pricing.usdToDzdSnapshot(tx, organizationId, now);
-      const finalCustomerPriceDzd = calculated.finalCustomerPrice
-        .mul(rate.rate)
-        .toDecimalPlaces(2);
+      const rates = await this.pricing.resolveRequiredRates(
+        tx,
+        organizationId,
+        normalized,
+        now,
+      );
+      const calculated = this.pricing.calculate(
+        dto.priceBasis,
+        normalized,
+        rates,
+      );
 
       const quotation = await tx.customerQuotation.create({
         data: {
@@ -255,7 +284,7 @@ export class QuotationsService {
           sourceOfferRevisionId,
           sourceOfferVehicleId: sourceVehicle.id,
           priceBasis: dto.priceBasis,
-          currency: 'USD',
+          currency: 'DZD',
           cataloguePublished: true,
           publishedAt: now,
           expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
@@ -267,36 +296,50 @@ export class QuotationsService {
           organizationId,
           quotationId: quotation.id,
           revisionNumber: 1,
-          vehicleAmount: calculated.vehicleAmount,
-          freightAmount: calculated.freightAmount,
-          insuranceAmount: calculated.insuranceAmount,
-          customsAmount: calculated.customsAmount,
-          transitAmount: calculated.transitAmount,
-          otherCostsAmount: calculated.otherCostsAmount,
-          marginAmount: calculated.marginAmount,
-          finalCustomerPrice: calculated.finalCustomerPrice,
+          vehicleAmount: calculated.vehicle.originalAmount,
+          freightAmount: calculated.freight.originalAmount,
+          insuranceAmount: calculated.insurance.originalAmount,
+          customsAmount: calculated.customs.originalAmount,
+          transitAmount: calculated.transit.originalAmount,
+          otherCostsAmount: calculated.otherCosts.reduce(
+            (sum, cost) => sum.add(cost.amountDzd),
+            new Prisma.Decimal(0),
+          ),
+          marginAmount: 0,
+          finalCustomerPrice: calculated.sellingPriceDzd,
           containerPrice: calculated.containerPrice,
           containerAllocation: calculated.containerAllocation,
-          exchangeRateId: rate.exchangeRateId,
-          exchangeRateSnapshot: rate.rate,
-          finalCustomerPriceDzd,
+          exchangeRateId: calculated.vehicle.exchangeRateId,
+          exchangeRateSnapshot: calculated.vehicle.exchangeRateUsed,
+          finalCustomerPriceDzd: calculated.sellingPriceDzd,
+          sellingPriceDzd: calculated.sellingPriceDzd,
+          estimatedCifCostDzd: calculated.estimatedCifCostDzd,
+          estimatedLandedCostDzd: calculated.estimatedLandedCostDzd,
+          estimatedTotalCostDzd: calculated.estimatedTotalCostDzd,
+          estimatedProfitDzd: calculated.estimatedProfitDzd,
+          estimatedMarginPercent: calculated.estimatedMarginPercent,
           paymentConditions: dto.paymentConditions,
           validityNote: dto.validityNote,
           notes: dto.notes,
           reason: 'Création du devis',
           snapshot: {
-            ...this.snapshot(dto, calculated, rate.rate),
+            ...this.snapshot(dto, calculated),
             customsIncluded: dto.priceBasis === 'DDP',
             sourceOfferPrice: String(sourceVehicle.supplierPrice),
             sourceOfferCurrency: sourceVehicle.currency,
           },
           createdBy: userId,
-          otherCosts: {
-            create: (dto.otherCosts ?? []).map((cost, index) => ({
+          costItems: {
+            create: calculated.costs.map((cost, index) => ({
               organizationId,
-              description: cost.description.trim(),
-              amount: cost.amount,
-              currency: 'USD',
+              costType: cost.costType,
+              costStatus: 'ESTIMATED',
+              description: cost.description,
+              originalAmount: cost.originalAmount,
+              currency: cost.currency,
+              exchangeRateId: cost.exchangeRateId,
+              exchangeRateUsed: cost.exchangeRateUsed,
+              amountDzd: cost.amountDzd,
               sortOrder: index + 1,
             })),
           },
@@ -305,7 +348,7 @@ export class QuotationsService {
       const updated = await tx.customerQuotation.update({
         where: { id: quotation.id },
         data: { currentRevisionId: revision.id },
-        include: { currentRevision: { include: { otherCosts: true } } },
+        include: { currentRevision: { include: { costItems: true } } },
       });
       const existingCatalogueItem = await tx.catalogueItem.findUnique({
         where: { sourceOfferVehicleId: sourceVehicle.id },
@@ -345,7 +388,9 @@ export class QuotationsService {
             sourceOfferId: offer.id,
             sourceOfferVehicleId: sourceVehicle.id,
             priceBasis: dto.priceBasis,
-            finalCustomerPriceDzd: finalCustomerPriceDzd.toString(),
+            sellingPriceDzd: calculated.sellingPriceDzd.toString(),
+            estimatedTotalCostDzd: calculated.estimatedTotalCostDzd.toString(),
+            estimatedProfitDzd: calculated.estimatedProfitDzd.toString(),
           },
         },
       });
@@ -362,7 +407,10 @@ export class QuotationsService {
     return this.prisma.$transaction(async (tx) => {
       const quotation = await tx.customerQuotation.findFirst({
         where: { id, organizationId },
-        include: { _count: { select: { revisions: true } } },
+        include: {
+          _count: { select: { revisions: true } },
+          sourceOfferVehicle: true,
+        },
       });
       if (!quotation) throw new NotFoundException('Devis introuvable.');
       if (!['DRAFT', 'SENT'].includes(quotation.status)) {
@@ -371,48 +419,63 @@ export class QuotationsService {
         );
       }
       const priceBasis = quotation.priceBasis as 'CIF' | 'DDP';
-      const calculated = this.pricing.calculate(priceBasis, dto);
-      const rate = await this.pricing.usdToDzdSnapshot(
+      const normalized = quotation.sourceOfferVehicle
+        ? this.normalizeVehicleAmount(dto, quotation.sourceOfferVehicle)
+        : dto;
+      const rates = await this.pricing.resolveRequiredRates(
         tx,
         organizationId,
+        normalized,
         new Date(),
       );
-      const finalCustomerPriceDzd = calculated.finalCustomerPrice
-        .mul(rate.rate)
-        .toDecimalPlaces(2);
+      const calculated = this.pricing.calculate(priceBasis, normalized, rates);
       const revision = await tx.customerQuotationRevision.create({
         data: {
           organizationId,
           quotationId: id,
           revisionNumber: quotation._count.revisions + 1,
-          vehicleAmount: calculated.vehicleAmount,
-          freightAmount: calculated.freightAmount,
-          insuranceAmount: calculated.insuranceAmount,
-          customsAmount: calculated.customsAmount,
-          transitAmount: calculated.transitAmount,
-          otherCostsAmount: calculated.otherCostsAmount,
-          marginAmount: calculated.marginAmount,
-          finalCustomerPrice: calculated.finalCustomerPrice,
+          vehicleAmount: calculated.vehicle.originalAmount,
+          freightAmount: calculated.freight.originalAmount,
+          insuranceAmount: calculated.insurance.originalAmount,
+          customsAmount: calculated.customs.originalAmount,
+          transitAmount: calculated.transit.originalAmount,
+          otherCostsAmount: calculated.otherCosts.reduce(
+            (sum, cost) => sum.add(cost.amountDzd),
+            new Prisma.Decimal(0),
+          ),
+          marginAmount: 0,
+          finalCustomerPrice: calculated.sellingPriceDzd,
           containerPrice: calculated.containerPrice,
           containerAllocation: calculated.containerAllocation,
-          exchangeRateId: rate.exchangeRateId,
-          exchangeRateSnapshot: rate.rate,
-          finalCustomerPriceDzd,
+          exchangeRateId: calculated.vehicle.exchangeRateId,
+          exchangeRateSnapshot: calculated.vehicle.exchangeRateUsed,
+          finalCustomerPriceDzd: calculated.sellingPriceDzd,
+          sellingPriceDzd: calculated.sellingPriceDzd,
+          estimatedCifCostDzd: calculated.estimatedCifCostDzd,
+          estimatedLandedCostDzd: calculated.estimatedLandedCostDzd,
+          estimatedTotalCostDzd: calculated.estimatedTotalCostDzd,
+          estimatedProfitDzd: calculated.estimatedProfitDzd,
+          estimatedMarginPercent: calculated.estimatedMarginPercent,
           paymentConditions: dto.paymentConditions,
           validityNote: dto.validityNote,
           notes: dto.notes,
           reason: dto.reason.trim(),
           snapshot: {
-            ...this.snapshot(dto, calculated, rate.rate),
+            ...this.snapshot(dto, calculated),
             customsIncluded: priceBasis === 'DDP',
           },
           createdBy: userId,
-          otherCosts: {
-            create: (dto.otherCosts ?? []).map((cost, index) => ({
+          costItems: {
+            create: calculated.costs.map((cost, index) => ({
               organizationId,
-              description: cost.description.trim(),
-              amount: cost.amount,
-              currency: 'USD',
+              costType: cost.costType,
+              costStatus: 'ESTIMATED',
+              description: cost.description,
+              originalAmount: cost.originalAmount,
+              currency: cost.currency,
+              exchangeRateId: cost.exchangeRateId,
+              exchangeRateUsed: cost.exchangeRateUsed,
+              amountDzd: cost.amountDzd,
               sortOrder: index + 1,
             })),
           },
@@ -426,7 +489,7 @@ export class QuotationsService {
           sentAt: null,
           ...(dto.expiresAt ? { expiresAt: new Date(dto.expiresAt) } : {}),
         },
-        include: { currentRevision: { include: { otherCosts: true } } },
+        include: { currentRevision: { include: { costItems: true } } },
       });
       await tx.auditLog.create({
         data: {
@@ -528,7 +591,7 @@ export class QuotationsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          currentRevision: { include: { otherCosts: true } },
+          currentRevision: { include: { costItems: true } },
           dossier: { select: { id: true, reference: true } },
           client: { select: { id: true, firstName: true, lastName: true } },
           sourceOffer: {
@@ -554,11 +617,11 @@ export class QuotationsService {
     const quotation = await this.prisma.customerQuotation.findFirst({
       where: { id, organizationId },
       include: {
-        currentRevision: { include: { otherCosts: true, exchangeRate: true } },
+        currentRevision: { include: { costItems: true, exchangeRate: true } },
         revisions: {
           orderBy: { revisionNumber: 'desc' },
           include: {
-            otherCosts: { orderBy: { sortOrder: 'asc' } },
+            costItems: { orderBy: { sortOrder: 'asc' } },
             creator: { select: { id: true, firstName: true, lastName: true } },
           },
         },
