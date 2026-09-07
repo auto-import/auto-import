@@ -327,6 +327,7 @@ export interface ApiCustomerQuotationRevision {
   finalCustomerPriceDzd: string | number;
   sellingPriceDzd: string | number;
   estimatedCifCostDzd: string | number;
+  estimatedDdpCostDzd?: string | number;
   estimatedLandedCostDzd: string | number;
   estimatedTotalCostDzd: string | number;
   estimatedProfitDzd: string | number;
@@ -427,6 +428,16 @@ export interface ApiActualProfitability {
   profitDzd?: string | null;
   marginPercent?: string | null;
   error?: string | null;
+}
+
+export interface ApiQuotationPreview {
+  estimatedCifCostDzd: string;
+  estimatedDdpCostDzd: string;
+  estimatedLandedCostDzd: string;
+  estimatedTotalCostDzd: string;
+  sellingPriceDzd: string;
+  estimatedProfitDzd: string;
+  estimatedMarginPercent: string;
 }
 
 export interface ApiDossierEvidence {
@@ -779,9 +790,11 @@ export const commerceApi = {
   quotations: {
     currentDzdRates: () =>
       apiRequest<{
-        baseCurrency: "DZD";
+        referenceCurrency: "DZD";
         rates: Array<{
           currency: string;
+          baseCurrency: string;
+          quoteCurrency: "DZD";
           exchangeRateId: string | null;
           exchangeRateUsed: string;
         }>;
@@ -804,7 +817,7 @@ export const commerceApi = {
         body: JSON.stringify(data),
       }),
     preview: (data: Record<string, unknown>) =>
-      apiRequest<Record<string, string | number>>("/quotations/preview", {
+      apiRequest<ApiQuotationPreview>("/quotations/preview", {
         method: "POST",
         body: JSON.stringify(data),
       }),

@@ -207,6 +207,7 @@ export interface ApiExchangeRate {
   baseCurrency: string;
   quoteCurrency: string;
   rate: string | number;
+  isActive: boolean;
   effectiveAt: string;
   source?: string | null;
   notes?: string | null;
@@ -672,12 +673,23 @@ export async function createExchangeRate(data: {
   baseCurrency: string;
   quoteCurrency: string;
   rate: number;
+  isActive?: boolean;
   effectiveAt?: string;
   source?: string;
 }): Promise<ApiExchangeRate> {
   return apiRequest<ApiExchangeRate>("/finance/exchange-rates", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function setExchangeRateActive(
+  id: string,
+  isActive: boolean,
+): Promise<ApiExchangeRate> {
+  return apiRequest<ApiExchangeRate>(`/finance/exchange-rates/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
   });
 }
 

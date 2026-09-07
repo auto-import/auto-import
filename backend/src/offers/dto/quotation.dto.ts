@@ -3,11 +3,13 @@ import {
   IsArray,
   IsDateString,
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -15,27 +17,26 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class QuotationOtherCostDto {
   @Type(() => Number) @IsNumber() @Min(0.01) amount: number;
-  @IsString() @MaxLength(12) currency: string;
-  @IsString() @MaxLength(300) description: string;
+  @IsString() @Matches(/^[A-Za-z]{3}$/) currency: string;
+  @IsString() @IsNotEmpty() @MaxLength(300) description: string;
 }
 
 export class QuotationAmountsDto {
   @Type(() => Number) @IsNumber() @Min(0.01) vehicleAmount: number;
-  @IsString() @MaxLength(12) vehicleCurrency: string;
-  @Type(() => Number) @IsNumber() @Min(0.01) containerPrice: number;
-  @IsString() @MaxLength(12) containerCurrency: string;
+  @IsString() @Matches(/^[A-Za-z]{3}$/) vehicleCurrency: string;
+  @Type(() => Number) @IsNumber() @Min(0) containerPrice: number;
+  @IsString() @Matches(/^[A-Za-z]{3}$/) containerCurrency: string;
   @Type(() => Number) @IsIn([3, 4]) containerAllocation: number;
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   insuranceAmount?: number;
-  @IsString() @MaxLength(12) insuranceCurrency: string;
+  @IsString() @Matches(/^[A-Za-z]{3}$/) insuranceCurrency: string;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) customsAmount?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) transitAmount?: number;
-  @IsString() @MaxLength(12) transitCurrency: string;
+  @IsString() @Matches(/^[A-Za-z]{3}$/) transitCurrency: string;
   @Type(() => Number) @IsNumber() @Min(0.01) sellingPriceDzd: number;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) marginAmount?: number;
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

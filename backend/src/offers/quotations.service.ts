@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -33,12 +32,8 @@ export class QuotationsService {
 
   async preview(organizationId: string, dto: CreateQuotationDto) {
     const calculated = await this.prisma.$transaction(async (tx) => {
-      const sourceVehicle = await this.findSourceVehicle(
-        tx,
-        organizationId,
-        dto,
-      );
-      const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
+      await this.findSourceVehicle(tx, organizationId, dto);
+      const normalized = this.normalizeCurrencies(dto);
       const rates = await this.pricing.resolveRequiredRates(
         tx,
         organizationId,
@@ -67,9 +62,11 @@ export class QuotationsService {
       this.pricing.currentDzdRates(tx, organizationId, new Date()),
     );
     return {
-      baseCurrency: 'DZD',
+      referenceCurrency: 'DZD',
       rates: rates.map((rate) => ({
         currency: rate.currency,
+        baseCurrency: rate.currency,
+        quoteCurrency: 'DZD',
         exchangeRateId: rate.exchangeRateId,
         exchangeRateUsed: rate.exchangeRateUsed.toString(),
       })),
@@ -107,26 +104,10 @@ export class QuotationsService {
     return sourceVehicle;
   }
 
-  private normalizeVehicleAmount<T extends QuotationAmountsDto>(
-    dto: T,
-    sourceVehicle: { supplierPrice: Prisma.Decimal; currency: string },
-  ): T {
-    const supplierPrice = sourceVehicle.supplierPrice;
-    if (!new Prisma.Decimal(dto.vehicleAmount).equals(supplierPrice)) {
-      throw new BadRequestException(
-        'Le prix de base du devis doit correspondre au prix fournisseur du véhicule sélectionné.',
-      );
-    }
-    const sourceCurrency = sourceVehicle.currency.trim().toUpperCase();
-    if (dto.vehicleCurrency.trim().toUpperCase() !== sourceCurrency) {
-      throw new BadRequestException(
-        'La devise du coût véhicule doit correspondre à celle de l’offre.',
-      );
-    }
+  private normalizeCurrencies<T extends QuotationAmountsDto>(dto: T): T {
     return {
       ...dto,
-      vehicleAmount: supplierPrice.toNumber(),
-      vehicleCurrency: sourceCurrency,
+      vehicleCurrency: dto.vehicleCurrency.trim().toUpperCase(),
       containerCurrency: dto.containerCurrency.trim().toUpperCase(),
       insuranceCurrency: dto.insuranceCurrency.trim().toUpperCase(),
       transitCurrency: dto.transitCurrency.trim().toUpperCase(),
@@ -158,7 +139,7 @@ export class QuotationsService {
   ): Prisma.InputJsonObject {
     return {
       formula:
-        'DZD: CIF=véhicule+fret+assurance+transit+autres; landed=CIF+douane; profit=vente-coût; marge=profit/vente*100',
+        'DZD: CIF=véhicule+fret+assurance+transit+autres; DDP=CIF+douane; profit=vente-coût sélectionné; marge=profit/vente*100',
       containerPrice: calculated.containerPrice.toString(),
       containerCurrency: calculated.containerCurrency,
       containerAllocation: `1/${calculated.containerAllocation}`,
@@ -171,6 +152,7 @@ export class QuotationsService {
         amountDzd: cost.amountDzd.toString(),
       })),
       estimatedCifCostDzd: calculated.estimatedCifCostDzd.toString(),
+      estimatedDdpCostDzd: calculated.estimatedDdpCostDzd.toString(),
       estimatedLandedCostDzd: calculated.estimatedLandedCostDzd.toString(),
       estimatedTotalCostDzd: calculated.estimatedTotalCostDzd.toString(),
       sellingPriceDzd: calculated.sellingPriceDzd.toString(),
@@ -216,7 +198,7 @@ export class QuotationsService {
           "Ce véhicule de l'offre n'est plus commercialisable.",
         );
       }
-      const normalized = this.normalizeVehicleAmount(dto, sourceVehicle);
+      const normalized = this.normalizeCurrencies(dto);
       let sourceOfferRevisionId = offer.currentRevisionId;
       if (!sourceOfferRevisionId) {
         const latest = await tx.chinaOfferRevision.aggregate({
@@ -409,7 +391,6 @@ export class QuotationsService {
         where: { id, organizationId },
         include: {
           _count: { select: { revisions: true } },
-          sourceOfferVehicle: true,
         },
       });
       if (!quotation) throw new NotFoundException('Devis introuvable.');
@@ -419,9 +400,7 @@ export class QuotationsService {
         );
       }
       const priceBasis = quotation.priceBasis as 'CIF' | 'DDP';
-      const normalized = quotation.sourceOfferVehicle
-        ? this.normalizeVehicleAmount(dto, quotation.sourceOfferVehicle)
-        : dto;
+      const normalized = this.normalizeCurrencies(dto);
       const rates = await this.pricing.resolveRequiredRates(
         tx,
         organizationId,

@@ -139,10 +139,22 @@ describe("OfferDetailWorkspace quotation workflow", () => {
     mocks.getOffer.mockResolvedValue(offer);
     mocks.listQuotations.mockResolvedValue({ items: [], pagination });
     mocks.currentRates.mockResolvedValue({
-      baseCurrency: "DZD",
+      referenceCurrency: "DZD",
       rates: [
-        { currency: "DZD", exchangeRateId: null, exchangeRateUsed: "1" },
-        { currency: "USD", exchangeRateId: "rate-1", exchangeRateUsed: "145" },
+        {
+          currency: "DZD",
+          baseCurrency: "DZD",
+          quoteCurrency: "DZD",
+          exchangeRateId: null,
+          exchangeRateUsed: "1",
+        },
+        {
+          currency: "USD",
+          baseCurrency: "USD",
+          quoteCurrency: "DZD",
+          exchangeRateId: "rate-1",
+          exchangeRateUsed: "145",
+        },
       ],
     });
     mocks.preview.mockResolvedValue({ estimatedTotalCostDzd: "2247500" });
@@ -153,11 +165,11 @@ describe("OfferDetailWorkspace quotation workflow", () => {
     await openAndFillQuotation();
 
     const total = screen.getByText("Total estimé DDP").parentElement!;
-    const profit = screen.getByText("Profit estimé").parentElement!;
+    const profit = screen.getByText("Bénéfice estimé").parentElement!;
     const margin = screen.getByText("Marge estimée").parentElement!;
     expect(within(total).getByText(/2[^\d]*247[^\d]*500 DZD/)).toBeTruthy();
     expect(within(profit).getByText(/352[^\d]*500 DZD/)).toBeTruthy();
-    expect(within(margin).getByText("13.6 %")).toBeTruthy();
+    expect(within(margin).getByText("13.56 %")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Créer le devis" }));
     await waitFor(() =>

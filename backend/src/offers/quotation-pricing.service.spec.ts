@@ -1,9 +1,12 @@
 import { Prisma } from '@prisma/client';
+import { ExchangeRatesService } from '../finance/exchange-rates.service';
 import { OffersService } from './offers.service';
 import { QuotationPricingService } from './quotation-pricing.service';
 
 describe('Offer and quotation pricing rules', () => {
-  const pricing = new QuotationPricingService();
+  const pricing = new QuotationPricingService(
+    new ExchangeRatesService({} as never),
+  );
   const rates = new Map([
     [
       'USD',
@@ -81,6 +84,69 @@ describe('Offer and quotation pricing rules', () => {
     expect(result.estimatedTotalCostDzd.toNumber()).toBe(2_247_500);
     expect(result.estimatedProfitDzd.toNumber()).toBe(352_500);
     expect(result.estimatedMarginPercent.toNumber()).toBe(13.5577);
+  });
+
+  it('verifies the required 6000/3 DDP scenario exactly', () => {
+    const result = pricing.calculate(
+      'DDP',
+      {
+        ...amounts,
+        containerPrice: 6_000,
+        insuranceAmount: 1_500,
+      },
+      rates,
+    );
+    expect(result.vehicle.amountDzd.toString()).toBe('1450000');
+    expect(result.freight.originalAmount.toString()).toBe('2000');
+    expect(result.freight.amountDzd.toString()).toBe('290000');
+    expect(result.insurance.amountDzd.toString()).toBe('217500');
+    expect(result.transit.exchangeRateUsed.toString()).toBe('1');
+    expect(result.estimatedCifCostDzd.toString()).toBe('2037500');
+    expect(result.estimatedDdpCostDzd.toString()).toBe('2537500');
+    expect(result.estimatedProfitDzd.toString()).toBe('62500');
+    expect(result.estimatedMarginPercent.toString()).toBe('2.4038');
+  });
+
+  it('rejects a missing rate instead of returning zero', async () => {
+    const tx = {
+      exchangeRate: { findFirst: jest.fn().mockResolvedValue(null) },
+    } as never;
+    await expect(
+      pricing.resolveDzdRateSnapshot(tx, 'org-1', 'USD', new Date()),
+    ).rejects.toThrow("aucun taux USD vers DZD actif n'est configuré");
+  });
+
+  it.each([0, -1])(
+    'rejects an invalid active rate (%s) instead of falling back',
+    async (invalidRate) => {
+      const tx = {
+        exchangeRate: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'invalid-rate',
+            rate: new Prisma.Decimal(invalidRate),
+          }),
+        },
+      } as never;
+      await expect(
+        pricing.resolveDzdRateSnapshot(tx, 'org-1', 'USD', new Date()),
+      ).rejects.toThrow(
+        'taux actif USD vers DZD configuré dans Finance est invalide',
+      );
+    },
+  );
+
+  it('diagnoses an inverse Finance row and never inverts it', async () => {
+    const tx = {
+      exchangeRate: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 'dzd-usd-rate' }),
+      },
+    } as never;
+    await expect(
+      pricing.resolveDzdRateSnapshot(tx, 'org-1', 'USD', new Date()),
+    ).rejects.toThrow('configuré dans le mauvais sens');
   });
 
   it('takes the effective USD/DZD Finance rate snapshot', async () => {

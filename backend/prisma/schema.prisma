@@ -2552,6 +2552,7 @@ model ExchangeRate {
   baseCurrency   String
   quoteCurrency  String
   rate           Decimal      @db.Decimal(18, 8)
+  isActive       Boolean      @default(true)
   effectiveAt    DateTime     @default(now())
   source         String?
   notes          String?
@@ -2566,6 +2567,7 @@ model ExchangeRate {
   quotationCosts     QuotationCost[]
 
   @@index([organizationId, baseCurrency, quoteCurrency, effectiveAt])
+  @@index([organizationId, quoteCurrency, isActive, effectiveAt])
 }
 
 model Cost {
@@ -2723,6 +2725,7 @@ model CustomerQuotationRevision {
   customsAmount      Decimal           @default(0) @db.Decimal(14, 2)
   transitAmount      Decimal           @default(0) @db.Decimal(14, 2)
   otherCostsAmount   Decimal           @default(0) @db.Decimal(14, 2)
+  /// Deprecated compatibility column. Margin is calculated from sellingPriceDzd.
   marginAmount       Decimal           @default(0) @db.Decimal(14, 2)
   finalCustomerPrice Decimal           @db.Decimal(14, 2)
   containerPrice     Decimal           @default(0) @db.Decimal(14, 2)

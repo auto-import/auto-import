@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ExchangeRatesService } from '../finance/exchange-rates.service';
 import type { QuotationAmountsDto } from './dto/quotation.dto';
 
 export interface DzdRateSnapshot {
@@ -9,7 +10,8 @@ export interface DzdRateSnapshot {
 }
 
 export interface QuotationCostSnapshot extends DzdRateSnapshot {
-  costType: 'VEHICLE' | 'FREIGHT' | 'INSURANCE' | 'TRANSIT' | 'CUSTOMS' | 'OTHER';
+  costType:
+    'VEHICLE' | 'FREIGHT' | 'INSURANCE' | 'TRANSIT' | 'CUSTOMS' | 'OTHER';
   description: string;
   originalAmount: Prisma.Decimal;
   amountDzd: Prisma.Decimal;
@@ -17,6 +19,8 @@ export interface QuotationCostSnapshot extends DzdRateSnapshot {
 
 @Injectable()
 export class QuotationPricingService {
+  constructor(private readonly exchangeRates: ExchangeRatesService) {}
+
   private money(value: Prisma.Decimal.Value) {
     return new Prisma.Decimal(value).toDecimalPlaces(2);
   }
@@ -32,50 +36,17 @@ export class QuotationPricingService {
     at: Date,
   ): Promise<DzdRateSnapshot> {
     const currency = this.currency(currencyValue);
-    if (currency === 'DZD') {
-      return {
-        currency,
-        exchangeRateId: null,
-        exchangeRateUsed: new Prisma.Decimal(1),
-      };
-    }
-    const direct = await tx.exchangeRate.findFirst({
-      where: {
-        organizationId,
-        baseCurrency: currency,
-        quoteCurrency: 'DZD',
-        effectiveAt: { lte: at },
-        rate: { gt: 0 },
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    if (direct) {
-      return {
-        currency,
-        exchangeRateId: direct.id,
-        exchangeRateUsed: direct.rate,
-      };
-    }
-    const inverse = await tx.exchangeRate.findFirst({
-      where: {
-        organizationId,
-        baseCurrency: 'DZD',
-        quoteCurrency: currency,
-        effectiveAt: { lte: at },
-        rate: { gt: 0 },
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    if (inverse) {
-      return {
-        currency,
-        exchangeRateId: inverse.id,
-        exchangeRateUsed: new Prisma.Decimal(1).div(inverse.rate),
-      };
-    }
-    throw new ConflictException(
-      `Aucun taux ${currency} vers DZD applicable. Ajoutez un taux dans Finance avant de créer le devis.`,
+    const snapshot = await this.exchangeRates.findActiveDzdRateSnapshot(
+      tx,
+      organizationId,
+      currency,
+      at,
     );
+    return {
+      currency,
+      exchangeRateId: snapshot.exchangeRateId,
+      exchangeRateUsed: snapshot.rate,
+    };
   }
 
   async currentDzdRates(
@@ -83,41 +54,7 @@ export class QuotationPricingService {
     organizationId: string,
     at: Date,
   ): Promise<DzdRateSnapshot[]> {
-    const rows = await tx.exchangeRate.findMany({
-      where: {
-        organizationId,
-        effectiveAt: { lte: at },
-        OR: [{ quoteCurrency: 'DZD' }, { baseCurrency: 'DZD' }],
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    const snapshots = new Map<string, DzdRateSnapshot>();
-    snapshots.set('DZD', {
-      currency: 'DZD',
-      exchangeRateId: null,
-      exchangeRateUsed: new Prisma.Decimal(1),
-    });
-    for (const row of rows) {
-      const currency = this.currency(
-        row.quoteCurrency === 'DZD' ? row.baseCurrency : row.quoteCurrency,
-      );
-      if (
-        currency === 'DZD' ||
-        snapshots.has(currency) ||
-        !row.rate.isPositive()
-      ) {
-        continue;
-      }
-      snapshots.set(currency, {
-        currency,
-        exchangeRateId: row.id,
-        exchangeRateUsed:
-          row.quoteCurrency === 'DZD'
-            ? row.rate
-            : new Prisma.Decimal(1).div(row.rate),
-      });
-    }
-    return [...snapshots.values()];
+    return this.exchangeRates.currentActiveDzdRates(tx, organizationId, at);
   }
 
   async resolveRequiredRates(
@@ -173,7 +110,12 @@ export class QuotationPricingService {
       const currency = this.currency(currencyValue);
       const originalAmount = this.money(originalAmountValue);
       const rate = rates.get(currency);
-      if (!rate && originalAmount.isPositive()) {
+      if (
+        originalAmount.gt(0) &&
+        (!rate ||
+          !rate.exchangeRateUsed.isFinite() ||
+          !rate.exchangeRateUsed.gt(0))
+      ) {
         throw new ConflictException(`Taux ${currency}/DZD indisponible.`);
       }
       const exchangeRateUsed = rate?.exchangeRateUsed ?? new Prisma.Decimal(1);
@@ -223,13 +165,20 @@ export class QuotationPricingService {
     const otherCosts = (dto.otherCosts ?? []).map((item) =>
       cost('OTHER', item.description.trim(), item.amount, item.currency),
     );
-    const operationalCosts = [vehicle, freight, insurance, transit, ...otherCosts];
+    const operationalCosts = [
+      vehicle,
+      freight,
+      insurance,
+      transit,
+      ...otherCosts,
+    ];
     const estimatedCifCostDzd = operationalCosts
       .reduce((sum, item) => sum.add(item.amountDzd), new Prisma.Decimal(0))
       .toDecimalPlaces(2);
     const estimatedLandedCostDzd = estimatedCifCostDzd
       .add(customs.amountDzd)
       .toDecimalPlaces(2);
+    const estimatedDdpCostDzd = estimatedLandedCostDzd;
     const estimatedTotalCostDzd =
       priceBasis === 'DDP' ? estimatedLandedCostDzd : estimatedCifCostDzd;
     const sellingPriceDzd = this.money(dto.sellingPriceDzd);
@@ -237,10 +186,7 @@ export class QuotationPricingService {
       .sub(estimatedTotalCostDzd)
       .toDecimalPlaces(2);
     const estimatedMarginPercent = sellingPriceDzd.isPositive()
-      ? estimatedProfitDzd
-          .mul(100)
-          .div(sellingPriceDzd)
-          .toDecimalPlaces(4)
+      ? estimatedProfitDzd.mul(100).div(sellingPriceDzd).toDecimalPlaces(4)
       : new Prisma.Decimal(0);
     const costs = [...operationalCosts, customs].filter((item) =>
       item.originalAmount.isPositive(),
@@ -258,6 +204,7 @@ export class QuotationPricingService {
       containerCurrency: this.currency(dto.containerCurrency),
       containerAllocation,
       estimatedCifCostDzd,
+      estimatedDdpCostDzd,
       estimatedLandedCostDzd,
       estimatedTotalCostDzd,
       sellingPriceDzd,

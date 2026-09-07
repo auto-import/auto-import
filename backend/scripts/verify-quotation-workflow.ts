@@ -1,6 +1,7 @@
 import { PrismaService } from '../src/prisma/prisma.service';
 import { QuotationPricingService } from '../src/offers/quotation-pricing.service';
 import { QuotationsService } from '../src/offers/quotations.service';
+import { ExchangeRatesService } from '../src/finance/exchange-rates.service';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -54,12 +55,12 @@ async function main() {
         model: 'Coolray',
         condition: 'new',
         specification: {},
-        supplierPrice: 8_000,
-        purchasePrice: 8_000,
+        supplierPrice: 10_000,
+        purchasePrice: 10_000,
         currency: 'USD',
         incoterm: 'FOB',
         localCost: 0,
-        totalOfferPrice: 8_000,
+        totalOfferPrice: 10_000,
         validFrom: new Date('2026-01-01T00:00:00.000Z'),
         validUntil: new Date('2027-12-31T00:00:00.000Z'),
         availableQuantity: 2,
@@ -72,7 +73,7 @@ async function main() {
             model: 'Coolray',
             condition: 'new',
             specification: {},
-            supplierPrice: 8_000,
+            supplierPrice: 10_000,
             currency: 'USD',
             quantity: 2,
             status: 'VALIDATED',
@@ -95,7 +96,7 @@ async function main() {
 
     const quotations = new QuotationsService(
       prisma,
-      new QuotationPricingService(),
+      new QuotationPricingService(new ExchangeRatesService(prisma)),
     );
     const sourceOfferVehicleId = offer.vehicles[0].id;
     assert(
@@ -108,20 +109,18 @@ async function main() {
       sourceOfferId: offer.id,
       sourceOfferVehicleId,
       currency: 'DZD',
-      vehicleAmount: 8_000,
+      vehicleAmount: 10_000,
       vehicleCurrency: 'USD',
       containerPrice: 6_000,
       containerCurrency: 'USD',
       containerAllocation: 3 as const,
-      insuranceAmount: 300,
+      insuranceAmount: 1_500,
       insuranceCurrency: 'USD',
       customsAmount: 500_000,
       transitAmount: 80_000,
       transitCurrency: 'DZD',
       sellingPriceDzd: 2_600_000,
-      otherCosts: [
-        { amount: 500, currency: 'USD', description: 'Frais de manutention' },
-      ],
+      otherCosts: [],
     };
     const cif = await quotations.create(organization.id, user.id, {
       ...common,
@@ -130,6 +129,18 @@ async function main() {
     const ddp = await quotations.create(organization.id, user.id, {
       ...common,
       priceBasis: 'DDP',
+    });
+
+    await prisma.exchangeRate.create({
+      data: {
+        organizationId: organization.id,
+        baseCurrency: 'USD',
+        quoteCurrency: 'DZD',
+        rate: 160,
+        effectiveAt: new Date(),
+        source: 'later workflow verification rate',
+        createdById: user.id,
+      },
     });
 
     const saved = await prisma.customerQuotation.findMany({
@@ -150,31 +161,27 @@ async function main() {
       'CIF selling price DZD should equal 2600000.',
     );
     assert(
-      saved[0].currentRevision?.estimatedTotalCostDzd.equals(1_646_000),
-      'CIF estimated cost DZD should equal 1646000.',
+      saved[0].currentRevision?.estimatedTotalCostDzd.equals(2_037_500),
+      'CIF estimated cost DZD should equal 2037500.',
     );
     assert(
       saved[1].currentRevision?.sellingPriceDzd.equals(2_600_000),
       'DDP selling price DZD should equal 2600000.',
     );
     assert(
-      saved[1].currentRevision?.estimatedTotalCostDzd.equals(2_146_000),
-      'DDP estimated cost DZD should equal 2146000.',
+      saved[1].currentRevision?.estimatedTotalCostDzd.equals(2_537_500),
+      'DDP estimated cost DZD should equal 2537500.',
     );
     assert(
       saved.every((item) =>
-          item.currentRevision?.exchangeRateSnapshot.equals(145),
+        item.currentRevision?.exchangeRateSnapshot.equals(145),
       ),
       'Each quotation must preserve the USD/DZD rate snapshot.',
     );
     assert(
-      saved.every(
-        (item) =>
-          item.currentRevision?.costItems.some(
-            (cost) => cost.description === 'Frais de manutention',
-          ),
-      ),
-      'Other-cost descriptions were not persisted.',
+      saved[1].currentRevision?.estimatedProfitDzd.equals(62_500) &&
+        saved[1].currentRevision?.estimatedMarginPercent.equals('2.4038'),
+      'DDP profit and margin should equal 62500 DZD and 2.4038%.',
     );
     assert(
       catalogue.activeCifQuotationId === cif.id &&

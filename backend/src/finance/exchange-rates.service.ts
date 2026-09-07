@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +35,7 @@ export class ExchangeRatesService {
         baseCurrency: dto.baseCurrency.toUpperCase(),
         quoteCurrency: dto.quoteCurrency.toUpperCase(),
         rate: new Prisma.Decimal(dto.rate),
+        isActive: dto.isActive ?? true,
         effectiveAt,
         source: dto.source || 'manual',
         notes: dto.notes,
@@ -47,6 +49,141 @@ export class ExchangeRatesService {
     });
 
     return rate;
+  }
+
+  async setActive(
+    organizationId: string,
+    userId: string,
+    id: string,
+    isActive: boolean,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.exchangeRate.findFirst({
+        where: { id, organizationId },
+      });
+      if (!existing) throw new NotFoundException('Taux de change introuvable.');
+      const updated = await tx.exchangeRate.update({
+        where: { id },
+        data: { isActive },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'EXCHANGE_RATE_STATUS_CHANGED',
+          entityType: 'ExchangeRate',
+          entityId: id,
+          oldValues: { isActive: existing.isActive },
+          newValues: { isActive },
+        },
+      });
+      return updated;
+    });
+  }
+
+  /**
+   * Strict source-of-truth lookup for DZD profitability. Only an explicit,
+   * active foreign-currency -> DZD row is accepted. Inverse rows are diagnosed
+   * but never inverted, and the newest invalid row never falls back silently.
+   */
+  async findActiveDzdRateSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    currencyValue: string,
+    atDate = new Date(),
+  ): Promise<{ exchangeRateId: string | null; rate: Prisma.Decimal }> {
+    const currency = currencyValue.trim().toUpperCase();
+    if (currency === 'DZD') {
+      return { exchangeRateId: null, rate: new Prisma.Decimal(1) };
+    }
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      throw new BadRequestException(
+        `Devise non prise en charge : ${currency}.`,
+      );
+    }
+
+    const direct = await tx.exchangeRate.findFirst({
+      where: {
+        organizationId,
+        baseCurrency: currency,
+        quoteCurrency: 'DZD',
+        isActive: true,
+        effectiveAt: { lte: atDate },
+      },
+      orderBy: [{ effectiveAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (direct) {
+      if (!direct.rate.isFinite() || !direct.rate.gt(0)) {
+        throw new ConflictException(
+          `Impossible de calculer le devis : le taux actif ${currency} vers DZD configuré dans Finance est invalide.`,
+        );
+      }
+      return { exchangeRateId: direct.id, rate: direct.rate };
+    }
+
+    const inverse = await tx.exchangeRate.findFirst({
+      where: {
+        organizationId,
+        baseCurrency: 'DZD',
+        quoteCurrency: currency,
+        isActive: true,
+        effectiveAt: { lte: atDate },
+      },
+      orderBy: [{ effectiveAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    if (inverse) {
+      throw new ConflictException(
+        `Impossible de calculer le devis : le taux Finance est configuré dans le mauvais sens. Configurez ${currency} vers DZD (1 ${currency} = x DZD).`,
+      );
+    }
+    throw new ConflictException(
+      `Impossible de calculer le devis : aucun taux ${currency} vers DZD actif n'est configuré dans Finance.`,
+    );
+  }
+
+  async currentActiveDzdRates(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    atDate = new Date(),
+  ) {
+    const rows = await tx.exchangeRate.findMany({
+      where: {
+        organizationId,
+        quoteCurrency: 'DZD',
+        isActive: true,
+        effectiveAt: { lte: atDate },
+      },
+      orderBy: [
+        { baseCurrency: 'asc' },
+        { effectiveAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+    const currencies = new Set<string>();
+    const result: Array<{
+      currency: string;
+      exchangeRateId: string | null;
+      exchangeRateUsed: Prisma.Decimal;
+    }> = [
+      {
+        currency: 'DZD',
+        exchangeRateId: null,
+        exchangeRateUsed: new Prisma.Decimal(1),
+      },
+    ];
+    for (const row of rows) {
+      const currency = row.baseCurrency.trim().toUpperCase();
+      if (currency === 'DZD' || currencies.has(currency)) continue;
+      currencies.add(currency);
+      if (!row.rate.isFinite() || !row.rate.gt(0)) continue;
+      result.push({
+        currency,
+        exchangeRateId: row.id,
+        exchangeRateUsed: row.rate,
+      });
+    }
+    return result;
   }
 
   async findAll(organizationId: string, filter: FilterExchangeRatesDto) {
@@ -152,50 +289,17 @@ export class ExchangeRatesService {
   }
 
   async currentDzdRates(organizationId: string, atDate = new Date()) {
-    const rows = await this.prisma.exchangeRate.findMany({
-      where: {
-        organizationId,
-        effectiveAt: { lte: atDate },
-        OR: [{ quoteCurrency: 'DZD' }, { baseCurrency: 'DZD' }],
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    const snapshots = new Map<
-      string,
-      {
-        currency: string;
-        exchangeRateId: string | null;
-        exchangeRateUsed: string;
-      }
-    >();
-    snapshots.set('DZD', {
-      currency: 'DZD',
-      exchangeRateId: null,
-      exchangeRateUsed: '1',
-    });
-    for (const row of rows) {
-      const currency = (
-        row.quoteCurrency === 'DZD' ? row.baseCurrency : row.quoteCurrency
-      ).toUpperCase();
-      if (
-        currency === 'DZD' ||
-        snapshots.has(currency) ||
-        !row.rate.isPositive()
-      ) {
-        continue;
-      }
-      snapshots.set(currency, {
-        currency,
-        exchangeRateId: row.id,
-        exchangeRateUsed:
-          row.quoteCurrency === 'DZD'
-            ? row.rate.toString()
-            : new Prisma.Decimal(1).div(row.rate).toString(),
-      });
-    }
+    const snapshots = await this.prisma.$transaction((tx) =>
+      this.currentActiveDzdRates(tx, organizationId, atDate),
+    );
     return {
       referenceCurrency: 'DZD' as const,
-      rates: [...snapshots.values()],
+      rates: snapshots.map((snapshot) => ({
+        ...snapshot,
+        exchangeRateUsed: snapshot.exchangeRateUsed.toString(),
+        baseCurrency: snapshot.currency,
+        quoteCurrency: 'DZD' as const,
+      })),
     };
   }
 }

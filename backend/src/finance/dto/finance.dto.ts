@@ -1,13 +1,12 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
-  IsEnum,
   IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
-  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -399,6 +398,10 @@ export class CreateExchangeRateDto {
   rate: number;
 
   @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
   @IsDateString()
   effectiveAt?: string;
 
@@ -409,6 +412,11 @@ export class CreateExchangeRateDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class UpdateExchangeRateStatusDto {
+  @IsBoolean()
+  isActive: boolean;
 }
 
 export class FilterExchangeRatesDto extends PaginationDto {

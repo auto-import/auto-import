@@ -19,12 +19,7 @@ const rates = { DZD: 1, USD: 145, CNY: 20 };
 
 describe("quotation live calculation", () => {
   it("implements the required DZD profitability scenario exactly", () => {
-    const draft = buildQuotationDraft(
-      "DDP",
-      amounts,
-      [],
-      rates,
-    );
+    const draft = buildQuotationDraft("DDP", amounts, [], rates);
 
     expect(draft.errors).toEqual([]);
     expect(draft.calculation).toMatchObject({
@@ -40,18 +35,39 @@ describe("quotation live calculation", () => {
   });
 
   it("keeps customs outside CIF profitability while showing landed cost", () => {
+    const draft = buildQuotationDraft("CIF", amounts, [], rates);
+
+    expect(draft.calculation).toMatchObject({
+      estimatedCifCostDzd: 1747500,
+      estimatedDdpCostDzd: 2247500,
+      estimatedLandedCostDzd: 2247500,
+      estimatedTotalCostDzd: 1747500,
+    });
+  });
+
+  it("shows DZD costs before a selling price is entered", () => {
     const draft = buildQuotationDraft(
-      "CIF",
-      amounts,
+      "DDP",
+      { ...amounts, sellingPriceDzd: "" },
       [],
       rates,
     );
 
+    expect(draft.amounts).toBeNull();
     expect(draft.calculation).toMatchObject({
       estimatedCifCostDzd: 1747500,
-      estimatedLandedCostDzd: 2247500,
-      estimatedTotalCostDzd: 1747500,
+      estimatedDdpCostDzd: 2247500,
+      sellingPriceDzd: null,
+      estimatedProfitDzd: null,
+      estimatedMarginPercent: null,
     });
+  });
+
+  it("never converts a positive foreign amount with a missing rate", () => {
+    const draft = buildQuotationDraft("CIF", amounts, [], { DZD: 1 });
+    expect(draft.amounts).toBeNull();
+    expect(draft.calculation).toBeNull();
+    expect(draft.errors.join(" ")).toContain("taux USD/DZD est indisponible");
   });
 
   it("does not silently turn invalid values into zero", () => {

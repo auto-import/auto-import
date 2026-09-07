@@ -39,11 +39,12 @@ export interface QuotationCalculation {
   otherCosts: QuotationCostCalculation[];
   otherCostsDzd: number;
   estimatedCifCostDzd: number;
+  estimatedDdpCostDzd: number;
   estimatedLandedCostDzd: number;
   estimatedTotalCostDzd: number;
-  sellingPriceDzd: number;
-  estimatedProfitDzd: number;
-  estimatedMarginPercent: number;
+  sellingPriceDzd: number | null;
+  estimatedProfitDzd: number | null;
+  estimatedMarginPercent: number | null;
 }
 
 export interface QuotationDraft {
@@ -112,13 +113,11 @@ export function buildQuotationDraft(
     }),
     containerPrice: parseAmount(form.containerPrice, "Le prix du conteneur", {
       required: true,
-      strictlyPositive: true,
     }),
     insuranceAmount: parseAmount(form.insuranceAmount, "L’assurance"),
     customsAmount: parseAmount(form.customsAmount, "La douane"),
     transitAmount: parseAmount(form.transitAmount, "Le transit"),
     sellingPriceDzd: parseAmount(form.sellingPriceDzd, "Le prix de vente", {
-      required: true,
       strictlyPositive: true,
     }),
   };
@@ -175,20 +174,26 @@ export function buildQuotationDraft(
   const insuranceAmount = fields.insuranceAmount.value!;
   const customsAmount = fields.customsAmount.value!;
   const transitAmount = fields.transitAmount.value!;
-  const sellingPriceDzd = fields.sellingPriceDzd.value!;
+  const sellingPriceDzd = form.sellingPriceDzd.trim()
+    ? fields.sellingPriceDzd.value!
+    : null;
   const freightAmount = roundMoney(containerPrice / containerAllocation);
-  const vehicleRate = rateFor(form.vehicleCurrency, vehicleAmount, "le véhicule");
-  const freightRate = rateFor(
-    form.containerCurrency,
-    freightAmount,
-    "le fret",
+  const vehicleRate = rateFor(
+    form.vehicleCurrency,
+    vehicleAmount,
+    "le véhicule",
   );
+  const freightRate = rateFor(form.containerCurrency, freightAmount, "le fret");
   const insuranceRate = rateFor(
     form.insuranceCurrency,
     insuranceAmount,
     "l’assurance",
   );
-  const transitRate = rateFor(form.transitCurrency, transitAmount, "le transit");
+  const transitRate = rateFor(
+    form.transitCurrency,
+    transitAmount,
+    "le transit",
+  );
   const otherRates = otherCosts.map((cost, index) =>
     rateFor(cost.currency, cost.amount, `l’autre coût ${index + 1}`),
   );
@@ -205,11 +210,7 @@ export function buildQuotationDraft(
     amountDzd: roundMoney(amountOriginal * exchangeRateUsed),
   });
   const vehicle = convert(vehicleAmount, form.vehicleCurrency, vehicleRate!);
-  const freight = convert(
-    freightAmount,
-    form.containerCurrency,
-    freightRate!,
-  );
+  const freight = convert(freightAmount, form.containerCurrency, freightRate!);
   const insurance = convert(
     insuranceAmount,
     form.insuranceCurrency,
@@ -233,30 +234,36 @@ export function buildQuotationDraft(
   const estimatedLandedCostDzd = roundMoney(
     estimatedCifCostDzd + customs.amountDzd,
   );
+  const estimatedDdpCostDzd = estimatedLandedCostDzd;
   const estimatedTotalCostDzd =
     priceBasis === "DDP" ? estimatedLandedCostDzd : estimatedCifCostDzd;
-  const estimatedProfitDzd = roundMoney(
-    sellingPriceDzd - estimatedTotalCostDzd,
-  );
-  const estimatedMarginPercent = roundMoney(
-    (estimatedProfitDzd / sellingPriceDzd) * 100,
-  );
+  const estimatedProfitDzd =
+    sellingPriceDzd === null
+      ? null
+      : roundMoney(sellingPriceDzd - estimatedTotalCostDzd);
+  const estimatedMarginPercent =
+    sellingPriceDzd === null || estimatedProfitDzd === null
+      ? null
+      : roundMoney((estimatedProfitDzd / sellingPriceDzd) * 100);
 
   return {
-    amounts: {
-      vehicleAmount,
-      vehicleCurrency: form.vehicleCurrency.toUpperCase(),
-      containerPrice,
-      containerCurrency: form.containerCurrency.toUpperCase(),
-      containerAllocation,
-      insuranceAmount,
-      insuranceCurrency: form.insuranceCurrency.toUpperCase(),
-      customsAmount,
-      transitAmount,
-      transitCurrency: form.transitCurrency.toUpperCase(),
-      sellingPriceDzd,
-      otherCosts,
-    },
+    amounts:
+      sellingPriceDzd === null
+        ? null
+        : {
+            vehicleAmount,
+            vehicleCurrency: form.vehicleCurrency.toUpperCase(),
+            containerPrice,
+            containerCurrency: form.containerCurrency.toUpperCase(),
+            containerAllocation,
+            insuranceAmount,
+            insuranceCurrency: form.insuranceCurrency.toUpperCase(),
+            customsAmount,
+            transitAmount,
+            transitCurrency: form.transitCurrency.toUpperCase(),
+            sellingPriceDzd,
+            otherCosts,
+          },
     calculation: {
       vehicle,
       containerPrice,
@@ -269,6 +276,7 @@ export function buildQuotationDraft(
       otherCosts: calculatedOtherCosts,
       otherCostsDzd,
       estimatedCifCostDzd,
+      estimatedDdpCostDzd,
       estimatedLandedCostDzd,
       estimatedTotalCostDzd,
       sellingPriceDzd,

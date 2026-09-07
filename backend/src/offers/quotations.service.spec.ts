@@ -1,8 +1,12 @@
 import { Prisma } from '@prisma/client';
+import { ExchangeRatesService } from '../finance/exchange-rates.service';
 import { QuotationPricingService } from './quotation-pricing.service';
 import { QuotationsService } from './quotations.service';
 
 describe('QuotationsService commercial publication', () => {
+  const pricing = () =>
+    new QuotationPricingService(new ExchangeRatesService({} as never));
+
   it('preserves multiple quotations and makes the latest same-basis one active', async () => {
     let sequence = 0;
     const quotationCreates: Array<{ id: string }> = [];
@@ -64,10 +68,7 @@ describe('QuotationsService commercial publication', () => {
     const prisma = {
       $transaction: jest.fn().mockImplementation((callback) => callback(tx)),
     };
-    const service = new QuotationsService(
-      prisma as never,
-      new QuotationPricingService(),
-    );
+    const service = new QuotationsService(prisma as never, pricing());
     const input = {
       sourceOfferId: 'offer-1',
       sourceOfferVehicleId: 'offer-vehicle-1',
@@ -211,10 +212,7 @@ describe('QuotationsService commercial publication', () => {
     const prisma = {
       $transaction: jest.fn().mockImplementation((callback) => callback(tx)),
     };
-    const service = new QuotationsService(
-      prisma as never,
-      new QuotationPricingService(),
-    );
+    const service = new QuotationsService(prisma as never, pricing());
 
     await service.create('org-1', 'user-1', {
       sourceOfferId: 'offer-legacy',

@@ -10,6 +10,7 @@ import {
   createCost,
   fetchExchangeRates,
   createExchangeRate,
+  setExchangeRateActive,
   type OrganizationFinancialOverview,
   type ApiSupplierPayment,
   type ApiCost,
@@ -39,12 +40,7 @@ import {
 } from "lucide-react";
 
 type FinanceTab =
-  | "overview"
-  | "transactions"
-  | "treasury"
-  | "supplier"
-  | "costs"
-  | "rates";
+  "overview" | "transactions" | "treasury" | "supplier" | "costs" | "rates";
 
 export default function FinanceDashboardPage() {
   const [activeTab, setActiveTab] = useState<FinanceTab>("overview");
@@ -109,8 +105,8 @@ export default function FinanceDashboardPage() {
   const [supplierIdempotencyKey, setSupplierIdempotencyKey] = useState("");
 
   const [showRateModal, setShowRateModal] = useState(false);
-  const newRateBase = "DZD";
-  const [newRateQuote, setNewRateQuote] = useState("USD");
+  const quotationReferenceCurrency = "DZD";
+  const [newRateCurrency, setNewRateCurrency] = useState("USD");
   const [newRateValue, setNewRateValue] = useState("");
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -118,7 +114,9 @@ export default function FinanceDashboardPage() {
 
   const reportLoadError = useCallback((cause: unknown) => {
     setLoadError(
-      cause instanceof Error ? cause.message : "Chargement financier impossible",
+      cause instanceof Error
+        ? cause.message
+        : "Chargement financier impossible",
     );
   }, []);
 
@@ -240,7 +238,8 @@ export default function FinanceDashboardPage() {
     try {
       const payment = supplierPayments.find((item) => item.id === id);
       const account = treasuryAccounts.find(
-        (item) => item.status === "ACTIVE" && item.currency === payment?.currency,
+        (item) =>
+          item.status === "ACTIVE" && item.currency === payment?.currency,
       );
       if (!account) {
         throw new Error(
@@ -324,8 +323,8 @@ export default function FinanceDashboardPage() {
     if (!newRateValue || Number(newRateValue) <= 0) return;
     try {
       await createExchangeRate({
-        baseCurrency: newRateQuote,
-        quoteCurrency: newRateBase,
+        baseCurrency: newRateCurrency,
+        quoteCurrency: quotationReferenceCurrency,
         rate: Number(newRateValue),
       });
       setShowRateModal(false);
@@ -336,6 +335,21 @@ export default function FinanceDashboardPage() {
         (err instanceof Error ? err.message : "") ||
           "Erreur lors de l’enregistrement du taux",
       );
+    }
+  };
+
+  const handleSetRateActive = async (rate: ApiExchangeRate) => {
+    setActionLoading(`rate-${rate.id}`);
+    try {
+      await setExchangeRateActive(rate.id, !rate.isActive);
+      await loadRates();
+    } catch (err) {
+      alert(
+        (err instanceof Error ? err.message : "") ||
+          "Erreur lors de la mise à jour du taux",
+      );
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -396,8 +410,7 @@ export default function FinanceDashboardPage() {
       header: "Contre-valeur Base",
       render: (row) => (
         <span className="font-mono text-sm text-foreground">
-          {formatMontant(Number(row.amountDzd || row.originalAmount))}{" "}
-          DZD
+          {formatMontant(Number(row.amountDzd || row.originalAmount))} DZD
         </span>
       ),
     },
@@ -635,6 +648,27 @@ export default function FinanceDashboardPage() {
       header: "Date d’effet",
       render: (row) => formatDate(row.effectiveAt),
     },
+    {
+      key: "isActive",
+      header: "Utilisation",
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge
+            variant={row.isActive ? "green" : "gray"}
+            label={row.isActive ? "Actif" : "Inactif"}
+            size="sm"
+          />
+          <button
+            type="button"
+            disabled={actionLoading === `rate-${row.id}`}
+            onClick={() => void handleSetRateActive(row)}
+            className="rounded-button border border-border px-2 py-1 text-xs disabled:opacity-50"
+          >
+            {row.isActive ? "Désactiver" : "Activer"}
+          </button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -648,10 +682,7 @@ export default function FinanceDashboardPage() {
         {loadError && (
           <div className="rounded-card border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             {loadError}
-            <button
-              className="ml-3 underline"
-              onClick={() => setLoadError("")}
-            >
+            <button className="ml-3 underline" onClick={() => setLoadError("")}>
               Fermer
             </button>
           </div>
@@ -813,14 +844,22 @@ export default function FinanceDashboardPage() {
                   Dernières écritures financières
                 </h3>
                 <p className="text-xs text-muted">
-                  Mouvements source-liés; écritures validées uniquement modifiables par extourne.
+                  Mouvements source-liés; écritures validées uniquement
+                  modifiables par extourne.
                 </p>
                 <div className="max-h-60 divide-y overflow-auto text-sm">
                   {transactions.slice(0, 10).map((transaction) => (
-                    <div key={transaction.id} className="flex justify-between py-2.5">
+                    <div
+                      key={transaction.id}
+                      className="flex justify-between py-2.5"
+                    >
                       <div>
-                        <span className="font-semibold">{transaction.type}</span>
-                        <p className="text-xs text-muted">{transaction.sourceModule}</p>
+                        <span className="font-semibold">
+                          {transaction.type}
+                        </span>
+                        <p className="text-xs text-muted">
+                          {transaction.sourceModule}
+                        </p>
                       </div>
                       <b
                         className={
@@ -855,7 +894,8 @@ export default function FinanceDashboardPage() {
                         {account.code} · {account.name}
                       </p>
                       <p className="text-xl font-bold mt-1">
-                        {formatMontant(Number(account.balance))} {account.currency}
+                        {formatMontant(Number(account.balance))}{" "}
+                        {account.currency}
                       </p>
                     </div>
                   ))}
@@ -923,10 +963,7 @@ export default function FinanceDashboardPage() {
             </div>
 
             <div className="card p-0 overflow-hidden">
-              <DataTable
-                columns={TREASURY_COLUMNS}
-                data={treasuryAccounts}
-              />
+              <DataTable columns={TREASURY_COLUMNS} data={treasuryAccounts} />
             </div>
           </div>
         )}
@@ -983,7 +1020,10 @@ export default function FinanceDashboardPage() {
               </button>
             </div>
 
-            <div className="card p-0 overflow-hidden">
+            <div
+              className="card p-0 overflow-hidden"
+              aria-busy={costLoading}
+            >
               <DataTable columns={COST_COLUMNS} data={costs} />
             </div>
           </div>
@@ -1005,7 +1045,10 @@ export default function FinanceDashboardPage() {
               </button>
             </div>
 
-            <div className="card p-0 overflow-hidden">
+            <div
+              className="card p-0 overflow-hidden"
+              aria-busy={ratesLoading}
+            >
               <DataTable columns={RATE_COLUMNS} data={exchangeRates} />
             </div>
           </div>
@@ -1053,9 +1096,7 @@ export default function FinanceDashboardPage() {
                     onChange={(event) =>
                       setSupplierPaymentKind(
                         event.target.value as
-                          | "DEPOSIT"
-                          | "COMPLEMENT"
-                          | "BALANCE",
+                          "DEPOSIT" | "COMPLEMENT" | "BALANCE",
                       )
                     }
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
@@ -1250,8 +1291,10 @@ export default function FinanceDashboardPage() {
                     Devise étrangère
                   </label>
                   <input
-                    value={newRateQuote}
-                    onChange={(e) => setNewRateQuote(e.target.value.toUpperCase())}
+                    value={newRateCurrency}
+                    onChange={(e) =>
+                      setNewRateCurrency(e.target.value.toUpperCase())
+                    }
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                     maxLength={12}
                     required
@@ -1273,7 +1316,7 @@ export default function FinanceDashboardPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-muted uppercase mb-1">
-                  Taux (1 {newRateQuote} = ? DZD)
+                  Taux direct (1 {newRateCurrency} = ? DZD)
                 </label>
                 <input
                   type="number"
