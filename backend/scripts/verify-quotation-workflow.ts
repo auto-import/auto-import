@@ -82,29 +82,11 @@ async function main() {
       },
       include: { vehicles: true },
     });
-    await prisma.exchangeRate.create({
-      data: {
-        organizationId: organization.id,
-        baseCurrency: 'USD',
-        quoteCurrency: 'DZD',
-        rate: 145,
-        effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
-        source: 'workflow verification',
-        createdById: user.id,
-      },
-    });
-
     const quotations = new QuotationsService(
       prisma,
       new QuotationPricingService(new ExchangeRatesService(prisma)),
     );
     const sourceOfferVehicleId = offer.vehicles[0].id;
-    assert(
-      (await prisma.catalogueItem.count({
-        where: { organizationId: organization.id },
-      })) === 0,
-      'The vehicle appeared in Catalogue before a quotation was created.',
-    );
     const common = {
       sourceOfferId: offer.id,
       sourceOfferVehicleId,
@@ -122,6 +104,49 @@ async function main() {
       sellingPriceDzd: 2_600_000,
       otherCosts: [],
     };
+    let missingRateMessage = '';
+    try {
+      await quotations.create(organization.id, user.id, {
+        ...common,
+        priceBasis: 'CIF',
+      });
+    } catch (error) {
+      missingRateMessage =
+        error instanceof Error ? error.message : String(error);
+    }
+    assert(
+      missingRateMessage.includes(
+        "aucun taux USD vers DZD actif n'est configuré",
+      ),
+      'A missing Finance rate did not return the expected business error.',
+    );
+    assert(
+      (await prisma.customerQuotation.count({
+        where: { organizationId: organization.id },
+      })) === 0 &&
+        (await prisma.catalogueItem.count({
+          where: { organizationId: organization.id },
+        })) === 0,
+      'A failed quotation left partial quotation or Catalogue data.',
+    );
+    await prisma.exchangeRate.create({
+      data: {
+        organizationId: organization.id,
+        baseCurrency: 'USD',
+        quoteCurrency: 'DZD',
+        rate: 145,
+        effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
+        source: 'workflow verification',
+        createdById: user.id,
+      },
+    });
+
+    assert(
+      (await prisma.catalogueItem.count({
+        where: { organizationId: organization.id },
+      })) === 0,
+      'The vehicle appeared in Catalogue before a quotation was created.',
+    );
     const cif = await quotations.create(organization.id, user.id, {
       ...common,
       priceBasis: 'CIF',

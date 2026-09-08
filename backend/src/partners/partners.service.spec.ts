@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-assertion */
 import { ConflictException } from '@nestjs/common';
 import { PartnersService } from './partners.service';
 
@@ -14,6 +15,10 @@ describe('PartnersService ERP V2 suppliers', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       auditLog: { create: jest.fn() },
+      crmReferenceValue: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findUnique: jest.fn(),
+      },
       $transaction: jest.fn(async (callback: (tx: any) => unknown) =>
         callback(prisma),
       ),

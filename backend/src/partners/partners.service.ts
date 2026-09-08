@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -23,6 +24,12 @@ import type {
   UpdateSupplierScoreDto,
   UpdateSupplierBankDto,
 } from './dto/supplier-v2.dto';
+import {
+  DEFAULT_SUPPLIER_REFERENCES,
+  supplierReferenceCode,
+  supplierReferenceDbKind,
+  type SupplierReferenceKind,
+} from '../configuration/supplier-reference';
 
 const SUPPLIER_TRANSITIONS: Record<string, readonly string[]> = {
   TO_VERIFY: ['VERIFIED', 'ACTIVE'],
@@ -39,33 +46,38 @@ export class PartnersService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreatePartnerDto, organizationId: string, userId?: string) {
-    const partner = await this.prisma.partner.create({
-      data: {
-        ...dto,
-        organizationId,
-        status:
-          dto.type === 'supplier' && !dto.status
-            ? 'active'
-            : dto.status || 'active',
-        supplierStatus: dto.type === 'supplier' ? 'ACTIVE' : undefined,
-      },
-    });
-
-    if (userId) {
-      await this.prisma.auditLog.create({
+    const partner = await this.prisma.$transaction(async (tx) => {
+      const data = await this.normalizePartnerData(tx, organizationId, dto);
+      const created = await tx.partner.create({
         data: {
+          ...data,
+          name: dto.name.trim().replace(/\s+/g, ' '),
+          type: dto.type,
           organizationId,
-          userId,
-          action: 'SUPPLIER_CREATED',
-          entityType: 'partner',
-          entityId: partner.id,
-          newValues: {
-            type: partner.type,
-            supplierStatus: partner.supplierStatus,
-          },
+          status:
+            dto.type === 'supplier' && !dto.status
+              ? 'active'
+              : dto.status || 'active',
+          supplierStatus: dto.type === 'supplier' ? 'ACTIVE' : undefined,
         },
       });
-    }
+      if (userId) {
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            action: 'SUPPLIER_CREATED',
+            entityType: 'partner',
+            entityId: created.id,
+            newValues: {
+              type: created.type,
+              supplierStatus: created.supplierStatus,
+            },
+          },
+        });
+      }
+      return created;
+    });
 
     this.logger.log(
       `Partner created: ${partner.name} (${partner.id}) [${partner.type}] for org ${organizationId}`,
@@ -247,15 +259,108 @@ export class PartnersService {
   }
 
   async update(id: string, organizationId: string, dto: UpdatePartnerDto) {
-    await this.requirePartner(id, organizationId);
-
-    const updated = await this.prisma.partner.update({
-      where: { id },
-      data: dto,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.partner.findFirst({
+        where: { id, organizationId },
+      });
+      if (!current) throw new NotFoundException('Partner not found');
+      const data = await this.normalizePartnerData(
+        tx,
+        organizationId,
+        dto,
+        current.type,
+      );
+      if (
+        (dto.supplierType ?? current.supplierType) === 'OTHER' &&
+        !(dto.supplierTypeOther ?? current.supplierTypeOther)?.trim()
+      ) {
+        throw new BadRequestException(
+          'Précisez le type lorsque « Autre » est sélectionné.',
+        );
+      }
+      return tx.partner.update({ where: { id }, data });
     });
 
     this.logger.log(`Partner updated: ${id} (${updated.name})`);
     return updated;
+  }
+
+  private async normalizePartnerData(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    dto: CreatePartnerDto | UpdatePartnerDto,
+    existingType?: string,
+  ) {
+    const partnerType = dto.type ?? existingType;
+    const country = dto.country?.trim().replace(/\s+/g, ' ');
+    const preferredCurrency = dto.preferredCurrency?.trim().toUpperCase();
+    if (partnerType === 'supplier') {
+      await tx.crmReferenceValue.createMany({
+        data: DEFAULT_SUPPLIER_REFERENCES.map(({ kind, value }, sortOrder) => ({
+          organizationId,
+          kind: supplierReferenceDbKind(kind),
+          code: supplierReferenceCode(kind, value),
+          labelFr: kind === 'CURRENCY' ? value.toUpperCase() : value,
+          sortOrder,
+        })),
+        skipDuplicates: true,
+      });
+      if (country)
+        await this.assertSupplierReference(
+          tx,
+          organizationId,
+          'COUNTRY',
+          country,
+        );
+      if (preferredCurrency)
+        await this.assertSupplierReference(
+          tx,
+          organizationId,
+          'CURRENCY',
+          preferredCurrency,
+        );
+      if (dto.supplierType === 'OTHER' && !dto.supplierTypeOther?.trim()) {
+        throw new BadRequestException(
+          'Précisez le type lorsque « Autre » est sélectionné.',
+        );
+      }
+    }
+    return {
+      ...dto,
+      name: dto.name?.trim().replace(/\s+/g, ' '),
+      country,
+      preferredCurrency,
+      supplierTypeOther:
+        dto.supplierType === 'OTHER'
+          ? dto.supplierTypeOther?.trim().replace(/\s+/g, ' ')
+          : dto.supplierType !== undefined
+            ? null
+            : dto.supplierTypeOther?.trim().replace(/\s+/g, ' '),
+    };
+  }
+
+  private async assertSupplierReference(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    kind: SupplierReferenceKind,
+    value: string,
+  ) {
+    const reference = await tx.crmReferenceValue.findFirst({
+      where: {
+        organizationId,
+        kind: supplierReferenceDbKind(kind),
+        active: true,
+        OR: [
+          { code: supplierReferenceCode(kind, value) },
+          { labelFr: { equals: value, mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (!reference?.active) {
+      throw new BadRequestException(
+        `${kind === 'COUNTRY' ? 'Pays' : 'Devise'} fournisseur non configuré${kind === 'COUNTRY' ? '' : 'e'} dans les référentiels ERP.`,
+      );
+    }
   }
 
   async remove(id: string, organizationId: string) {

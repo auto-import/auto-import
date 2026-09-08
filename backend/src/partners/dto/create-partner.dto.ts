@@ -7,7 +7,11 @@ import {
   IsArray,
   IsInt,
   Min,
+  IsNotEmpty,
+  Matches,
+  ValidateIf,
 } from 'class-validator';
+import { SUPPLIER_TYPES } from '../supplier-types';
 
 export class CreatePartnerDto {
   @IsString()
@@ -44,10 +48,17 @@ export class CreatePartnerDto {
   @IsOptional() @IsString() website?: string;
   @IsOptional() @IsString() paymentTerms?: string;
   @IsOptional() @IsString() deliveryTerms?: string;
-  @IsOptional() @IsString() supplierType?: string;
+  @IsOptional() @IsString() @IsIn(SUPPLIER_TYPES) supplierType?: string;
+  @ValidateIf((dto: CreatePartnerDto) => dto.supplierType === 'OTHER')
+  @IsString()
+  @IsNotEmpty()
+  supplierTypeOther?: string;
   @IsOptional() @IsString() whatsapp?: string;
   @IsOptional() @IsString() wechat?: string;
-  @IsOptional() @IsString() preferredCurrency?: string;
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/)
+  preferredCurrency?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) incoterms?: string[];
   @IsOptional()
   @Type(() => Number)

@@ -12,7 +12,12 @@ import {
   VehicleStatus,
   VEHICLE_STATUS_LABELS_API,
 } from "@/lib/api-contract";
-import { commerceApi, type ApiVehicle, type ApiVehicleLookup } from "@/lib/commerce-api";
+import {
+  commerceApi,
+  type ApiVehicle,
+  type ApiVehicleLookup,
+} from "@/lib/commerce-api";
+import VehicleLookupCreateDialog from "./VehicleLookupCreateDialog";
 import {
   buttonClass,
   EmptyState,
@@ -31,7 +36,11 @@ const sourceLabels: Record<string, string> = {
 const empty = {
   vin: "",
   brand: "",
+  brandLookupId: "",
   model: "",
+  modelLookupId: "",
+  version: "",
+  versionLookupId: "",
   year: "",
   mileage: "",
   condition: "used",
@@ -158,7 +167,11 @@ export default function VehicleStockPolished() {
         ? {
             vin: vehicle.vin ?? "",
             brand: vehicle.brand,
+            brandLookupId: vehicle.brandLookupId ?? "",
             model: vehicle.model,
+            modelLookupId: vehicle.modelLookupId ?? "",
+            version: vehicle.trim ?? "",
+            versionLookupId: vehicle.versionLookupId ?? "",
             year: String(vehicle.year ?? ""),
             mileage: String(vehicle.mileage ?? ""),
             condition: vehicle.condition ?? "used",
@@ -176,12 +189,26 @@ export default function VehicleStockPolished() {
             weightKg: String(vehicle.weightKg ?? ""),
             rejectionReason: vehicle.rejectionReason ?? "",
             description: vehicle.specs?.description ?? "",
-            fobFcaPrice: vehicle.fobFcaPrice != null ? String(vehicle.fobFcaPrice) : "",
-            shippingPrice: vehicle.shippingPrice != null ? String(vehicle.shippingPrice) : "",
-            purchasePrice: vehicle.purchasePrice != null ? String(vehicle.purchasePrice) : "",
-            profitAmount: vehicle.profitAmount != null ? String(vehicle.profitAmount) : "",
-            customsClearanceAmount: vehicle.customsClearanceAmount != null ? String(vehicle.customsClearanceAmount) : "",
-            localTransportAmount: vehicle.localTransportAmount != null ? String(vehicle.localTransportAmount) : "",
+            fobFcaPrice:
+              vehicle.fobFcaPrice != null ? String(vehicle.fobFcaPrice) : "",
+            shippingPrice:
+              vehicle.shippingPrice != null
+                ? String(vehicle.shippingPrice)
+                : "",
+            purchasePrice:
+              vehicle.purchasePrice != null
+                ? String(vehicle.purchasePrice)
+                : "",
+            profitAmount:
+              vehicle.profitAmount != null ? String(vehicle.profitAmount) : "",
+            customsClearanceAmount:
+              vehicle.customsClearanceAmount != null
+                ? String(vehicle.customsClearanceAmount)
+                : "",
+            localTransportAmount:
+              vehicle.localTransportAmount != null
+                ? String(vehicle.localTransportAmount)
+                : "",
           }
         : empty,
     );
@@ -213,17 +240,29 @@ export default function VehicleStockPolished() {
     const payload = {
       vin: form.vin || undefined,
       brand: form.brand,
+      brandLookupId: form.brandLookupId || undefined,
       model: form.model,
+      modelLookupId: form.modelLookupId || undefined,
+      trim: form.version || undefined,
+      versionLookupId: form.versionLookupId || undefined,
       year: form.year || undefined,
       mileage: form.mileage || undefined,
       condition: form.condition,
       currency: form.currency,
       fobFcaPrice: form.fobFcaPrice ? Number(form.fobFcaPrice) : undefined,
-      shippingPrice: form.shippingPrice ? Number(form.shippingPrice) : undefined,
-      purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : undefined,
+      shippingPrice: form.shippingPrice
+        ? Number(form.shippingPrice)
+        : undefined,
+      purchasePrice: form.purchasePrice
+        ? Number(form.purchasePrice)
+        : undefined,
       profitAmount: form.profitAmount ? Number(form.profitAmount) : undefined,
-      customsClearanceAmount: form.customsClearanceAmount ? Number(form.customsClearanceAmount) : undefined,
-      localTransportAmount: form.localTransportAmount ? Number(form.localTransportAmount) : undefined,
+      customsClearanceAmount: form.customsClearanceAmount
+        ? Number(form.customsClearanceAmount)
+        : undefined,
+      localTransportAmount: form.localTransportAmount
+        ? Number(form.localTransportAmount)
+        : undefined,
       sellingPrice: cif || undefined,
       ddpPrice: ddp || undefined,
       status: form.status,
@@ -233,7 +272,8 @@ export default function VehicleStockPolished() {
       widthCm: form.widthCm || undefined,
       heightCm: form.heightCm || undefined,
       weightKg: form.weightKg || undefined,
-      rejectionReason: form.status === "rejected" ? form.rejectionReason : undefined,
+      rejectionReason:
+        form.status === "rejected" ? form.rejectionReason : undefined,
     };
     try {
       const vehicle = editing
@@ -528,7 +568,12 @@ function VehicleDialog({
     ["Conduite", vehicle.steeringSide],
     ["Couleur intérieure", vehicle.interiorColor],
     ["Garantie", vehicle.warranty],
-    ["Dimensions", vehicle.lengthCm && vehicle.widthCm && vehicle.heightCm ? `${vehicle.lengthCm} × ${vehicle.widthCm} × ${vehicle.heightCm} cm` : undefined],
+    [
+      "Dimensions",
+      vehicle.lengthCm && vehicle.widthCm && vehicle.heightCm
+        ? `${vehicle.lengthCm} × ${vehicle.widthCm} × ${vehicle.heightCm} cm`
+        : undefined,
+    ],
     ["Poids", vehicle.weightKg ? `${vehicle.weightKg} kg` : undefined],
     ["Motif du rejet", vehicle.rejectionReason],
   ];
@@ -726,15 +771,142 @@ function VehicleForm({
                 ].includes(key),
             )
             .map(([key, label]) => (
+              <label key={key}>
+                <span className="field-label">{label}</span>
+                <input
+                  required={key === "brand" || key === "model"}
+                  type={["year", "mileage"].includes(key) ? "number" : "text"}
+                  className={inputClass}
+                  value={form[key]}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      [key]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          <ManagedLookupSelect
+            kind="BRAND"
+            label="Marque *"
+            required
+            value={form.brand}
+            selectedId={form.brandLookupId}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={() => undefined}
+            onLookupChange={(brand) =>
+              setForm((current) => ({
+                ...current,
+                brandLookupId: brand?.id ?? "",
+                brand: brand?.value ?? "",
+                modelLookupId: "",
+                model: "",
+                versionLookupId: "",
+                version: "",
+              }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="MODEL"
+            label="Modèle *"
+            required
+            value={form.model}
+            selectedId={form.modelLookupId}
+            parentId={form.brandLookupId}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={() => undefined}
+            onLookupChange={(model) =>
+              setForm((current) => ({
+                ...current,
+                modelLookupId: model?.id ?? "",
+                model: model?.value ?? "",
+                versionLookupId: "",
+                version: "",
+              }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="VERSION"
+            label="Version"
+            value={form.version}
+            selectedId={form.versionLookupId}
+            parentId={form.modelLookupId}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={() => undefined}
+            onLookupChange={(version) =>
+              setForm((current) => ({
+                ...current,
+                versionLookupId: version?.id ?? "",
+                version: version?.value ?? "",
+              }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="ENGINE"
+            label="Moteur"
+            value={form.engine}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={(engine) =>
+              setForm((current) => ({ ...current, engine }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="FUEL_TYPE"
+            label="Carburant"
+            value={form.fuelType}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={(fuelType) =>
+              setForm((current) => ({ ...current, fuelType }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="TRANSMISSION"
+            label="Transmission"
+            value={form.transmission}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={(transmission) =>
+              setForm((current) => ({ ...current, transmission }))
+            }
+          />
+          <ManagedLookupSelect
+            kind="COLOR"
+            label="Couleur"
+            value={form.color}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={(color) => setForm((current) => ({ ...current, color }))}
+          />
+          <ManagedLookupSelect
+            kind="BODY_TYPE"
+            label="Carrosserie"
+            value={form.bodyType}
+            lookups={lookups}
+            setLookups={setLookups}
+            onChange={(bodyType) =>
+              setForm((current) => ({ ...current, bodyType }))
+            }
+          />
+          {(
+            [
+              ["lengthCm", "Longueur (cm)"],
+              ["widthCm", "Largeur (cm)"],
+              ["heightCm", "Hauteur (cm)"],
+              ["weightKg", "Poids (kg)"],
+            ] as Array<[keyof typeof empty, string]>
+          ).map(([key, label]) => (
             <label key={key}>
               <span className="field-label">{label}</span>
               <input
-                required={key === "brand" || key === "model"}
-                type={
-                  ["year", "mileage"].includes(key)
-                    ? "number"
-                    : "text"
-                }
+                type="number"
+                min="0.01"
+                step="0.01"
                 className={inputClass}
                 value={form[key]}
                 onChange={(event) =>
@@ -745,16 +917,6 @@ function VehicleForm({
                 }
               />
             </label>
-          ))}
-          <ManagedLookupSelect kind="BRAND" label="Marque *" required value={form.brand} lookups={lookups} setLookups={setLookups} onChange={(brand) => setForm((current) => ({ ...current, brand, model: brand === current.brand ? current.model : "" }))} />
-          <ManagedLookupSelect kind="MODEL" label="Modèle *" required value={form.model} parentValue={form.brand} lookups={lookups} setLookups={setLookups} onChange={(model) => setForm((current) => ({ ...current, model }))} />
-          <ManagedLookupSelect kind="ENGINE" label="Moteur" value={form.engine} lookups={lookups} setLookups={setLookups} onChange={(engine) => setForm((current) => ({ ...current, engine }))} />
-          <ManagedLookupSelect kind="FUEL_TYPE" label="Carburant" value={form.fuelType} lookups={lookups} setLookups={setLookups} onChange={(fuelType) => setForm((current) => ({ ...current, fuelType }))} />
-          <ManagedLookupSelect kind="TRANSMISSION" label="Transmission" value={form.transmission} lookups={lookups} setLookups={setLookups} onChange={(transmission) => setForm((current) => ({ ...current, transmission }))} />
-          <ManagedLookupSelect kind="COLOR" label="Couleur" value={form.color} lookups={lookups} setLookups={setLookups} onChange={(color) => setForm((current) => ({ ...current, color }))} />
-          <ManagedLookupSelect kind="BODY_TYPE" label="Carrosserie" value={form.bodyType} lookups={lookups} setLookups={setLookups} onChange={(bodyType) => setForm((current) => ({ ...current, bodyType }))} />
-          {([['lengthCm', 'Longueur (cm)'], ['widthCm', 'Largeur (cm)'], ['heightCm', 'Hauteur (cm)'], ['weightKg', 'Poids (kg)']] as Array<[keyof typeof empty, string]>).map(([key, label]) => (
-            <label key={key}><span className="field-label">{label}</span><input type="number" min="0.01" step="0.01" className={inputClass} value={form[key]} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} /></label>
           ))}
           <label>
             <span className="field-label">Statut</span>
@@ -778,7 +940,17 @@ function VehicleForm({
           {form.status === "rejected" && (
             <label className="sm:col-span-2 lg:col-span-3">
               <span className="field-label">Motif du rejet *</span>
-              <textarea required className={inputClass} value={form.rejectionReason} onChange={(event) => setForm((current) => ({ ...current, rejectionReason: event.target.value }))} />
+              <textarea
+                required
+                className={inputClass}
+                value={form.rejectionReason}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    rejectionReason: event.target.value,
+                  }))
+                }
+              />
             </label>
           )}
           <label>
@@ -987,53 +1159,90 @@ function ManagedLookupSelect({
   label,
   value,
   parentValue,
+  parentId,
+  selectedId,
   required,
   lookups,
   setLookups,
   onChange,
+  onLookupChange,
 }: {
   kind: ApiVehicleLookup["kind"];
   label: string;
   value: string;
   parentValue?: string;
+  parentId?: string;
+  selectedId?: string;
   required?: boolean;
   lookups: ApiVehicleLookup[];
   setLookups: React.Dispatch<React.SetStateAction<ApiVehicleLookup[]>>;
   onChange: (value: string) => void;
+  onLookupChange?: (value?: ApiVehicleLookup) => void;
 }) {
+  const [showAdd, setShowAdd] = useState(false);
   const parent = parentValue
     ? lookups.find(
         (item) => item.kind === "BRAND" && item.value === parentValue,
       )
     : undefined;
+  const effectiveParentId = parentId ?? parent?.id;
   const options = lookups.filter(
     (item) =>
       item.kind === kind &&
       item.active &&
-      (kind !== "MODEL" || item.parentId === parent?.id),
+      (!["MODEL", "VERSION"].includes(kind) ||
+        item.parentId === effectiveParentId),
   );
-  async function change(next: string) {
-    if (next !== "__add__") return onChange(next);
-    const entered = window.prompt(`Ajouter ${label.replace(" *", "").toLowerCase()}`)?.trim();
-    if (!entered) return;
-    if (kind === "MODEL" && !parent) return;
-    const created = await commerceApi.configuration.createLookup({
-      kind,
-      value: entered,
-      parentId: kind === "MODEL" ? parent?.id : undefined,
-    });
-    setLookups((current) => [...current.filter((item) => item.id !== created.id), created]);
-    onChange(created.value);
+  const selectedValue = selectedId
+    ? (options.find((item) => item.id === selectedId)?.value ?? value)
+    : value;
+  function change(next: string) {
+    if (next === "__add__") return setShowAdd(true);
+    const selected = options.find(
+      (item) => item.id === next || item.value === next,
+    );
+    if (onLookupChange) onLookupChange(selected);
+    else onChange(selected?.value ?? next);
   }
   return (
-    <label>
-      <span className="field-label">{label}</span>
-      <select required={required} disabled={kind === "MODEL" && !parent} className={inputClass} value={value} onChange={(event) => void change(event.target.value)}>
-        <option value="">Sélectionner</option>
-        {options.map((item) => <option key={item.id} value={item.value}>{item.value}{item.needsReview ? " · à vérifier" : ""}</option>)}
-        <option value="__add__">+ Ajouter une valeur</option>
-      </select>
-    </label>
+    <>
+      <label>
+        <span className="field-label">{label}</span>
+        <select
+          required={required}
+          disabled={["MODEL", "VERSION"].includes(kind) && !effectiveParentId}
+          className={inputClass}
+          value={selectedValue}
+          onChange={(event) => change(event.target.value)}
+        >
+          <option value="">Sélectionner</option>
+          {options.map((item) => (
+            <option key={item.id} value={item.value}>
+              {item.value}
+              {item.needsReview ? " · à vérifier" : ""}
+            </option>
+          ))}
+          <option value="__add__">+ Ajouter une valeur</option>
+        </select>
+      </label>
+      {showAdd && (
+        <VehicleLookupCreateDialog
+          kind={kind}
+          lookups={lookups}
+          initialParentId={effectiveParentId}
+          create={commerceApi.configuration.createLookup}
+          onClose={() => setShowAdd(false)}
+          onCreated={(created) => {
+            setLookups((current) => [
+              ...current.filter((item) => item.id !== created.id),
+              created,
+            ]);
+            if (onLookupChange) onLookupChange(created);
+            else onChange(created.value);
+          }}
+        />
+      )}
+    </>
   );
 }
 

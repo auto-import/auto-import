@@ -10,6 +10,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { SUPPLIER_REFERENCE_KINDS } from './supplier-reference';
 
 export const VEHICLE_LOOKUP_KINDS = [
   'BRAND',
@@ -39,14 +40,27 @@ export class UpdateLookupValueDto {
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
+export class CreateSupplierReferenceDto {
+  @IsIn(SUPPLIER_REFERENCE_KINDS) kind: 'COUNTRY' | 'CURRENCY';
+  @IsString() value: string;
+}
+
 export class UpdateInsuranceRateDto {
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(100)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
   insuranceRatePercent?: number;
 }
 
 export class UpsertDutyRateDto {
   @IsString() category: string;
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(100)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
   ratePercent?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }

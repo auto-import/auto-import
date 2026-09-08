@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Prisma } from '@prisma/client';
 import { CatalogueService } from './catalogue.service';
 
@@ -7,6 +8,7 @@ describe('CatalogueService quotation projection', () => {
       {
         id: 'catalogue-1',
         sourceOfferVehicleId: 'offer-vehicle-1',
+        status: 'available',
         activeCifQuotationId: 'quotation-cif',
         activeDdpQuotationId: 'quotation-ddp',
         availableQuantity: 2,
@@ -113,8 +115,16 @@ describe('CatalogueService quotation projection', () => {
           AND: expect.arrayContaining([
             {
               OR: [
-                { activeCifQuotationId: { not: null } },
-                { activeDdpQuotationId: { not: null } },
+                {
+                  activeCifQuotation: {
+                    is: expect.objectContaining({ cataloguePublished: true }),
+                  },
+                },
+                {
+                  activeDdpQuotation: {
+                    is: expect.objectContaining({ cataloguePublished: true }),
+                  },
+                },
               ],
             },
           ]),

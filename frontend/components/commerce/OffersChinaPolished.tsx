@@ -28,6 +28,7 @@ import {
   type ApiPartner,
   type ApiVehicleLookup,
 } from "@/lib/commerce-api";
+import VehicleLookupCreateDialog from "./VehicleLookupCreateDialog";
 import {
   buttonClass,
   EmptyState,
@@ -133,6 +134,12 @@ export default function OffersChinaPolished() {
   } | null>(null);
   const [suppliers, setSuppliers] = useState<ApiPartner[]>([]);
   const [lookups, setLookups] = useState<ApiVehicleLookup[]>([]);
+  const [lookupRequest, setLookupRequest] = useState<{
+    kind: "BRAND" | "MODEL" | "VERSION";
+    parentId?: string;
+    selectMain: boolean;
+    vehicleIndex?: number;
+  } | null>(null);
   const [filters, setFilters] = useState(() => {
     if (typeof window === "undefined")
       return { search: "", status: "", condition: "", page: 1 };
@@ -206,48 +213,13 @@ export default function OffersChinaPolished() {
     }
   }, [canWrite, filters, syncUrl]);
 
-  async function addLookup(
+  function addLookup(
     kind: "BRAND" | "MODEL" | "VERSION",
     parentId?: string,
     selectMain = true,
+    vehicleIndex?: number,
   ) {
-    const labels = { BRAND: "marque", MODEL: "modèle", VERSION: "version" };
-    const value = window.prompt(`Nom de la nouvelle ${labels[kind]}`)?.trim();
-    if (!value) return undefined;
-    try {
-      const created = await commerceApi.configuration.createOfferLookup({
-        kind,
-        value,
-        parentId,
-      });
-      setLookups((current) => [...current, created]);
-      if (selectMain) {
-        setForm((current) => ({
-          ...current,
-          ...(kind === "BRAND"
-            ? {
-                brandLookupId: created.id,
-                brand: created.value,
-                modelLookupId: "",
-                model: "",
-                versionLookupId: "",
-                version: "",
-              }
-            : kind === "MODEL"
-              ? {
-                  modelLookupId: created.id,
-                  model: created.value,
-                  versionLookupId: "",
-                  version: "",
-                }
-              : { versionLookupId: created.id, version: created.value }),
-        }));
-      }
-      return created;
-    } catch (cause) {
-      setError(offerErrorMessage(cause));
-      return undefined;
-    }
+    setLookupRequest({ kind, parentId, selectMain, vehicleIndex });
   }
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -262,7 +234,9 @@ export default function OffersChinaPolished() {
       if (validationMessage) throw new Error(validationMessage);
       for (const [index, vehicle] of additionalVehicles.entries()) {
         if (!vehicle.brand.trim() || !vehicle.model.trim()) {
-          throw new Error(`Véhicule ${index + 2} : marque et modèle obligatoires.`);
+          throw new Error(
+            `Véhicule ${index + 2} : marque et modèle obligatoires.`,
+          );
         }
         if (
           !Number.isFinite(Number(vehicle.supplierPrice)) ||
@@ -270,7 +244,10 @@ export default function OffersChinaPolished() {
         ) {
           throw new Error(`Véhicule ${index + 2} : prix fournisseur invalide.`);
         }
-        if (!Number.isInteger(Number(vehicle.quantity)) || Number(vehicle.quantity) < 1) {
+        if (
+          !Number.isInteger(Number(vehicle.quantity)) ||
+          Number(vehicle.quantity) < 1
+        ) {
           throw new Error(`Véhicule ${index + 2} : quantité invalide.`);
         }
       }
@@ -312,11 +289,8 @@ export default function OffersChinaPolished() {
         year: form.year ? Number(form.year) : undefined,
         mileage: form.mileage ? Number(form.mileage) : undefined,
         supplierPrice: Number(form.supplierPrice),
-        localCost:
-          form.incoterm === "FCA" ? Number(form.localCost || 0) : 0,
-        leadTimeDays: form.leadTimeDays
-          ? Number(form.leadTimeDays)
-          : undefined,
+        localCost: form.incoterm === "FCA" ? Number(form.localCost || 0) : 0,
+        leadTimeDays: form.leadTimeDays ? Number(form.leadTimeDays) : undefined,
         availableQuantity: Number(form.availableQuantity),
         vehicles: [
           {
@@ -435,22 +409,22 @@ export default function OffersChinaPolished() {
               <option value="LOST_DEAL">Deal perdu</option>
               <option value="EXPIRED">Expirée</option>
             </select>
-          <select
-            aria-label="Condition"
-            className={inputClass}
-            value={filters.condition}
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                condition: event.target.value,
-                page: 1,
-              }))
-            }
-          >
-            <option value="">Toutes conditions</option>
-            <option value="new">Neuf</option>
-            <option value="used">Occasion</option>
-          </select>
+            <select
+              aria-label="Condition"
+              className={inputClass}
+              value={filters.condition}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  condition: event.target.value,
+                  page: 1,
+                }))
+              }
+            >
+              <option value="">Toutes conditions</option>
+              <option value="new">Neuf</option>
+              <option value="used">Occasion</option>
+            </select>
             {canWrite && (
               <button className={buttonClass} onClick={() => setShowForm(true)}>
                 <Plus className="mr-2 inline h-4 w-4" />
@@ -634,7 +608,9 @@ export default function OffersChinaPolished() {
                   }
                 >
                   {["USD", "CNY"].map((currency) => (
-                    <option key={currency} value={currency}>{currency}</option>
+                    <option key={currency} value={currency}>
+                      {currency}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -651,7 +627,9 @@ export default function OffersChinaPolished() {
                   }
                 >
                   {["FCA", "FOB"].map((incoterm) => (
-                    <option key={incoterm} value={incoterm}>{incoterm}</option>
+                    <option key={incoterm} value={incoterm}>
+                      {incoterm}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -782,9 +760,12 @@ export default function OffersChinaPolished() {
             <fieldset className="mt-5 rounded-card border border-border p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <legend className="font-semibold">Véhicules supplémentaires</legend>
+                  <legend className="font-semibold">
+                    Véhicules supplémentaires
+                  </legend>
                   <p className="text-xs text-muted">
-                    Une offre fournisseur peut contenir plusieurs modèles ou unités.
+                    Une offre fournisseur peut contenir plusieurs modèles ou
+                    unités.
                   </p>
                 </div>
                 <button
@@ -814,7 +795,9 @@ export default function OffersChinaPolished() {
                         aria-label={`Retirer le véhicule ${index + 2}`}
                         onClick={() =>
                           setAdditionalVehicles((current) =>
-                            current.filter((_, itemIndex) => itemIndex !== index),
+                            current.filter(
+                              (_, itemIndex) => itemIndex !== index,
+                            ),
                           )
                         }
                       >
@@ -841,9 +824,33 @@ export default function OffersChinaPolished() {
                         <span className="field-label">{label}</span>
                         <input
                           className={inputClass}
-                          required={["brand", "model", "supplierPrice", "quantity"].includes(key)}
-                          type={["year", "mileage", "supplierPrice", "quantity"].includes(key) ? "number" : "text"}
-                          min={key === "year" ? 1900 : key === "supplierPrice" ? 0.01 : key === "quantity" ? 1 : key === "mileage" ? 0 : undefined}
+                          required={[
+                            "brand",
+                            "model",
+                            "supplierPrice",
+                            "quantity",
+                          ].includes(key)}
+                          type={
+                            [
+                              "year",
+                              "mileage",
+                              "supplierPrice",
+                              "quantity",
+                            ].includes(key)
+                              ? "number"
+                              : "text"
+                          }
+                          min={
+                            key === "year"
+                              ? 1900
+                              : key === "supplierPrice"
+                                ? 0.01
+                                : key === "quantity"
+                                  ? 1
+                                  : key === "mileage"
+                                    ? 0
+                                    : undefined
+                          }
                           max={key === "year" ? 2100 : undefined}
                           step={key === "supplierPrice" ? "0.01" : "1"}
                           value={vehicle[key]}
@@ -921,6 +928,50 @@ export default function OffersChinaPolished() {
             </button>
           </form>
         </div>
+      )}
+      {lookupRequest && (
+        <VehicleLookupCreateDialog
+          kind={lookupRequest.kind}
+          lookups={lookups}
+          initialParentId={lookupRequest.parentId}
+          create={commerceApi.configuration.createOfferLookup}
+          onClose={() => setLookupRequest(null)}
+          onCreated={(created) => {
+            setLookups((current) => [
+              ...current.filter((item) => item.id !== created.id),
+              created,
+            ]);
+            const hierarchyUpdate =
+              lookupRequest.kind === "BRAND"
+                ? {
+                    brandLookupId: created.id,
+                    brand: created.value,
+                    modelLookupId: "",
+                    model: "",
+                    versionLookupId: "",
+                    version: "",
+                  }
+                : lookupRequest.kind === "MODEL"
+                  ? {
+                      modelLookupId: created.id,
+                      model: created.value,
+                      versionLookupId: "",
+                      version: "",
+                    }
+                  : { versionLookupId: created.id, version: created.value };
+            if (lookupRequest.selectMain) {
+              setForm((current) => ({ ...current, ...hierarchyUpdate }));
+            } else if (lookupRequest.vehicleIndex !== undefined) {
+              setAdditionalVehicles((current) =>
+                current.map((item, index) =>
+                  index === lookupRequest.vehicleIndex
+                    ? { ...item, ...hierarchyUpdate }
+                    : item,
+                ),
+              );
+            }
+          }}
+        />
       )}
     </>
   );
@@ -1057,7 +1108,8 @@ function VehicleReferenceSelectors({
     kind: "BRAND" | "MODEL" | "VERSION",
     parentId?: string,
     selectMain?: boolean,
-  ) => Promise<ApiVehicleLookup | undefined>;
+    vehicleIndex?: number,
+  ) => void;
 }) {
   const brands = lookups.filter((item) => item.kind === "BRAND" && item.active);
   const models = lookups.filter(
@@ -1082,7 +1134,9 @@ function VehicleReferenceSelectors({
             className={inputClass}
             value={form.brandLookupId}
             onChange={(event) => {
-              const selected = brands.find((item) => item.id === event.target.value);
+              const selected = brands.find(
+                (item) => item.id === event.target.value,
+              );
               setForm((current) => ({
                 ...current,
                 brandLookupId: selected?.id ?? "",
@@ -1096,7 +1150,9 @@ function VehicleReferenceSelectors({
           >
             <option value="">Sélectionner</option>
             {brands.map((item) => (
-              <option key={item.id} value={item.id}>{item.value}</option>
+              <option key={item.id} value={item.id}>
+                {item.value}
+              </option>
             ))}
           </select>
           <button
@@ -1118,7 +1174,9 @@ function VehicleReferenceSelectors({
             className={inputClass}
             value={form.modelLookupId}
             onChange={(event) => {
-              const selected = models.find((item) => item.id === event.target.value);
+              const selected = models.find(
+                (item) => item.id === event.target.value,
+              );
               setForm((current) => ({
                 ...current,
                 modelLookupId: selected?.id ?? "",
@@ -1130,7 +1188,9 @@ function VehicleReferenceSelectors({
           >
             <option value="">Sélectionner</option>
             {models.map((item) => (
-              <option key={item.id} value={item.id}>{item.value}</option>
+              <option key={item.id} value={item.id}>
+                {item.value}
+              </option>
             ))}
           </select>
           <button
@@ -1152,7 +1212,9 @@ function VehicleReferenceSelectors({
             className={inputClass}
             value={form.versionLookupId}
             onChange={(event) => {
-              const selected = versions.find((item) => item.id === event.target.value);
+              const selected = versions.find(
+                (item) => item.id === event.target.value,
+              );
               setForm((current) => ({
                 ...current,
                 versionLookupId: selected?.id ?? "",
@@ -1162,7 +1224,9 @@ function VehicleReferenceSelectors({
           >
             <option value="">Sans version</option>
             {versions.map((item) => (
-              <option key={item.id} value={item.id}>{item.value}</option>
+              <option key={item.id} value={item.id}>
+                {item.value}
+              </option>
             ))}
           </select>
           <button
@@ -1195,7 +1259,8 @@ function AdditionalVehicleReferenceSelectors({
     kind: "BRAND" | "MODEL" | "VERSION",
     parentId?: string,
     selectMain?: boolean,
-  ) => Promise<ApiVehicleLookup | undefined>;
+    vehicleIndex?: number,
+  ) => void;
 }) {
   const options = (kind: "BRAND" | "MODEL" | "VERSION", parentId?: string) =>
     lookups.filter(
@@ -1275,7 +1340,9 @@ function AdditionalVehicleReferenceSelectors({
                 {field.kind === "VERSION" ? "Sans version" : "Sélectionner"}
               </option>
               {options(field.kind, field.parentId).map((item) => (
-                <option key={item.id} value={item.id}>{item.value}</option>
+                <option key={item.id} value={item.id}>
+                  {item.value}
+                </option>
               ))}
             </select>
             <button
@@ -1283,32 +1350,9 @@ function AdditionalVehicleReferenceSelectors({
               disabled={field.kind !== "BRAND" && !field.parentId}
               className="rounded-button border px-3 disabled:opacity-40"
               aria-label={`Ajouter ${field.label}`}
-              onClick={async () => {
-                const created = await addLookup(
-                  field.kind,
-                  field.parentId,
-                  false,
-                );
-                if (!created) return;
-                if (field.kind === "BRAND")
-                  update({
-                    brandLookupId: created.id,
-                    brand: created.value,
-                    modelLookupId: "",
-                    model: "",
-                    versionLookupId: "",
-                    version: "",
-                  });
-                else if (field.kind === "MODEL")
-                  update({
-                    modelLookupId: created.id,
-                    model: created.value,
-                    versionLookupId: "",
-                    version: "",
-                  });
-                else
-                  update({ versionLookupId: created.id, version: created.value });
-              }}
+              onClick={() =>
+                addLookup(field.kind, field.parentId, false, index)
+              }
             >
               +
             </button>

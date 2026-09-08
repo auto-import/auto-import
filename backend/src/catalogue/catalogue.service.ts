@@ -52,8 +52,24 @@ export class CatalogueService {
     const limit = filters.limit ?? 20;
     const publishedPricing: Prisma.CatalogueItemWhereInput = {
       OR: [
-        { activeCifQuotationId: { not: null } },
-        { activeDdpQuotationId: { not: null } },
+        {
+          activeCifQuotation: {
+            is: {
+              cataloguePublished: true,
+              status: { notIn: ['REJECTED', 'EXPIRED'] },
+              currentRevisionId: { not: null },
+            },
+          },
+        },
+        {
+          activeDdpQuotation: {
+            is: {
+              cataloguePublished: true,
+              status: { notIn: ['REJECTED', 'EXPIRED'] },
+              currentRevisionId: { not: null },
+            },
+          },
+        },
       ],
     };
     const where: Prisma.CatalogueItemWhereInput = {
@@ -70,9 +86,7 @@ export class CatalogueService {
                 { offerStatus: null },
                 { offerStatus: { notIn: ['LOST_DEAL', 'EXPIRED'] } },
               ],
-              ...(filters.supplierId
-                ? { supplierId: filters.supplierId }
-                : {}),
+              ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
             },
           },
         },
@@ -92,7 +106,10 @@ export class CatalogueService {
                   },
                   {
                     sourceOfferVehicle: {
-                      version: { contains: filters.search, mode: 'insensitive' },
+                      version: {
+                        contains: filters.search,
+                        mode: 'insensitive',
+                      },
                     },
                   },
                   {
@@ -221,10 +238,12 @@ export class CatalogueService {
       specification: source.specification,
       vin: materialized?.vin ?? source.vin,
       fuel: materialized?.specs?.fuelType ?? value('fuelType') ?? value('fuel'),
-      transmission:
-        materialized?.specs?.transmission ?? value('transmission'),
+      transmission: materialized?.specs?.transmission ?? value('transmission'),
       color: materialized?.specs?.color ?? value('color'),
-      status: materialized?.status ?? (remainingQuantity > 0 ? 'available' : 'reserved'),
+      // Catalogue availability is governed by its own atomic reservation
+      // counters. A materialized purchased vehicle must not hide the remaining
+      // units of a multi-vehicle offer from sourcing.
+      status: remainingQuantity > 0 ? 'available' : 'reserved',
       availableQuantity: item.availableQuantity,
       reservedQuantity: item.reservedQuantity,
       remainingQuantity,

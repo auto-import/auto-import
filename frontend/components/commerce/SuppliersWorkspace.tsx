@@ -14,6 +14,7 @@ import Topbar from "@/components/Topbar";
 import {
   commerceApi,
   type ApiPartner,
+  type ApiSupplierReference,
   type ApiVehicle,
 } from "@/lib/commerce-api";
 import { useAuth } from "@/components/AuthProvider";
@@ -39,6 +40,7 @@ const blank = {
   paymentTerms: "",
   deliveryTerms: "",
   supplierType: "VEHICLE",
+  supplierTypeOther: "",
   whatsapp: "",
   wechat: "",
   preferredCurrency: "USD",
@@ -73,6 +75,14 @@ export default function SuppliersWorkspace() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [references, setReferences] = useState<ApiSupplierReference[]>([]);
+  const [referenceModal, setReferenceModal] = useState<
+    "COUNTRY" | "CURRENCY" | null
+  >(null);
+  const [referenceValue, setReferenceValue] = useState("");
+  const [referenceError, setReferenceError] = useState("");
+  const [referenceSaving, setReferenceSaving] = useState(false);
 
   // Sub-resource modals
   const [showContactModal, setShowContactModal] = useState(false);
@@ -91,6 +101,7 @@ export default function SuppliersWorkspace() {
     type: "QUALITY",
   });
   const [submittingSub, setSubmittingSub] = useState(false);
+  const [subError, setSubError] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [eligibleVehicles, setEligibleVehicles] = useState<
     Array<
@@ -107,16 +118,17 @@ export default function SuppliersWorkspace() {
     setLoading(true);
     setError("");
     try {
-      setItems(
-        (
-          await commerceApi.partners.list({
-            search,
-            status,
-            type: "supplier",
-            limit: 100,
-          })
-        ).items,
-      );
+      const [partnerPage, referenceItems] = await Promise.all([
+        commerceApi.partners.list({
+          search,
+          status,
+          type: "supplier",
+          limit: 100,
+        }),
+        commerceApi.configuration.supplierReferences(),
+      ]);
+      setItems(partnerPage.items);
+      setReferences(referenceItems);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Chargement impossible",
@@ -146,6 +158,7 @@ export default function SuppliersWorkspace() {
   const openForm = (partner?: ApiPartner) => {
     setShowForm(true);
     setEditing(partner ?? null);
+    setFormError("");
     setForm(
       partner
         ? {
@@ -160,6 +173,7 @@ export default function SuppliersWorkspace() {
             paymentTerms: partner.paymentTerms ?? "",
             deliveryTerms: partner.deliveryTerms ?? "",
             supplierType: partner.supplierType ?? "VEHICLE",
+            supplierTypeOther: partner.supplierTypeOther ?? "",
             whatsapp: partner.whatsapp ?? "",
             wechat: partner.wechat ?? "",
             preferredCurrency: partner.preferredCurrency ?? "USD",
@@ -175,7 +189,7 @@ export default function SuppliersWorkspace() {
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
-    setError("");
+    setFormError("");
     const payload = {
       ...form,
       type: "supplier",
@@ -190,6 +204,12 @@ export default function SuppliersWorkspace() {
       averageLeadTimeDays: form.averageLeadTimeDays
         ? Number(form.averageLeadTimeDays)
         : undefined,
+      country: form.country.trim(),
+      preferredCurrency: form.preferredCurrency.trim().toUpperCase(),
+      supplierTypeOther:
+        form.supplierType === "OTHER"
+          ? form.supplierTypeOther.trim()
+          : undefined,
     };
     try {
       if (editing) await commerceApi.partners.update(editing.id, payload);
@@ -200,13 +220,45 @@ export default function SuppliersWorkspace() {
       await load();
       if (selected) await selectSupplier(selected.id);
     } catch (caught) {
-      setError(
+      setFormError(
         caught instanceof Error ? caught.message : "Enregistrement impossible",
       );
     } finally {
       setSaving(false);
     }
   };
+
+  async function addSupplierReference(event: FormEvent) {
+    event.preventDefault();
+    if (!referenceModal) return;
+    const value = referenceValue.trim().replace(/\s+/g, " ");
+    if (!value) return setReferenceError("La valeur est obligatoire.");
+    setReferenceSaving(true);
+    setReferenceError("");
+    try {
+      const created = await commerceApi.configuration.createSupplierReference({
+        kind: referenceModal,
+        value,
+      });
+      setReferences((current) => [
+        ...current.filter((item) => item.id !== created.id),
+        created,
+      ]);
+      setForm((current) => ({
+        ...current,
+        [referenceModal === "COUNTRY" ? "country" : "preferredCurrency"]:
+          created.labelFr,
+      }));
+      setReferenceModal(null);
+      setReferenceValue("");
+    } catch (caught) {
+      setReferenceError(
+        caught instanceof Error ? caught.message : "Ajout impossible.",
+      );
+    } finally {
+      setReferenceSaving(false);
+    }
+  }
 
   const archive = async (partner: ApiPartner) => {
     if (!window.confirm(`Archiver ${partner.name} ?`)) return;
@@ -228,7 +280,9 @@ export default function SuppliersWorkspace() {
       await selectSupplier(selected.id);
       await load();
     } catch (caught) {
-      alert(caught instanceof Error ? caught.message : "Transition impossible");
+      setError(
+        caught instanceof Error ? caught.message : "Transition impossible",
+      );
     }
   };
 
@@ -236,6 +290,7 @@ export default function SuppliersWorkspace() {
     e.preventDefault();
     if (!selected) return;
     setSubmittingSub(true);
+    setSubError("");
     try {
       await commerceApi.partners.addContact(selected.id, contactForm);
       setShowContactModal(false);
@@ -248,7 +303,7 @@ export default function SuppliersWorkspace() {
       });
       await selectSupplier(selected.id);
     } catch (err) {
-      alert(
+      setSubError(
         err instanceof Error
           ? err.message
           : "Erreur lors de l'ajout du contact",
@@ -262,6 +317,7 @@ export default function SuppliersWorkspace() {
     e.preventDefault();
     if (!selected) return;
     setSubmittingSub(true);
+    setSubError("");
     try {
       await commerceApi.partners.addIncident(selected.id, incidentForm);
       setShowIncidentModal(false);
@@ -273,7 +329,7 @@ export default function SuppliersWorkspace() {
       });
       await selectSupplier(selected.id);
     } catch (err) {
-      alert(
+      setSubError(
         err instanceof Error
           ? err.message
           : "Erreur lors de l'ajout de l'incident",
@@ -1098,6 +1154,14 @@ export default function SuppliersWorkspace() {
             className="card w-full max-w-md space-y-4 p-6"
           >
             <h3 className="font-bold text-base">Nouveau contact fournisseur</h3>
+            {subError && (
+              <p
+                role="alert"
+                className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+              >
+                {subError}
+              </p>
+            )}
             <label>
               <span className="field-label">Nom complet *</span>
               <input
@@ -1181,6 +1245,14 @@ export default function SuppliersWorkspace() {
             <h3 className="font-bold text-base">
               Signaler un incident fournisseur
             </h3>
+            {subError && (
+              <p
+                role="alert"
+                className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+              >
+                {subError}
+              </p>
+            )}
             <label>
               <span className="field-label">Titre de l&apos;incident *</span>
               <input
@@ -1277,6 +1349,14 @@ export default function SuppliersWorkspace() {
                 <X />
               </button>
             </div>
+            {formError && (
+              <p
+                role="alert"
+                className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+              >
+                {formError}
+              </p>
+            )}
             <div className="grid gap-3 md:grid-cols-2">
               {(
                 [
@@ -1299,7 +1379,12 @@ export default function SuppliersWorkspace() {
                   "specialties",
                 ] as const
               )
-                .filter((key) => key !== "supplierType")
+                .filter(
+                  (key) =>
+                    !["supplierType", "country", "preferredCurrency"].includes(
+                      key,
+                    ),
+                )
                 .map((key) => (
                   <label
                     key={key}
@@ -1359,10 +1444,111 @@ export default function SuppliersWorkspace() {
                     }))
                   }
                 >
-                  <option value="VEHICLE">Fournisseur véhicule</option>
-                  <option value="FORWARDER">Forwarder / transitaire</option>
+                  <option value="VEHICLE">Fournisseur véhicules</option>
+                  <option value="TRADING_COMPANY">Trading company</option>
+                  <option value="DEALER">Concessionnaire</option>
+                  <option value="MANUFACTURER">Constructeur</option>
+                  <option value="EXPORTER">Exportateur</option>
+                  <option value="LOGISTICS_PROVIDER">
+                    Prestataire logistique
+                  </option>
                   <option value="OTHER">Autre</option>
+                  <option value="SPARE_PARTS">Spare parts supplier</option>
+                  {form.supplierType === "FORWARDER" && (
+                    <option value="FORWARDER">
+                      Forwarder / transitaire (historique)
+                    </option>
+                  )}
                 </select>
+              </label>
+              {form.supplierType === "OTHER" && (
+                <label>
+                  <span className="field-label">Préciser le type *</span>
+                  <input
+                    required
+                    maxLength={100}
+                    className={inputClass}
+                    value={form.supplierTypeOther}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        supplierTypeOther: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              )}
+              <label>
+                <span className="field-label">Pays</span>
+                <div className="flex gap-2">
+                  <select
+                    className={inputClass}
+                    value={form.country}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        country: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Sélectionner un pays</option>
+                    {references
+                      .filter((item) => item.kind === "SUPPLIER_COUNTRY")
+                      .map((item) => (
+                        <option key={item.id} value={item.labelFr}>
+                          {item.labelFr}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    aria-label="Ajouter un pays"
+                    className="rounded-button border px-3 text-sm font-semibold"
+                    onClick={() => {
+                      setReferenceModal("COUNTRY");
+                      setReferenceValue("");
+                      setReferenceError("");
+                    }}
+                  >
+                    + Ajouter
+                  </button>
+                </div>
+              </label>
+              <label>
+                <span className="field-label">Devise préférée</span>
+                <div className="flex gap-2">
+                  <select
+                    className={inputClass}
+                    value={form.preferredCurrency}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        preferredCurrency: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Sélectionner une devise</option>
+                    {references
+                      .filter((item) => item.kind === "SUPPLIER_CURRENCY")
+                      .map((item) => (
+                        <option key={item.id} value={item.labelFr}>
+                          {item.labelFr}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    aria-label="Ajouter une devise"
+                    className="rounded-button border px-3 text-sm font-semibold"
+                    onClick={() => {
+                      setReferenceModal("CURRENCY");
+                      setReferenceValue("");
+                      setReferenceError("");
+                    }}
+                  >
+                    + Ajouter
+                  </button>
+                </div>
               </label>
             </div>
             <label>
@@ -1378,6 +1564,67 @@ export default function SuppliersWorkspace() {
             <div className="flex justify-end">
               <button disabled={saving} className={buttonClass}>
                 {saving ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {referenceModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4">
+          <form
+            role="dialog"
+            aria-modal="true"
+            onSubmit={addSupplierReference}
+            className="card w-full max-w-md space-y-4 p-6"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-lg font-bold">
+                Ajouter{" "}
+                {referenceModal === "COUNTRY" ? "un pays" : "une devise"}
+              </h2>
+              <button
+                type="button"
+                aria-label="Fermer"
+                onClick={() => setReferenceModal(null)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {referenceError && (
+              <p
+                role="alert"
+                className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+              >
+                {referenceError}
+              </p>
+            )}
+            <label>
+              <span className="field-label">
+                {referenceModal === "COUNTRY" ? "Nom du pays" : "Code devise"} *
+              </span>
+              <input
+                autoFocus
+                required
+                maxLength={referenceModal === "COUNTRY" ? 100 : 3}
+                className={inputClass}
+                placeholder={referenceModal === "CURRENCY" ? "EUR" : undefined}
+                value={referenceValue}
+                onChange={(event) => setReferenceValue(event.target.value)}
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-button border px-4 py-2"
+                onClick={() => setReferenceModal(null)}
+              >
+                Annuler
+              </button>
+              <button
+                disabled={referenceSaving}
+                className={`${buttonClass} disabled:opacity-50`}
+              >
+                {referenceSaving ? "Ajout…" : "Ajouter"}
               </button>
             </div>
           </form>

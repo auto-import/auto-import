@@ -8,12 +8,20 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateLookupValueDto,
+  CreateSupplierReferenceDto,
   LookupQueryDto,
   UpdateInsuranceRateDto,
   UpdateLookupValueDto,
   UpsertDeliveryRateDto,
   UpsertDutyRateDto,
 } from './configuration.dto';
+import {
+  DEFAULT_SUPPLIER_REFERENCES,
+  normalizeReferenceValue,
+  normalizeVehicleLookupValue,
+  supplierReferenceCode,
+  supplierReferenceDbKind,
+} from './supplier-reference';
 
 @Injectable()
 export class ConfigurationService {
@@ -37,7 +45,7 @@ export class ConfigurationService {
     userId: string,
     dto: CreateLookupValueDto,
   ) {
-    const value = dto.value.trim();
+    const value = dto.value.trim().replace(/\s+/g, ' ');
     if (!value) throw new BadRequestException('La valeur est obligatoire.');
     if (dto.kind === 'MODEL' && !dto.parentId) {
       throw new BadRequestException('Un modèle doit appartenir à une marque.');
@@ -57,28 +65,111 @@ export class ConfigurationService {
         throw new BadRequestException('Référence parente invalide.');
       }
     }
-    const normalizedValue = value.toLocaleLowerCase('fr').normalize('NFKC');
-    const existing = await this.prisma.vehicleLookupValue.findFirst({
-      where: { organizationId, kind: dto.kind, normalizedValue, parentId: dto.parentId ?? null },
-    });
-    if (existing) {
-      if (!existing.active) {
-        return this.prisma.vehicleLookupValue.update({
-          where: { id: existing.id },
-          data: { active: true, value },
-        });
+    const normalizedValue = normalizeVehicleLookupValue(value);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${organizationId}:${dto.kind}:${dto.parentId ?? 'root'}:${normalizedValue}`}))`;
+      const existing = await tx.vehicleLookupValue.findFirst({
+        where: {
+          organizationId,
+          kind: dto.kind,
+          normalizedValue,
+          parentId: dto.parentId ?? null,
+        },
+      });
+      if (existing) {
+        if (!existing.active) {
+          return tx.vehicleLookupValue.update({
+            where: { id: existing.id },
+            data: { active: true, value },
+          });
+        }
+        throw new ConflictException('Cette valeur existe déjà.');
       }
-      return existing;
-    }
-    return this.prisma.vehicleLookupValue.create({
-      data: {
+      return tx.vehicleLookupValue.create({
+        data: {
+          organizationId,
+          kind: dto.kind,
+          value,
+          normalizedValue,
+          parentId: dto.parentId,
+          createdBy: userId,
+        },
+      });
+    });
+  }
+
+  async listSupplierReferences(organizationId: string) {
+    await this.prisma.crmReferenceValue.createMany({
+      data: DEFAULT_SUPPLIER_REFERENCES.map(({ kind, value }, sortOrder) => ({
         organizationId,
-        kind: dto.kind,
-        value,
-        normalizedValue,
-        parentId: dto.parentId,
-        createdBy: userId,
+        kind: supplierReferenceDbKind(kind),
+        code: supplierReferenceCode(kind, value),
+        labelFr: kind === 'CURRENCY' ? value.toUpperCase() : value,
+        sortOrder,
+      })),
+      skipDuplicates: true,
+    });
+    return this.prisma.crmReferenceValue.findMany({
+      where: {
+        organizationId,
+        kind: { in: ['SUPPLIER_COUNTRY', 'SUPPLIER_CURRENCY'] },
+        active: true,
       },
+      orderBy: [{ kind: 'asc' }, { sortOrder: 'asc' }, { labelFr: 'asc' }],
+    });
+  }
+
+  async createSupplierReference(
+    organizationId: string,
+    userId: string,
+    dto: CreateSupplierReferenceDto,
+  ) {
+    const raw = dto.value.trim().replace(/\s+/g, ' ');
+    if (!raw) throw new BadRequestException('La valeur est obligatoire.');
+    if (raw.length > 100)
+      throw new BadRequestException(
+        'La valeur ne peut pas dépasser 100 caractères.',
+      );
+    const value = dto.kind === 'CURRENCY' ? raw.toUpperCase() : raw;
+    if (dto.kind === 'CURRENCY' && !/^[A-Z]{3}$/.test(value)) {
+      throw new BadRequestException(
+        'Le code devise doit contenir exactement 3 lettres (ex. EUR).',
+      );
+    }
+    const kind = supplierReferenceDbKind(dto.kind);
+    const code = supplierReferenceCode(dto.kind, value);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${organizationId}:${kind}:${code}`}))`;
+      const candidates = await tx.crmReferenceValue.findMany({
+        where: { organizationId, kind },
+      });
+      const existing = candidates.find(
+        (candidate) =>
+          candidate.code === code ||
+          normalizeReferenceValue(candidate.labelFr) ===
+            normalizeReferenceValue(value),
+      );
+      if (existing?.active)
+        throw new ConflictException('Cette valeur existe déjà.');
+      const saved = existing
+        ? await tx.crmReferenceValue.update({
+            where: { id: existing.id },
+            data: { active: true, labelFr: value },
+          })
+        : await tx.crmReferenceValue.create({
+            data: { organizationId, kind, code, labelFr: value },
+          });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          action: 'SUPPLIER_REFERENCE_CREATED',
+          entityType: 'CrmReferenceValue',
+          entityId: saved.id,
+          newValues: { kind: dto.kind, value },
+        },
+      });
+      return saved;
     });
   }
 
@@ -90,17 +181,20 @@ export class ConfigurationService {
     const current = await this.prisma.vehicleLookupValue.findFirst({
       where: { id, organizationId },
     });
-    if (!current) throw new NotFoundException('Valeur de référence introuvable.');
+    if (!current)
+      throw new NotFoundException('Valeur de référence introuvable.');
     const value = dto.value?.trim();
     if (dto.value !== undefined && !value)
-      throw new BadRequestException('La valeur de référence ne peut pas être vide.');
+      throw new BadRequestException(
+        'La valeur de référence ne peut pas être vide.',
+      );
     if (value) {
       const duplicate = await this.prisma.vehicleLookupValue.findFirst({
         where: {
           organizationId,
           kind: current.kind,
           parentId: current.parentId,
-          normalizedValue: value.toLocaleLowerCase('fr').normalize('NFKC'),
+          normalizedValue: normalizeVehicleLookupValue(value),
           id: { not: id },
         },
       });
@@ -110,9 +204,7 @@ export class ConfigurationService {
       where: { id },
       data: {
         value,
-        normalizedValue: value
-          ? value.toLocaleLowerCase('fr').normalize('NFKC')
-          : undefined,
+        normalizedValue: value ? normalizeVehicleLookupValue(value) : undefined,
         active: dto.active,
       },
     });
@@ -127,7 +219,9 @@ export class ConfigurationService {
 
   async pricingSettings(organizationId: string) {
     const [settings, dutyRates, deliveryRates] = await Promise.all([
-      this.prisma.organizationSettings.findUnique({ where: { organizationId } }),
+      this.prisma.organizationSettings.findUnique({
+        where: { organizationId },
+      }),
       this.prisma.vehicleDutyRate.findMany({
         where: { organizationId },
         orderBy: { category: 'asc' },
@@ -143,8 +237,12 @@ export class ConfigurationService {
       deliveryRates,
       configured: {
         insurance: settings?.insuranceRatePercent != null,
-        duties: dutyRates.some((rate) => rate.active && rate.ratePercent != null),
-        delivery: deliveryRates.some((rate) => rate.active && rate.amount != null),
+        duties: dutyRates.some(
+          (rate) => rate.active && rate.ratePercent != null,
+        ),
+        delivery: deliveryRates.some(
+          (rate) => rate.active && rate.amount != null,
+        ),
       },
     };
   }
@@ -176,12 +274,16 @@ export class ConfigurationService {
         organizationId,
         category,
         ratePercent:
-          dto.ratePercent === undefined ? null : new Prisma.Decimal(dto.ratePercent),
+          dto.ratePercent === undefined
+            ? null
+            : new Prisma.Decimal(dto.ratePercent),
         active: dto.active ?? true,
       },
       update: {
         ratePercent:
-          dto.ratePercent === undefined ? null : new Prisma.Decimal(dto.ratePercent),
+          dto.ratePercent === undefined
+            ? null
+            : new Prisma.Decimal(dto.ratePercent),
         active: dto.active,
       },
     });
@@ -194,12 +296,14 @@ export class ConfigurationService {
       create: {
         organizationId,
         destination,
-        amount: dto.amount === undefined ? null : new Prisma.Decimal(dto.amount),
+        amount:
+          dto.amount === undefined ? null : new Prisma.Decimal(dto.amount),
         currency: dto.currency ?? 'DZD',
         active: dto.active ?? true,
       },
       update: {
-        amount: dto.amount === undefined ? null : new Prisma.Decimal(dto.amount),
+        amount:
+          dto.amount === undefined ? null : new Prisma.Decimal(dto.amount),
         currency: dto.currency,
         active: dto.active,
       },
@@ -246,7 +350,7 @@ export class ConfigurationService {
     const purchase = dossier.purchases[0];
     const dossierVehicle = dossier.dossierVehicles[0]?.vehicle;
     const shipment = dossierVehicle?.shipmentVehicles[0]?.shipment;
-    if (!purchase) missing.push("coût d’achat fournisseur");
+    if (!purchase) missing.push('coût d’achat fournisseur');
     if (!dossierVehicle) missing.push('véhicule');
     if (!shipment?.totalFreightCost) missing.push('coût total du fret');
     if (!shipment?.freightCurrency) missing.push('devise du fret');
@@ -254,11 +358,13 @@ export class ConfigurationService {
       purchase &&
       shipment?.freightCurrency &&
       purchase.currency !== shipment.freightCurrency
-    ) missing.push('taux de conversion des devises');
+    )
+      missing.push('taux de conversion des devises');
     const settings = await this.prisma.organizationSettings.findUnique({
       where: { organizationId },
     });
-    if (settings?.insuranceRatePercent == null) missing.push("taux d’assurance");
+    if (settings?.insuranceRatePercent == null)
+      missing.push('taux d’assurance');
     const category = dossierVehicle?.bodyType?.trim();
     const dutyRate = category
       ? await this.prisma.vehicleDutyRate.findFirst({
@@ -283,71 +389,95 @@ export class ConfigurationService {
     if (!destination) missing.push('destination de livraison');
     if (deliveryRate?.amount == null) missing.push('tarif de livraison locale');
     if (missing.length) {
-      return { available: false, locked: Boolean(dossier.priceLockedAt), missing };
+      return {
+        available: false,
+        locked: Boolean(dossier.priceLockedAt),
+        missing,
+      };
     }
-    const shipmentVehicles = shipment!.vehicles.map((item) => item.vehicle);
+    if (
+      settings?.insuranceRatePercent == null ||
+      dutyRate?.ratePercent == null ||
+      deliveryRate?.amount == null
+    ) {
+      throw new BadRequestException(
+        'La configuration tarifaire du dossier est incomplète.',
+      );
+    }
+    const shipmentVehicles = shipment.vehicles.map((item) => item.vehicle);
     const volume = (vehicle: (typeof shipmentVehicles)[number]) =>
       vehicle.lengthCm && vehicle.widthCm && vehicle.heightCm
-        ? (Number(vehicle.lengthCm) * Number(vehicle.widthCm) * Number(vehicle.heightCm)) /
+        ? (Number(vehicle.lengthCm) *
+            Number(vehicle.widthCm) *
+            Number(vehicle.heightCm)) /
           1_000_000
         : 0;
-    const totalVolume = shipmentVehicles.reduce((sum, vehicle) => sum + volume(vehicle), 0);
+    const totalVolume = shipmentVehicles.reduce(
+      (sum, vehicle) => sum + volume(vehicle),
+      0,
+    );
     const totalWeight = shipmentVehicles.reduce(
       (sum, vehicle) => sum + Number(vehicle.weightKg ?? 0),
       0,
     );
-    if (!totalVolume || !totalWeight || !dossierVehicle!.weightKg) {
+    if (!totalVolume || !totalWeight || !dossierVehicle.weightKg) {
       return {
         available: false,
         locked: Boolean(dossier.priceLockedAt),
         missing: ['COMPLETE_VEHICLE_DIMENSIONS_AND_WEIGHT'],
       };
     }
-    const capacityVolume = shipment!.capacityVolumeM3
-      ? Number(shipment!.capacityVolumeM3)
-      : Number(shipment!.containerPreset?.maxVolumeM3 ?? 0);
-    const capacityWeight = shipment!.capacityWeightKg
-      ? Number(shipment!.capacityWeightKg)
-      : Number(shipment!.containerPreset?.maxPayloadKg ?? 0);
+    const capacityVolume = shipment.capacityVolumeM3
+      ? Number(shipment.capacityVolumeM3)
+      : Number(shipment.containerPreset?.maxVolumeM3 ?? 0);
+    const capacityWeight = shipment.capacityWeightKg
+      ? Number(shipment.capacityWeightKg)
+      : Number(shipment.containerPreset?.maxPayloadKg ?? 0);
     const weightBinding =
       capacityWeight > 0 &&
-      totalWeight / capacityWeight > totalVolume / Math.max(capacityVolume, 0.001);
+      totalWeight / capacityWeight >
+        totalVolume / Math.max(capacityVolume, 0.001);
     const share = weightBinding
-      ? Number(dossierVehicle!.weightKg) / totalWeight
-      : volume(dossierVehicle!) / totalVolume;
-    const freight = Number(shipment!.totalFreightCost) * share;
-    const base = Number(purchase!.purchasePrice);
+      ? Number(dossierVehicle.weightKg) / totalWeight
+      : volume(dossierVehicle) / totalVolume;
+    const freight = Number(shipment.totalFreightCost) * share;
+    const base = Number(purchase.purchasePrice);
     const insurance =
-      (base + freight) * (Number(settings!.insuranceRatePercent) / 100);
+      (base + freight) * (Number(settings.insuranceRatePercent) / 100);
     const cifPrice = base + freight + insurance;
     const duty = dossier.dutyOverrideAmount
       ? Number(dossier.dutyOverrideAmount)
-      : cifPrice * (Number(dutyRate!.ratePercent) / 100);
-    const ddpPrice = cifPrice + duty + Number(deliveryRate!.amount);
+      : cifPrice * (Number(dutyRate.ratePercent) / 100);
+    const ddpPrice = cifPrice + duty + Number(deliveryRate.amount);
     return {
       available: true,
       locked: Boolean(dossier.priceLockedAt),
       cifPrice,
       ddpPrice,
-      currency: purchase!.currency,
+      currency: purchase.currency,
       freightAllocation: freight,
       allocationBasis: weightBinding ? 'WEIGHT' : 'VOLUME',
       insurance,
       customsDuty: duty,
-      localDelivery: Number(deliveryRate!.amount),
+      localDelivery: Number(deliveryRate.amount),
       missing: [],
     };
   }
 
   async refreshDossierPricing(dossierId: string, organizationId: string) {
-    const pricing = await this.calculateDossierPricing(dossierId, organizationId);
+    const pricing = await this.calculateDossierPricing(
+      dossierId,
+      organizationId,
+    );
     if (!pricing.available) return pricing;
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
     });
     if (!dossier) return pricing;
     const lockedWithSnapshot =
-      dossier.priceLockedAt && dossier.cifPrice != null && dossier.ddpPrice != null;
+      dossier.priceLockedAt &&
+      dossier.cifPrice != null &&
+      dossier.ddpPrice != null;
     if (!lockedWithSnapshot) {
       await this.prisma.dossier.update({
         where: { id: dossierId },

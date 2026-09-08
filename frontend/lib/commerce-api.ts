@@ -75,6 +75,7 @@ export interface ApiPartner {
   notes?: string | null;
   status: string;
   supplierType?: string | null;
+  supplierTypeOther?: string | null;
   supplierStatus?: "TO_VERIFY" | "VERIFIED" | "ACTIVE" | "SUSPENDED" | null;
   whatsapp?: string | null;
   wechat?: string | null;
@@ -125,6 +126,14 @@ export interface ApiVehicleLookup {
   needsReview: boolean;
 }
 
+export interface ApiSupplierReference {
+  id: string;
+  kind: "SUPPLIER_COUNTRY" | "SUPPLIER_CURRENCY";
+  code: string;
+  labelFr: string;
+  active: boolean;
+}
+
 export interface ApiVehicleSpec {
   engine?: string | null;
   fuelType?: string | null;
@@ -141,6 +150,9 @@ export interface ApiVehicle {
   vin?: string | null;
   brand: string;
   model: string;
+  brandLookupId?: string | null;
+  modelLookupId?: string | null;
+  versionLookupId?: string | null;
   year?: number | null;
   mileage?: number | null;
   condition?: string | null;
@@ -582,6 +594,16 @@ export const commerceApi = {
     updateLookup: (id: string, data: { value?: string; active?: boolean }) =>
       apiRequest<ApiVehicleLookup>(`/vehicle-lookups/${id}`, {
         method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    supplierReferences: () =>
+      apiRequest<ApiSupplierReference[]>("/supplier-reference-data"),
+    createSupplierReference: (data: {
+      kind: "COUNTRY" | "CURRENCY";
+      value: string;
+    }) =>
+      apiRequest<ApiSupplierReference>("/supplier-reference-data", {
+        method: "POST",
         body: JSON.stringify(data),
       }),
     containerPresets: () =>

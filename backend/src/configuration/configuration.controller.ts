@@ -1,10 +1,20 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import {
   CreateLookupValueDto,
+  CreateSupplierReferenceDto,
   LookupQueryDto,
   UpdateInsuranceRateDto,
   UpdateLookupValueDto,
@@ -19,7 +29,10 @@ export class ConfigurationController {
 
   @Get('vehicle-lookups')
   @RequirePermission(Permission.VEHICLES_READ)
-  lookups(@CurrentUser() user: AuthenticatedUser, @Query() query: LookupQueryDto) {
+  lookups(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: LookupQueryDto,
+  ) {
     return this.configuration.listLookups(user.organizationId, query);
   }
 
@@ -58,6 +71,25 @@ export class ConfigurationController {
     @Body() dto: UpdateLookupValueDto,
   ) {
     return this.configuration.updateLookup(id, user.organizationId, dto);
+  }
+
+  @Get('supplier-reference-data')
+  @RequirePermission(Permission.PARTNERS_READ)
+  supplierReferences(@CurrentUser() user: AuthenticatedUser) {
+    return this.configuration.listSupplierReferences(user.organizationId);
+  }
+
+  @Post('supplier-reference-data')
+  @RequirePermission(Permission.PARTNERS_WRITE)
+  createSupplierReference(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateSupplierReferenceDto,
+  ) {
+    return this.configuration.createSupplierReference(
+      user.organizationId,
+      user.id,
+      dto,
+    );
   }
 
   @Get('container-presets')

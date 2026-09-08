@@ -26,6 +26,10 @@ export class UpdateVehicleDto {
   @IsString()
   model?: string;
 
+  @IsOptional() @IsUUID() brandLookupId?: string;
+  @IsOptional() @IsUUID() modelLookupId?: string;
+  @IsOptional() @IsUUID() versionLookupId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

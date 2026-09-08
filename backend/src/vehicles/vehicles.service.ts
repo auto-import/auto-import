@@ -105,10 +105,15 @@ export class VehiclesService {
           ) {
             throw new ConflictException('A vehicle with this VIN exists');
           }
-          await this.validateTenantRelations(tx, dto, organizationId);
+          const canonical = await this.validateTenantRelations(
+            tx,
+            dto,
+            organizationId,
+          );
           const vehicle = await tx.vehicle.create({
             data: {
               ...dto,
+              ...canonical,
               equipment: dto.equipment as Prisma.InputJsonValue | undefined,
               organizationId,
             },
@@ -248,7 +253,7 @@ export class VehiclesService {
             throw new ConflictException('A vehicle with this VIN exists');
           }
         }
-        await this.validateTenantRelations(
+        const canonical = await this.validateTenantRelations(
           transaction,
           createVehicleDto,
           organizationId,
@@ -256,6 +261,7 @@ export class VehiclesService {
         return transaction.vehicle.create({
           data: {
             ...createVehicleDto,
+            ...canonical,
             equipment: createVehicleDto.equipment as
               Prisma.InputJsonValue | undefined,
             organizationId,
@@ -487,7 +493,10 @@ export class VehiclesService {
         });
         if (!existingVehicle) throw new NotFoundException('Vehicle not found');
         const nextStatus = updateVehicleDto.status ?? existingVehicle.status;
-        if (nextStatus === 'rejected' && !updateVehicleDto.rejectionReason?.trim()) {
+        if (
+          nextStatus === 'rejected' &&
+          !updateVehicleDto.rejectionReason?.trim()
+        ) {
           throw new BadRequestException(
             'A rejection reason is required when rejecting a vehicle',
           );
@@ -526,46 +535,54 @@ export class VehiclesService {
             throw new ConflictException('A vehicle with this VIN exists');
           }
         }
-        await this.validateTenantRelations(
+        const canonical = await this.validateTenantRelations(
           transaction,
           updateVehicleDto,
           organizationId,
         );
-        return transaction.vehicle.update({
-          where: { id },
-          data: {
-            ...updateVehicleDto,
-            rejectedAt:
-              nextStatus === 'rejected' && existingVehicle.status !== 'rejected'
-                ? new Date()
-                : undefined,
-            rejectedBy:
-              nextStatus === 'rejected' && existingVehicle.status !== 'rejected'
-                ? userId
-                : undefined,
-            equipment: updateVehicleDto.equipment as
-              Prisma.InputJsonValue | undefined,
-          },
-          include: { specs: true, photos: true },
-        }).then(async (updated) => {
-          if (nextStatus === 'rejected' && existingVehicle.status !== 'rejected') {
-            await transaction.auditLog.create({
-              data: {
-                organizationId,
-                userId,
-                action: 'vehicle.rejected',
-                entityType: 'vehicle',
-                entityId: id,
-                oldValues: { status: existingVehicle.status },
-                newValues: {
-                  status: 'rejected',
-                  reason: updateVehicleDto.rejectionReason,
+        return transaction.vehicle
+          .update({
+            where: { id },
+            data: {
+              ...updateVehicleDto,
+              ...canonical,
+              rejectedAt:
+                nextStatus === 'rejected' &&
+                existingVehicle.status !== 'rejected'
+                  ? new Date()
+                  : undefined,
+              rejectedBy:
+                nextStatus === 'rejected' &&
+                existingVehicle.status !== 'rejected'
+                  ? userId
+                  : undefined,
+              equipment: updateVehicleDto.equipment as
+                Prisma.InputJsonValue | undefined,
+            },
+            include: { specs: true, photos: true },
+          })
+          .then(async (updated) => {
+            if (
+              nextStatus === 'rejected' &&
+              existingVehicle.status !== 'rejected'
+            ) {
+              await transaction.auditLog.create({
+                data: {
+                  organizationId,
+                  userId,
+                  action: 'vehicle.rejected',
+                  entityType: 'vehicle',
+                  entityId: id,
+                  oldValues: { status: existingVehicle.status },
+                  newValues: {
+                    status: 'rejected',
+                    reason: updateVehicleDto.rejectionReason,
+                  },
                 },
-              },
-            });
-          }
-          return updated;
-        });
+              });
+            }
+            return updated;
+          });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -703,9 +720,20 @@ export class VehiclesService {
 
   private async validateTenantRelations(
     transaction: Prisma.TransactionClient,
-    dto: Pick<CreateVehicleDto, 'supplierId' | 'currentLocationId'>,
+    dto: Pick<
+      CreateVehicleDto,
+      | 'supplierId'
+      | 'currentLocationId'
+      | 'brandLookupId'
+      | 'modelLookupId'
+      | 'versionLookupId'
+    >,
     organizationId: string,
-  ): Promise<void> {
+  ): Promise<{
+    brand?: string;
+    model?: string;
+    trim?: string | null;
+  }> {
     if (dto.supplierId) {
       const supplier = await transaction.partner.findFirst({
         where: { id: dto.supplierId, organizationId, type: 'supplier' },
@@ -724,5 +752,44 @@ export class VehiclesService {
       if (!location)
         throw new NotFoundException('Warehouse location not found');
     }
+    const hasHierarchy = Boolean(
+      dto.brandLookupId || dto.modelLookupId || dto.versionLookupId,
+    );
+    if (!hasHierarchy) return {};
+    if (!dto.brandLookupId || !dto.modelLookupId) {
+      throw new BadRequestException(
+        'Sélectionnez une marque et un modèle structurés.',
+      );
+    }
+    const ids = [
+      dto.brandLookupId,
+      dto.modelLookupId,
+      dto.versionLookupId,
+    ].filter((id): id is string => Boolean(id));
+    const lookups = await transaction.vehicleLookupValue.findMany({
+      where: { organizationId, id: { in: ids }, active: true },
+    });
+    const byId = new Map(lookups.map((lookup) => [lookup.id, lookup]));
+    const brand = byId.get(dto.brandLookupId);
+    const model = byId.get(dto.modelLookupId);
+    const version = dto.versionLookupId
+      ? byId.get(dto.versionLookupId)
+      : undefined;
+    if (
+      brand?.kind !== 'BRAND' ||
+      model?.kind !== 'MODEL' ||
+      model.parentId !== brand.id ||
+      (dto.versionLookupId &&
+        (version?.kind !== 'VERSION' || version.parentId !== model.id))
+    ) {
+      throw new BadRequestException(
+        'La combinaison marque, modèle et version est invalide.',
+      );
+    }
+    return {
+      brand: brand.value,
+      model: model.value,
+      ...(dto.versionLookupId ? { trim: version!.value } : {}),
+    };
   }
 }

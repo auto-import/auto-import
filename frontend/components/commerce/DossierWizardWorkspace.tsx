@@ -52,6 +52,25 @@ const typeOptions = [
   },
 ] as const;
 
+async function loadAllSourcingCatalogueItems() {
+  const first = await commerceApi.catalogue.list({
+    status: "available",
+    limit: 100,
+    page: 1,
+  });
+  if (first.pagination.totalPages <= 1) return first.items;
+  const remainingPages = await Promise.all(
+    Array.from({ length: first.pagination.totalPages - 1 }, (_, index) =>
+      commerceApi.catalogue.list({
+        status: "available",
+        limit: 100,
+        page: index + 2,
+      }),
+    ),
+  );
+  return [first, ...remainingPages].flatMap((page) => page.items);
+}
+
 export default function DossierWizardWorkspace() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -92,12 +111,12 @@ export default function DossierWizardWorkspace() {
           await Promise.all([
             crmApi.listClients({ limit: 100 }),
             commerceApi.vehicles.list({ status: "available", limit: 100 }),
-            commerceApi.catalogue.list({ status: "available", limit: 100 }),
+            loadAllSourcingCatalogueItems(),
             adminApi.listUsers({ status: "active", limit: 100 }),
           ]);
         setClients(clientPage.items);
         setVehicles(vehiclePage.items);
-        setCatalogueItems(cataloguePage.items);
+        setCatalogueItems(cataloguePage);
         setUsers(userPage.items);
       } catch (caught) {
         setError(
@@ -120,6 +139,15 @@ export default function DossierWizardWorkspace() {
   const selectedCatalogueItem = useMemo(
     () => catalogueItems.find((item) => item.id === catalogueItemId),
     [catalogueItemId, catalogueItems],
+  );
+  const eligibleCatalogueItems = useMemo(
+    () =>
+      catalogueItems.filter((item) =>
+        type === DossierType.VEHICLE_SALE_DDP
+          ? Boolean(item.ddpPrice)
+          : Boolean(item.cifPrice),
+      ),
+    [catalogueItems, type],
   );
 
   function validateCurrentStep() {
@@ -197,11 +225,12 @@ export default function DossierWizardWorkspace() {
       const dossier = await commerceApi.dossiers.create({
         clientId,
         type,
-        vehicleIds: vehicleId || externalVehicleId
-          ? [vehicleId, externalVehicleId].filter(
-              (value): value is string => Boolean(value),
-            )
-          : undefined,
+        vehicleIds:
+          vehicleId || externalVehicleId
+            ? [vehicleId, externalVehicleId].filter((value): value is string =>
+                Boolean(value),
+              )
+            : undefined,
         catalogueItemId: catalogueItemId || undefined,
         salesUserId: salesUserId || undefined,
         opsUserId: opsUserId || undefined,
@@ -470,63 +499,117 @@ export default function DossierWizardWorkspace() {
                   dossier.
                 </p>
                 <div className="mt-6 space-y-5">
-                    <label className="block">
-                      <span className="field-label">Véhicule disponible</span>
-                      <select
-                        aria-label="Véhicule disponible"
-                        className={inputClass}
-                        value={vehicleId}
-                        onChange={(event) => {
-                          setVehicleId(event.target.value);
-                          if (event.target.value) setCatalogueItemId("");
-                        }}
-                      >
-                        <option value="">Aucun véhicule sélectionné</option>
-                        {vehicles.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.brand} {item.model} ·{" "}
-                            {item.vin || "VIN en attente"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted">
-                      <span className="h-px flex-1 bg-neutral-200" />
-                      ou
-                      <span className="h-px flex-1 bg-neutral-200" />
-                    </div>
-                    <label className="block">
-                      <span className="field-label">Demande de sourcing</span>
-                      <select
-                        aria-label="Demande de sourcing"
-                        className={inputClass}
-                        value={catalogueItemId}
-                        onChange={(event) => {
-                          setCatalogueItemId(event.target.value);
-                          if (event.target.value) setVehicleId("");
-                        }}
-                      >
-                        <option value="">Aucun véhicule catalogue sélectionné</option>
-                        {catalogueItems
-                          .filter((item) =>
-                            type === DossierType.VEHICLE_SALE_DDP
-                              ? Boolean(item.ddpPrice)
-                              : Boolean(item.cifPrice),
-                          )
-                          .map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.brand} {item.model} {item.version || ""} ·{" "}
-                            {type === DossierType.VEHICLE_SALE_DDP
-                              ? `${Number(item.ddpPrice).toLocaleString()} DZD DDP`
-                              : `${Number(item.cifPrice).toLocaleString()} DZD CIF`}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="mt-1 block text-xs text-muted">
-                        Uniquement les véhicules issus d’un devis commercial publié.
-                      </span>
-                    </label>
+                  <label className="block">
+                    <span className="field-label">Véhicule disponible</span>
+                    <select
+                      aria-label="Véhicule disponible"
+                      className={inputClass}
+                      value={vehicleId}
+                      onChange={(event) => {
+                        setVehicleId(event.target.value);
+                        if (event.target.value) setCatalogueItemId("");
+                      }}
+                    >
+                      <option value="">Aucun véhicule sélectionné</option>
+                      {vehicles.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.brand} {item.model} ·{" "}
+                          {item.vin || "VIN en attente"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted">
+                    <span className="h-px flex-1 bg-neutral-200" />
+                    ou
+                    <span className="h-px flex-1 bg-neutral-200" />
                   </div>
+                  <label className="block">
+                    <span className="field-label">Demande de sourcing</span>
+                    <select
+                      aria-label="Demande de sourcing"
+                      className={inputClass}
+                      value={catalogueItemId}
+                      onChange={(event) => {
+                        setCatalogueItemId(event.target.value);
+                        if (event.target.value) setVehicleId("");
+                      }}
+                    >
+                      <option value="">
+                        Aucun véhicule catalogue sélectionné
+                      </option>
+                      {eligibleCatalogueItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.brand} {item.model} {item.version || ""} ·{" "}
+                          {type === DossierType.VEHICLE_SALE_DDP
+                            ? `${Number(item.ddpPrice).toLocaleString()} DZD DDP`
+                            : `${Number(item.cifPrice).toLocaleString()} DZD CIF`}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-xs text-muted">
+                      Uniquement les véhicules issus d’un devis commercial
+                      publié.
+                    </span>
+                  </label>
+                  {!eligibleCatalogueItems.length && (
+                    <p className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      Aucun véhicule catalogue disponible avec un devis{" "}
+                      {type === DossierType.VEHICLE_SALE_DDP ? "DDP" : "CIF"}{" "}
+                      publié.
+                    </p>
+                  )}
+                  {selectedCatalogueItem && (
+                    <dl className="grid gap-3 rounded-card border bg-neutral-50 p-4 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-muted">Véhicule</dt>
+                        <dd className="font-semibold">
+                          {selectedCatalogueItem.brand}{" "}
+                          {selectedCatalogueItem.model}{" "}
+                          {selectedCatalogueItem.version ?? ""}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Année / motorisation</dt>
+                        <dd className="font-semibold">
+                          {selectedCatalogueItem.year ?? "—"} ·{" "}
+                          {selectedCatalogueItem.fuel ?? "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Offre Chine</dt>
+                        <dd className="font-semibold">
+                          {selectedCatalogueItem.offer.reference}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Devis</dt>
+                        <dd className="font-semibold">
+                          {type === DossierType.VEHICLE_SALE_DDP
+                            ? selectedCatalogueItem.pricing.ddp?.quotationNumber
+                            : selectedCatalogueItem.pricing.cif
+                                ?.quotationNumber}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Prix CIF</dt>
+                        <dd className="font-semibold">
+                          {selectedCatalogueItem.cifPrice
+                            ? `${Number(selectedCatalogueItem.cifPrice).toLocaleString()} DZD`
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Prix DDP</dt>
+                        <dd className="font-semibold">
+                          {selectedCatalogueItem.ddpPrice
+                            ? `${Number(selectedCatalogueItem.ddpPrice).toLocaleString()} DZD`
+                            : "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                  )}
+                </div>
               </div>
             )}
 
@@ -575,7 +658,9 @@ export default function DossierWizardWorkspace() {
                       aria-label="Responsable Chine"
                       className={inputClass}
                       value={chinaResponsibleId}
-                      onChange={(event) => setChinaResponsibleId(event.target.value)}
+                      onChange={(event) =>
+                        setChinaResponsibleId(event.target.value)
+                      }
                     >
                       <option value="">Non assigné</option>
                       {users.map((user) => (
@@ -621,13 +706,13 @@ export default function DossierWizardWorkspace() {
                     label="Source"
                     value={
                       selectedVehicle
-                          ? `${selectedVehicle.brand} ${selectedVehicle.model}`
-                          : selectedCatalogueItem
-                            ? `${selectedCatalogueItem.brand} ${selectedCatalogueItem.model} · Catalogue`
-                            : type === DossierType.SHIPPING_ONLY &&
-                                externalVehicle.brand.trim()
-                              ? `${externalVehicle.brand} ${externalVehicle.model}`.trim()
-                              : "Véhicule externe à renseigner"
+                        ? `${selectedVehicle.brand} ${selectedVehicle.model}`
+                        : selectedCatalogueItem
+                          ? `${selectedCatalogueItem.brand} ${selectedCatalogueItem.model} · Catalogue`
+                          : type === DossierType.SHIPPING_ONLY &&
+                              externalVehicle.brand.trim()
+                            ? `${externalVehicle.brand} ${externalVehicle.model}`.trim()
+                            : "Véhicule externe à renseigner"
                     }
                   />
                   <Summary

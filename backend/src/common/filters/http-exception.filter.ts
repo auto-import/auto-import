@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ApiErrorBody, ApiErrorResponse } from '../dto/response.dto';
+import { Prisma } from '@prisma/client';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -65,6 +66,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
           message: exception.message,
         };
       }
+    } else if (
+      exception instanceof Prisma.PrismaClientKnownRequestError &&
+      ['P2021', 'P2022'].includes(exception.code)
+    ) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      errorBody = {
+        code: 'DATABASE_SCHEMA_OUTDATED',
+        message:
+          'La base de données ERP doit être mise à jour. Exécutez les migrations avant de réessayer.',
+      };
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       errorBody = {
