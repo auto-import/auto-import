@@ -15,6 +15,11 @@ export class FilterDossierDto extends PaginationDto {
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
+  activeOnly?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
   archivedOnly?: boolean;
 
   @IsOptional()

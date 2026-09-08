@@ -1020,10 +1020,7 @@ export default function FinanceDashboardPage() {
               </button>
             </div>
 
-            <div
-              className="card p-0 overflow-hidden"
-              aria-busy={costLoading}
-            >
+            <div className="card p-0 overflow-hidden" aria-busy={costLoading}>
               <DataTable columns={COST_COLUMNS} data={costs} />
             </div>
           </div>
@@ -1045,10 +1042,7 @@ export default function FinanceDashboardPage() {
               </button>
             </div>
 
-            <div
-              className="card p-0 overflow-hidden"
-              aria-busy={ratesLoading}
-            >
+            <div className="card p-0 overflow-hidden" aria-busy={ratesLoading}>
               <DataTable columns={RATE_COLUMNS} data={exchangeRates} />
             </div>
           </div>
@@ -1290,16 +1284,15 @@ export default function FinanceDashboardPage() {
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">
                     Devise étrangère
                   </label>
-                  <input
+                  <select
                     value={newRateCurrency}
-                    onChange={(e) =>
-                      setNewRateCurrency(e.target.value.toUpperCase())
-                    }
+                    onChange={(e) => setNewRateCurrency(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
-                    maxLength={12}
                     required
-                    placeholder="USD, CNY, EUR…"
-                  />
+                  >
+                    <option value="USD">USD</option>
+                    <option value="CNY">CNY</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">

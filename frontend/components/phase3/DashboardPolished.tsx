@@ -66,6 +66,37 @@ export default function DashboardPolished() {
       })),
     [data],
   );
+  const marginData = useMemo(
+    () =>
+      (data?.finance.trend ?? []).map((item) => ({
+        value: Number(item.grossMargin),
+        label: new Date(`${item.month}-01T00:00:00Z`).toLocaleDateString(
+          getRuntimeLocale(),
+          { month: "short", year: "2-digit", timeZone: "UTC" },
+        ),
+      })),
+    [data],
+  );
+  const funnelData = useMemo(
+    () =>
+      data
+        ? [
+            { label: "Leads", count: data.crm.funnel.leads },
+            { label: "Qualifiés", count: data.crm.funnel.qualified },
+            { label: "Convertis", count: data.crm.funnel.converted },
+            { label: "Contrats", count: data.crm.funnel.contractsSigned },
+          ]
+        : [],
+    [data],
+  );
+  const vehicleData = useMemo(
+    () =>
+      Object.entries(data?.vehicles.byStatus ?? {}).map(([label, count]) => ({
+        label,
+        count,
+      })),
+    [data],
+  );
   return (
     <>
       <Topbar title="Dashboard" subtitle="Vue d’ensemble de l’activité" />
@@ -78,17 +109,8 @@ export default function DashboardPolished() {
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Kpi
                 icon={<FolderOpen />}
-                label="Total dossiers"
-                value={data.dossiers.total}
-              />
-              <Kpi
-                icon={<CarFront />}
-                label="Véhicules en stock"
-                value={
-                  (data.vehicles.byStatus.available ?? 0) +
-                  (data.vehicles.byStatus.reserved ?? 0)
-                }
-                detail={`Disponible : ${data.vehicles.byStatus.available ?? 0} · Réservé : ${data.vehicles.byStatus.reserved ?? 0}`}
+                label="Contrats signés ce mois"
+                value={data.finance.contractsSignedThisMonth}
               />
               <Kpi
                 icon={<Banknote />}
@@ -96,9 +118,73 @@ export default function DashboardPolished() {
                 value={`${Number(data.finance.collected).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`}
               />
               <Kpi
+                icon={<Banknote />}
+                label="Solde clients restant à encaisser"
+                value={`${Number(data.finance.outstanding).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`}
+              />
+              <Kpi
+                icon={<Banknote />}
+                label="Marge brute"
+                value={`${Number(data.finance.grossMargin).toLocaleString(getRuntimeLocale())} ${data.period.baseCurrency}`}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Kpi
+                icon={<FolderOpen />}
+                label="Dossiers actifs"
+                value={data.dossiers.active}
+              />
+              <Kpi
+                icon={<CarFront />}
+                label="Véhicules achetés"
+                value={data.vehicles.purchased}
+              />
+              <Kpi
+                icon={<CarFront />}
+                label="Véhicules en transit"
+                value={data.vehicles.inTransit}
+              />
+              <Kpi
+                icon={<CarFront />}
+                label="Véhicules en douane"
+                value={data.vehicles.inCustoms}
+              />
+              <Kpi
+                icon={<CarFront />}
+                label="Véhicules livrés ce mois"
+                value={data.vehicles.deliveredThisMonth}
+              />
+              <Kpi
                 icon={<AlertTriangle />}
-                label="Factures en retard"
-                value={data.finance.overdueInvoices}
+                label="Dossiers en retard"
+                value={data.dossiers.overdue}
+              />
+              <Kpi
+                icon={<Banknote />}
+                label="Paiements fournisseurs à effectuer"
+                value={data.finance.supplierPaymentsDue}
+              />
+              <Kpi
+                icon={<Banknote />}
+                label="Solde fournisseurs restant dû"
+                value={`${Number(data.finance.supplierOutstanding).toLocaleString(getRuntimeLocale())} DZD`}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Kpi
+                icon={<FolderOpen />}
+                label="Leads ce mois"
+                value={data.crm.leadsThisMonth}
+              />
+              <Kpi
+                icon={<FolderOpen />}
+                label="Leads qualifiés"
+                value={data.crm.qualifiedLeads}
+              />
+              <Kpi
+                icon={<FolderOpen />}
+                label="Conversion Lead → Contrat"
+                value={`${data.crm.conversionRate.toLocaleString(getRuntimeLocale(), { maximumFractionDigits: 2 })} %`}
               />
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
@@ -184,6 +270,59 @@ export default function DashboardPolished() {
                 ) : (
                   <EmptyState label="Aucun encaissement sur la période." />
                 )}
+              </ChartCard>
+            </div>
+            <div className="grid gap-6 xl:grid-cols-3">
+              <ChartCard
+                title="Marge par mois"
+                description="Marge brute mensuelle réelle"
+              >
+                {marginData.length ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <LineChart data={marginData} accessibilityLayer>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#171717"
+                        strokeWidth={3}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyState label="Aucune marge sur la période." />
+                )}
+              </ChartCard>
+              <ChartCard
+                title="Funnel Leads → Contrats"
+                description="Entonnoir CRM réel"
+              >
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={funnelData} accessibilityLayer>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#171717" radius={[5, 5, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+              <ChartCard
+                title="Véhicules par étape opérationnelle"
+                description="Répartition réelle des véhicules"
+              >
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={vehicleData} accessibilityLayer>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#171717" radius={[5, 5, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </ChartCard>
             </div>
             <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">

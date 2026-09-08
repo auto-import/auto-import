@@ -49,20 +49,28 @@ export interface ApiDashboard {
   dossiers: {
     total: number;
     active: number;
+    overdue: number;
     byStatus: Record<string, number>;
     byType: Record<string, number>;
   };
   vehicles: {
+    purchased: number;
+    inTransit: number;
+    inCustoms: number;
+    deliveredThisMonth: number;
     byStatus: Record<string, number>;
     bySource: Record<string, number>;
   };
   finance: {
+    contractsSignedThisMonth: number;
     issued: string;
     collected: string;
     outstanding: string;
     overdueInvoices: number;
     costs: string;
     grossMargin: string;
+    supplierPaymentsDue: number;
+    supplierOutstanding: string;
     conversionIssues: string[];
     trend: Array<{
       month: string;
@@ -74,10 +82,18 @@ export interface ApiDashboard {
   };
   offers: { byStatus: Record<string, number> };
   crm: {
+    leadsThisMonth: number;
     activeLeads: number;
     qualifiedLeads: number;
     appointments: number;
     conversions: number;
+    conversionRate: number;
+    funnel: {
+      leads: number;
+      qualified: number;
+      converted: number;
+      contractsSigned: number;
+    };
   };
   callCenter: { calls: number; missedCalls: number; durationSeconds: number };
   logistics: { lateShipments: number; activeCustomsFiles: number };
@@ -86,6 +102,9 @@ export interface ApiDashboard {
     overdueCallbacks: number;
     overdueInvoices: number;
     lateShipments: number;
+    supplierPaymentsDue: number;
+    blockedCustoms: number;
+    expiringDocuments: number;
     unmetDossierGates: number;
     items?: Array<{
       id: string;

@@ -55,7 +55,9 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
         create: jest.fn(),
         update: jest.fn(),
         count: jest.fn(),
+        groupBy: jest.fn(),
       },
+      organizationSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       client: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
@@ -136,6 +138,32 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   });
 
   describe('post-UAT evidence gates', () => {
+    it('counts active dossiers with the same non-archived non-terminal scope as the list', async () => {
+      prisma.dossier.count
+        .mockResolvedValueOnce(4)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(2);
+      prisma.dossier.groupBy
+        .mockResolvedValueOnce([
+          { status: 'offerSelected', _count: { id: 1 } },
+          { status: 'closed', _count: { id: 2 } },
+          { status: 'cancelled', _count: { id: 1 } },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.getStatistics(mockOrgId);
+
+      expect(result.active).toBe(1);
+      expect(prisma.dossier.count).toHaveBeenNthCalledWith(2, {
+        where: {
+          organizationId: mockOrgId,
+          archivedAt: null,
+          status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+        },
+      });
+    });
+
     it('rejects the signed-contract transition with a stable code when bytes are absent', async () => {
       jest.spyOn(service, 'findOne').mockResolvedValue({
         id: 'dos-contract',

@@ -108,14 +108,29 @@ export default function ReportsWorkspace() {
           <LoadingState />
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ["Facturé", data.finance.issued],
-                ["Encaissé", data.finance.collected],
-                ["Reste", data.finance.outstanding],
-                ["Coûts", data.finance.costs],
-                ["Marge brute", data.finance.grossMargin],
-              ].map(([label, value]) => (
+                [
+                  "Contrats signés ce mois",
+                  String(data.finance.contractsSignedThisMonth),
+                  "",
+                ],
+                [
+                  "CA encaissé",
+                  data.finance.collected,
+                  data.period.baseCurrency,
+                ],
+                [
+                  "Solde clients restant",
+                  data.finance.outstanding,
+                  data.period.baseCurrency,
+                ],
+                [
+                  "Marge brute",
+                  data.finance.grossMargin,
+                  data.period.baseCurrency,
+                ],
+              ].map(([label, value, currency]) => (
                 <section key={label} className="card">
                   <FileBarChart className="h-5 w-5 text-muted" />
                   <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted">
@@ -123,19 +138,58 @@ export default function ReportsWorkspace() {
                   </p>
                   <p className="mt-1 text-xl font-bold">
                     {Number(value).toLocaleString(getRuntimeLocale())}{" "}
-                    {data.period.baseCurrency}
+                    {currency}
                   </p>
                 </section>
               ))}
             </div>
+            <section className="card">
+              <h2 className="font-bold">Indicateurs opérationnels</h2>
+              <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+                <Stat label="Dossiers actifs" value={data.dossiers.active} />
+                <Stat
+                  label="Véhicules achetés"
+                  value={data.vehicles.purchased}
+                />
+                <Stat
+                  label="Véhicules en transit"
+                  value={data.vehicles.inTransit}
+                />
+                <Stat
+                  label="Véhicules en douane"
+                  value={data.vehicles.inCustoms}
+                />
+                <Stat
+                  label="Véhicules livrés ce mois"
+                  value={data.vehicles.deliveredThisMonth}
+                />
+                <Stat
+                  label="Dossiers en retard"
+                  value={data.dossiers.overdue}
+                />
+                <Stat
+                  label="Paiements fournisseurs à effectuer"
+                  value={data.finance.supplierPaymentsDue}
+                />
+                <div>
+                  <dt className="text-muted">Solde fournisseurs restant dû</dt>
+                  <dd className="mt-1 text-xl font-bold">
+                    {Number(data.finance.supplierOutstanding).toLocaleString(
+                      getRuntimeLocale(),
+                    )}{" "}
+                    DZD
+                  </dd>
+                </div>
+              </dl>
+            </section>
             <div className="grid gap-6 lg:grid-cols-2">
               <Distribution
-                title="Dossiers par type"
-                values={data.dossiers.byType}
+                title="Dossiers par statut"
+                values={data.dossiers.byStatus}
               />
               <Distribution
-                title="Véhicules par source"
-                values={data.vehicles.bySource}
+                title="Véhicules par étape opérationnelle"
+                values={data.vehicles.byStatus}
               />
               <Distribution
                 title="Offres par statut"
@@ -144,18 +198,55 @@ export default function ReportsWorkspace() {
               <section className="card">
                 <h2 className="font-bold">CRM et centre d’appels</h2>
                 <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
-                  <Stat label="Leads actifs" value={data.crm.activeLeads} />
+                  <Stat label="Leads ce mois" value={data.crm.leadsThisMonth} />
                   <Stat
                     label="Leads qualifiés"
                     value={data.crm.qualifiedLeads}
                   />
                   <Stat label="Conversions" value={data.crm.conversions} />
-                  <Stat label="Appels" value={data.callCenter.calls} />
+                  <Stat
+                    label="Taux Lead → Contrat"
+                    value={Number(data.crm.conversionRate.toFixed(2))}
+                  />
+                </dl>
+              </section>
+              <Distribution
+                title="Funnel Leads → Contrats"
+                values={data.crm.funnel}
+              />
+              <section className="card">
+                <h2 className="font-bold">Alertes</h2>
+                <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
+                  <Stat
+                    label="Paiements clients en retard"
+                    value={data.alerts.overdueInvoices}
+                  />
+                  <Stat
+                    label="Paiements fournisseurs à échéance"
+                    value={data.alerts.supplierPaymentsDue}
+                  />
+                  <Stat
+                    label="Expéditions en retard"
+                    value={data.alerts.lateShipments}
+                  />
+                  <Stat
+                    label="Douanes bloquées"
+                    value={data.alerts.blockedCustoms}
+                  />
+                  <Stat
+                    label="Documents expirants"
+                    value={data.alerts.expiringDocuments}
+                  />
+                  <Stat
+                    label="Tâches en retard"
+                    value={data.alerts.overdueTasks}
+                  />
                 </dl>
               </section>
             </div>
             <p className="text-xs text-muted">
-              Généré le {new Date(data.generatedAt).toLocaleString(getRuntimeLocale())} ·{" "}
+              Généré le{" "}
+              {new Date(data.generatedAt).toLocaleString(getRuntimeLocale())} ·{" "}
               {data.period.timezone}
             </p>
           </>

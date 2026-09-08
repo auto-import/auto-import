@@ -161,6 +161,33 @@ describe("OfferDetailWorkspace quotation workflow", () => {
     mocks.create.mockResolvedValue({ id: "quotation-1" });
   });
 
+  it("renders structured real offer fields instead of an empty JSON object", async () => {
+    await renderWorkspace();
+    await screen.findByText("OFF-001 · China Motors");
+    expect(screen.getByText("Marque").parentElement?.textContent).toContain(
+      "Geely",
+    );
+    expect(screen.getByText("Modèle").parentElement?.textContent).toContain(
+      "Coolray",
+    );
+    expect(screen.queryByText("{}")).toBeNull();
+  });
+
+  it("limits foreign cost selectors to USD and CNY and keeps transit in DZD", async () => {
+    await renderWorkspace();
+    await screen.findByText("OFF-001 · China Motors");
+    fireEvent.click(screen.getByRole("button", { name: "Créer un devis" }));
+    const vehicleCurrency = screen.getByLabelText("Devise du véhicule");
+    expect(
+      within(vehicleCurrency)
+        .getAllByRole("option")
+        .map((item) => item.textContent),
+    ).toEqual(["USD", "CNY"]);
+    expect(
+      screen.getByText("Devise Transit").parentElement?.textContent,
+    ).toContain("DZD");
+  });
+
   it("updates CIF/DDP immediately and submits the exact API payload", async () => {
     await openAndFillQuotation();
 

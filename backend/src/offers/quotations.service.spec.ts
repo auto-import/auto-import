@@ -30,6 +30,9 @@ describe('QuotationsService commercial publication', () => {
           ],
         }),
       },
+      chinaOfferRevision: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'offer-revision-1' }),
+      },
       exchangeRate: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'rate-1',
@@ -83,7 +86,7 @@ describe('QuotationsService commercial publication', () => {
       insuranceCurrency: 'USD',
       customsAmount: 1_000,
       transitAmount: 200,
-      transitCurrency: 'USD',
+      transitCurrency: 'DZD',
       sellingPriceDzd: 2_000_000,
       otherCosts: [
         { amount: 500, currency: 'USD', description: 'Manutention' },
@@ -109,8 +112,8 @@ describe('QuotationsService commercial publication', () => {
         otherCostsAmount: new Prisma.Decimal(70_000),
         finalCustomerPrice: new Prisma.Decimal(2_000_000),
         finalCustomerPriceDzd: new Prisma.Decimal(2_000_000),
-        estimatedTotalCostDzd: new Prisma.Decimal(1_540_000),
-        estimatedProfitDzd: new Prisma.Decimal(460_000),
+        estimatedTotalCostDzd: new Prisma.Decimal(1_512_200),
+        estimatedProfitDzd: new Prisma.Decimal(487_800),
         exchangeRateSnapshot: new Prisma.Decimal(140),
         costItems: {
           create: [
@@ -228,7 +231,7 @@ describe('QuotationsService commercial publication', () => {
       insuranceCurrency: 'USD',
       customsAmount: 1_000,
       transitAmount: 200,
-      transitCurrency: 'USD',
+      transitCurrency: 'DZD',
       sellingPriceDzd: 3_000_000,
       otherCosts: [
         { amount: 500, currency: 'USD', description: 'Manutention' },
@@ -262,5 +265,41 @@ describe('QuotationsService commercial publication', () => {
       }),
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns the previously generic P2028 transaction timeout into a controlled response', async () => {
+    const prismaError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction already closed: timeout',
+      { code: 'P2028', clientVersion: '6-test' },
+    );
+    const prisma = { $transaction: jest.fn().mockRejectedValue(prismaError) };
+    const service = new QuotationsService(prisma as never, pricing());
+
+    await expect(
+      service.create('org-1', 'user-1', {
+        sourceOfferId: 'offer-1',
+        priceBasis: 'CIF',
+        vehicleAmount: 8_000,
+        vehicleCurrency: 'USD',
+        containerPrice: 0,
+        containerCurrency: 'USD',
+        containerAllocation: 3,
+        insuranceAmount: 0,
+        insuranceCurrency: 'USD',
+        customsAmount: 0,
+        transitAmount: 0,
+        transitCurrency: 'DZD',
+        sellingPriceDzd: 2_000_000,
+      }),
+    ).rejects.toMatchObject({
+      status: 503,
+      response: expect.objectContaining({
+        code: 'QUOTATION_TRANSACTION_TIMEOUT',
+      }),
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ timeout: 30_000, maxWait: 10_000 }),
+    );
   });
 });

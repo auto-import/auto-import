@@ -23,6 +23,7 @@ import { CostsService } from '../finance/costs.service';
 import { FinanceProjectionService } from '../finance/finance-projection.service';
 import { DossierStatisticsDto } from './dto/dossier-statistics.dto';
 import { dossierCreatedRange } from '../common/helpers/zoned-date-range.helper';
+import { activeDossierWhere } from './dossier-scope';
 
 @Injectable()
 export class DossiersService {
@@ -221,8 +222,7 @@ export class DossiersService {
       let commercialQuotationId: string | undefined;
       let commercialQuotationRevisionId: string | undefined;
       let cataloguePricing:
-        | { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal }
-        | undefined;
+        { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal } | undefined;
       if (catalogueItemId) {
         if (dossierType === DossierType.SHIPPING_ONLY) {
           throw new ConflictException(
@@ -624,6 +624,7 @@ export class DossiersService {
         : filters?.includeArchived
           ? {}
           : { archivedAt: null }),
+      ...(filters?.activeOnly ? activeDossierWhere(organizationId) : {}),
     };
 
     if (filters?.type) where.type = filters.type;
@@ -1228,8 +1229,7 @@ export class DossiersService {
           closedAt: isClosing ? new Date() : undefined,
           archivedAt:
             status === DossierStatus.CANCELLED ? new Date() : undefined,
-          archivedById:
-            status === DossierStatus.CANCELLED ? userId : undefined,
+          archivedById: status === DossierStatus.CANCELLED ? userId : undefined,
           archiveReason:
             status === DossierStatus.CANCELLED
               ? updateStatusDto.comment || 'Dossier annulé'
@@ -1712,137 +1712,136 @@ export class DossiersService {
         "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
       );
     }
-    await this.prisma.$transaction(async (tx) => {
-      const conflictInTransaction = vehicleIds.length
-        ? await tx.dossierVehicle.findFirst({
-            where: {
-              vehicleId: { in: vehicleIds },
-              dossierId: { not: id },
-              dossier: {
-                organizationId,
-                archivedAt: null,
-                status: {
-                  notIn: [
-                    DossierStatus.CLOSED,
-                    DossierStatus.SERVICE_COMPLETED,
-                    DossierStatus.CANCELLED,
-                  ],
+    await this.prisma.$transaction(
+      async (tx) => {
+        const conflictInTransaction = vehicleIds.length
+          ? await tx.dossierVehicle.findFirst({
+              where: {
+                vehicleId: { in: vehicleIds },
+                dossierId: { not: id },
+                dossier: {
+                  organizationId,
+                  archivedAt: null,
+                  status: {
+                    notIn: [
+                      DossierStatus.CLOSED,
+                      DossierStatus.SERVICE_COMPLETED,
+                      DossierStatus.CANCELLED,
+                    ],
+                  },
                 },
               },
-            },
-          })
-        : null;
-      if (conflictInTransaction) {
-        throw new ConflictException(
-          'Ce dossier ne peut pas être restauré car un véhicule est déjà affecté à un autre dossier actif.',
-        );
-      }
-      if (offerReservation?.status === 'released') {
-        const currentOffer = await tx.chinaOffer.findUniqueOrThrow({
-          where: { id: offerReservation.offerId },
-        });
-        if (
-          currentOffer.archivedAt ||
-          currentOffer.validUntil <= new Date() ||
-          currentOffer.availableQuantity - currentOffer.reservedQuantity <
-            offerReservation.quantity
-        ) {
+            })
+          : null;
+        if (conflictInTransaction) {
           throw new ConflictException(
-            "Ce dossier ne peut pas être restauré car l'offre Chine n'est plus disponible.",
+            'Ce dossier ne peut pas être restauré car un véhicule est déjà affecté à un autre dossier actif.',
           );
         }
-      }
-      if (dossier.catalogueItem) {
-        const reservedCatalogue = await tx.$executeRaw`
+        if (offerReservation?.status === 'released') {
+          const currentOffer = await tx.chinaOffer.findUniqueOrThrow({
+            where: { id: offerReservation.offerId },
+          });
+          if (
+            currentOffer.archivedAt ||
+            currentOffer.validUntil <= new Date() ||
+            currentOffer.availableQuantity - currentOffer.reservedQuantity <
+              offerReservation.quantity
+          ) {
+            throw new ConflictException(
+              "Ce dossier ne peut pas être restauré car l'offre Chine n'est plus disponible.",
+            );
+          }
+        }
+        if (dossier.catalogueItem) {
+          const reservedCatalogue = await tx.$executeRaw`
           UPDATE "CatalogueItem"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${dossier.catalogueItem.id}
             AND "organizationId" = ${organizationId}
             AND "archivedAt" IS NULL
             AND "reservedQuantity" + 1 <= "availableQuantity"`;
-        if (reservedCatalogue !== 1) {
-          throw new ConflictException(
-            "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
-          );
-        }
-        const reservedOfferVehicle = await tx.$executeRaw`
+          if (reservedCatalogue !== 1) {
+            throw new ConflictException(
+              "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
+            );
+          }
+          const reservedOfferVehicle = await tx.$executeRaw`
           UPDATE "ChinaOfferVehicle"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${dossier.catalogueItem.sourceOfferVehicleId}
             AND "organizationId" = ${organizationId}
             AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
-        if (reservedOfferVehicle !== 1) {
-          throw new ConflictException(
-            "Ce dossier ne peut pas être restauré car la quantité de l'offre n'est plus disponible.",
-          );
+          if (reservedOfferVehicle !== 1) {
+            throw new ConflictException(
+              "Ce dossier ne peut pas être restauré car la quantité de l'offre n'est plus disponible.",
+            );
+          }
+          await tx.chinaOffer.update({
+            where: { id: dossier.catalogueItem.sourceOfferVehicle.offerId },
+            data: { reservedQuantity: { increment: 1 } },
+          });
         }
-        await tx.chinaOffer.update({
-          where: { id: dossier.catalogueItem.sourceOfferVehicle.offerId },
-          data: { reservedQuantity: { increment: 1 } },
-        });
-      }
-      await tx.dossier.update({
-        where: { id },
-        data: {
-          status: restoredStatus,
-          archivedAt: null,
-          archivedById: null,
-          archiveReason: null,
-          closedAt: null,
-        },
-      });
-      await tx.vehicle.updateMany({
-        where: {
-          id: { in: vehicleIds },
-          organizationId,
-          status: VehicleStatus.AVAILABLE,
-        },
-        data: { status: VehicleStatus.RESERVED },
-      });
-      if (offerReservation?.status === 'released') {
-        await tx.offerReservation.update({
-          where: { id: offerReservation.id },
+        await tx.dossier.update({
+          where: { id },
           data: {
-            status: 'active',
-            releasedAt: null,
-            releaseReason: null,
+            status: restoredStatus,
+            archivedAt: null,
+            archivedById: null,
+            archiveReason: null,
+            closedAt: null,
           },
         });
-        await tx.chinaOffer.update({
-          where: { id: offerReservation.offerId },
+        await tx.vehicle.updateMany({
+          where: {
+            id: { in: vehicleIds },
+            organizationId,
+            status: VehicleStatus.AVAILABLE,
+          },
+          data: { status: VehicleStatus.RESERVED },
+        });
+        if (offerReservation?.status === 'released') {
+          await tx.offerReservation.update({
+            where: { id: offerReservation.id },
+            data: {
+              status: 'active',
+              releasedAt: null,
+              releaseReason: null,
+            },
+          });
+          await tx.chinaOffer.update({
+            where: { id: offerReservation.offerId },
+            data: {
+              reservedQuantity: { increment: offerReservation.quantity },
+            },
+          });
+        }
+        await tx.dossierStatusHistory.create({
           data: {
-            reservedQuantity: { increment: offerReservation.quantity },
+            dossierId: id,
+            fromStatus: DossierStatus.CANCELLED,
+            toStatus: restoredStatus,
+            changedBy: actorId,
+            comment: 'Dossier restauré depuis les archives',
           },
         });
-      }
-      await tx.dossierStatusHistory.create({
-        data: {
-          dossierId: id,
-          fromStatus: DossierStatus.CANCELLED,
-          toStatus: restoredStatus,
-          changedBy: actorId,
-          comment: 'Dossier restauré depuis les archives',
-        },
-      });
-      await tx.auditLog.create({
-        data: {
-          organizationId,
-          userId: actorId,
-          action: 'DOSSIER_RESTORED',
-          entityType: 'Dossier',
-          entityId: id,
-          newValues: { restoredStatus },
-        },
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId: actorId,
+            action: 'DOSSIER_RESTORED',
+            entityType: 'Dossier',
+            entityId: id,
+            newValues: { restoredStatus },
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     return this.findOne(id, organizationId);
   }
 
-  async permanentlyDelete(
-    id: string,
-    organizationId: string,
-    actorId: string,
-  ) {
+  async permanentlyDelete(id: string, organizationId: string, actorId: string) {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id, organizationId },
       select: {
@@ -1883,8 +1882,9 @@ export class DossiersService {
       );
     }
     const hasRelations =
-      Boolean(dossier.orderId || dossier.vehicleRequestId || dossier.offerReservation) ||
-      Object.values(dossier._count).some((count) => count > 0);
+      Boolean(
+        dossier.orderId || dossier.vehicleRequestId || dossier.offerReservation,
+      ) || Object.values(dossier._count).some((count) => count > 0);
     if (hasRelations) {
       throw new ConflictException(
         'Ce dossier contient des données financières, des documents ou un historique métier lié et ne peut pas être supprimé définitivement.',
@@ -1923,31 +1923,34 @@ export class DossiersService {
       query.from,
       query.to,
     );
-    const [total, active, archived, created, statuses, types] = await Promise.all([
-      this.prisma.dossier.count({ where: { organizationId } }),
-      this.prisma.dossier.count({ where: { organizationId, archivedAt: null } }),
-      this.prisma.dossier.count({
-        where: { organizationId, archivedAt: { not: null } },
-      }),
-      this.prisma.dossier.count({
-        where: {
-          organizationId,
-          createdAt: { gte: range.from, lt: range.toExclusive },
-        },
-      }),
-      this.prisma.dossier.groupBy({
-        by: ['status'],
-        where: { organizationId },
-        orderBy: { status: 'asc' },
-        _count: { id: true },
-      }),
-      this.prisma.dossier.groupBy({
-        by: ['type'],
-        where: { organizationId },
-        orderBy: { type: 'asc' },
-        _count: { id: true },
-      }),
-    ]);
+    const [total, active, archived, created, statuses, types] =
+      await Promise.all([
+        this.prisma.dossier.count({ where: { organizationId } }),
+        this.prisma.dossier.count({
+          where: activeDossierWhere(organizationId),
+        }),
+        this.prisma.dossier.count({
+          where: { organizationId, archivedAt: { not: null } },
+        }),
+        this.prisma.dossier.count({
+          where: {
+            organizationId,
+            createdAt: { gte: range.from, lt: range.toExclusive },
+          },
+        }),
+        this.prisma.dossier.groupBy({
+          by: ['status'],
+          where: { organizationId },
+          orderBy: { status: 'asc' },
+          _count: { id: true },
+        }),
+        this.prisma.dossier.groupBy({
+          by: ['type'],
+          where: { organizationId },
+          orderBy: { type: 'asc' },
+          _count: { id: true },
+        }),
+      ]);
 
     const byStatus = Object.fromEntries(
       statuses.map((entry) => [entry.status, entry._count.id]),

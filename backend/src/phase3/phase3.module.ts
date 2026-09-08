@@ -12,6 +12,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsGateway } from './notifications.gateway';
+import { ErpKpiService } from './erp-kpi.service';
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { NotificationsGateway } from './notifications.gateway';
     ReportsController,
     SettingsController,
   ],
-  providers: [Phase3Service, NotificationsGateway],
+  providers: [Phase3Service, ErpKpiService, NotificationsGateway],
   exports: [Phase3Service, NotificationsGateway],
 })
 export class Phase3Module {}

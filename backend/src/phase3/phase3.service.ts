@@ -23,8 +23,9 @@ import { Optional } from '@nestjs/common';
 import { NotificationsGateway } from './notifications.gateway';
 import PDFDocument from 'pdfkit';
 import * as fs from 'node:fs';
+import { ErpKpiService } from './erp-kpi.service';
+import { TERMINAL_DOSSIER_STATUSES } from '../dossiers/dossier-scope';
 
-const ACTIVE_DOSSIER_STATUSES = ['closed', 'serviceCompleted', 'cancelled'];
 const OPEN_TASK_STATUSES = ['todo', 'in_progress'];
 
 @Injectable()
@@ -32,6 +33,7 @@ export class Phase3Service {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly realtime?: NotificationsGateway,
+    @Optional() private readonly erpKpis?: ErpKpiService,
   ) {}
 
   private page<T>(items: T[], total: number, page: number, limit: number) {
@@ -570,6 +572,15 @@ export class Phase3Service {
   async dashboard(user: AuthenticatedUser, query: DateRangeDto) {
     const { from, to } = this.range(query);
     const organizationId = user.organizationId;
+    const dashboardSettings = await this.getSettings(user);
+    if (this.erpKpis) {
+      return this.erpKpis.build(organizationId, {
+        from,
+        to,
+        timezone: query.timezone ?? dashboardSettings.timezone,
+        baseCurrency: dashboardSettings.baseCurrency,
+      });
+    }
     const [
       settings,
       dossierTotal,
@@ -602,7 +613,11 @@ export class Phase3Service {
         where: { organizationId, openedAt: { gte: from, lte: to } },
       }),
       this.prisma.dossier.count({
-        where: { organizationId, status: { notIn: ACTIVE_DOSSIER_STATUSES } },
+        where: {
+          organizationId,
+          archivedAt: null,
+          status: { notIn: [...TERMINAL_DOSSIER_STATUSES] },
+        },
       }),
       this.prisma.dossier.groupBy({
         by: ['status'],
@@ -821,13 +836,13 @@ export class Phase3Service {
     };
     for (const invoice of invoices) {
       if (invoice.issueDate && invoice.currency === baseCurrency) {
-        const bucket = trendBucket(invoice.issueDate);
+        const bucket = trendBucket(invoice.issueDate!);
         bucket.revenue = bucket.revenue.add(invoice.total);
       }
     }
     for (const payment of payments) {
       if (payment.confirmedAt) {
-        const bucket = trendBucket(payment.confirmedAt);
+        const bucket = trendBucket(payment.confirmedAt!);
         bucket.collections = bucket.collections.add(convertPayment(payment));
       }
     }
@@ -926,7 +941,9 @@ export class Phase3Service {
   }
 
   async reportSummary(user: AuthenticatedUser, query: DateRangeDto) {
-    const dashboard = await this.dashboard(user, query);
+    const dashboard = (await this.dashboard(user, query)) as Awaited<
+      ReturnType<ErpKpiService['build']>
+    >;
     const { from, to } = this.range(query);
     const organizationId = user.organizationId;
     const [
@@ -1130,6 +1147,10 @@ export class Phase3Service {
             dossiersType: 'Dossiers by type',
             vehiclesStatus: 'Vehicles by status',
             offersStatus: 'Offers by status',
+            operations: 'Operational indicators',
+            sales: 'Sales indicators',
+            alerts: 'Alerts',
+            funnel: 'Leads to contracts funnel',
             page: 'Page',
           }
         : {
@@ -1150,6 +1171,10 @@ export class Phase3Service {
             dossiersType: 'Dossiers par type',
             vehiclesStatus: 'Véhicules par statut',
             offersStatus: 'Offres par statut',
+            operations: 'Indicateurs opérationnels',
+            sales: 'Indicateurs commerciaux',
+            alerts: 'Alertes',
+            funnel: 'Funnel Leads vers Contrats',
             page: 'Page',
           };
     const [report, settings] = await Promise.all([
@@ -1227,12 +1252,39 @@ export class Phase3Service {
     document.fillColor('#111111');
     heading(copy.finance);
     [
-      [copy.issued, money(report.finance.issued)],
+      [
+        'Contrats signés ce mois',
+        String(report.finance.contractsSignedThisMonth),
+      ],
       [copy.collected, money(report.finance.collected)],
       [copy.outstanding, money(report.finance.outstanding)],
-      [copy.overdue, String(report.finance.overdueInvoices)],
-      [copy.costs, money(report.finance.costs)],
       [copy.margin, money(report.finance.grossMargin)],
+    ].forEach(([label, value], index) => row(label, value, index % 2 === 1));
+    heading(copy.operations);
+    [
+      ['Dossiers actifs', String(report.dossiers.active)],
+      ['Véhicules achetés', String(report.vehicles.purchased)],
+      ['Véhicules en transit', String(report.vehicles.inTransit)],
+      ['Véhicules en douane', String(report.vehicles.inCustoms)],
+      ['Véhicules livrés ce mois', String(report.vehicles.deliveredThisMonth)],
+      ['Dossiers en retard', String(report.dossiers.overdue)],
+      [
+        'Paiements fournisseurs à effectuer',
+        String(report.finance.supplierPaymentsDue),
+      ],
+      [
+        'Solde fournisseurs restant dû',
+        money(report.finance.supplierOutstanding),
+      ],
+    ].forEach(([label, value], index) => row(label, value, index % 2 === 1));
+    heading(copy.sales);
+    [
+      ['Leads ce mois', String(report.crm.leadsThisMonth)],
+      ['Leads qualifiés', String(report.crm.qualifiedLeads)],
+      [
+        'Taux conversion Lead vers Contrat',
+        `${report.crm.conversionRate.toFixed(2)} %`,
+      ],
     ].forEach(([label, value], index) => row(label, value, index % 2 === 1));
     const distribution = (title: string, values: Record<string, number>) => {
       heading(title);
@@ -1246,6 +1298,27 @@ export class Phase3Service {
     distribution(copy.dossiersType, report.dossiers.byType);
     distribution(copy.vehiclesStatus, report.vehicles.byStatus);
     distribution(copy.offersStatus, report.offers.byStatus);
+    distribution(copy.funnel, report.crm.funnel);
+    heading('CA encaissé et marge par mois');
+    if (!report.finance.trend.length) row(copy.none, '0');
+    report.finance.trend.forEach((item, index) =>
+      row(
+        item.month,
+        `${money(item.collections)} · marge ${money(item.grossMargin)}`,
+        index % 2 === 1,
+      ),
+    );
+    heading(copy.alerts);
+    [
+      ['Paiements clients en retard', report.alerts.overdueInvoices],
+      ['Paiements fournisseurs à échéance', report.alerts.supplierPaymentsDue],
+      ['Expéditions en retard', report.alerts.lateShipments],
+      ['Dossiers douane bloqués', report.alerts.blockedCustoms],
+      ['Documents expirants', report.alerts.expiringDocuments],
+      ['Tâches en retard', report.alerts.overdueTasks],
+    ].forEach(([label, value], index) =>
+      row(String(label), String(value), index % 2 === 1),
+    );
     const range = document.bufferedPageRange();
     for (
       let index = range.start;

@@ -21,8 +21,17 @@ export class ExchangeRatesService {
     userId: string,
     dto: CreateExchangeRateDto,
   ) {
+    const baseCurrency = dto.baseCurrency.trim().toUpperCase();
+    const quoteCurrency = dto.quoteCurrency.trim().toUpperCase();
+    if (!['USD', 'CNY'].includes(baseCurrency) || quoteCurrency !== 'DZD') {
+      throw new BadRequestException(
+        'Seuls les taux USD vers DZD et CNY vers DZD sont autorisés.',
+      );
+    }
     if (dto.rate <= 0) {
-      throw new BadRequestException('Exchange rate must be positive');
+      throw new BadRequestException(
+        'Le taux de change doit être strictement positif.',
+      );
     }
 
     const effectiveAt = dto.effectiveAt
@@ -32,8 +41,8 @@ export class ExchangeRatesService {
     const rate = await this.prisma.exchangeRate.create({
       data: {
         organizationId,
-        baseCurrency: dto.baseCurrency.toUpperCase(),
-        quoteCurrency: dto.quoteCurrency.toUpperCase(),
+        baseCurrency,
+        quoteCurrency,
         rate: new Prisma.Decimal(dto.rate),
         isActive: dto.isActive ?? true,
         effectiveAt,
@@ -96,9 +105,9 @@ export class ExchangeRatesService {
     if (currency === 'DZD') {
       return { exchangeRateId: null, rate: new Prisma.Decimal(1) };
     }
-    if (!/^[A-Z]{3}$/.test(currency)) {
+    if (!['USD', 'CNY'].includes(currency)) {
       throw new BadRequestException(
-        `Devise non prise en charge : ${currency}.`,
+        `Devise non prise en charge : ${currency}. Utilisez USD ou CNY.`,
       );
     }
 
@@ -150,6 +159,7 @@ export class ExchangeRatesService {
     const rows = await tx.exchangeRate.findMany({
       where: {
         organizationId,
+        baseCurrency: { in: ['USD', 'CNY'] },
         quoteCurrency: 'DZD',
         isActive: true,
         effectiveAt: { lte: atDate },

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 import { Prisma } from '@prisma/client';
 import { CatalogueService } from './catalogue.service';
 
@@ -131,5 +131,11 @@ describe('CatalogueService quotation projection', () => {
         }),
       }),
     );
+    const sourceOfferFilter =
+      findMany.mock.calls[0][0].where.AND[1].sourceOfferVehicle.offer;
+    expect(sourceOfferFilter).not.toHaveProperty('validUntil');
+    expect(
+      findMany.mock.calls[0][0].where.AND[0].OR[0].activeCifQuotation.is.OR,
+    ).toEqual([{ expiresAt: null }, { expiresAt: { gte: expect.any(Date) } }]);
   });
 });

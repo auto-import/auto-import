@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { paginate } from '../common/helpers/pagination.helper';
@@ -23,6 +25,10 @@ const TRANSITIONS: Record<string, readonly string[]> = {
   REJECTED: [],
   EXPIRED: [],
 };
+
+type CreatedQuotation = Prisma.CustomerQuotationGetPayload<{
+  include: { currentRevision: { include: { costItems: true } } };
+}>;
 
 @Injectable()
 export class QuotationsService {
@@ -170,225 +176,294 @@ export class QuotationsService {
     organizationId: string,
     userId: string,
     dto: CreateQuotationDto,
-  ) {
+    attempt = 0,
+  ): Promise<CreatedQuotation> {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const now = new Date();
-        const offer = await tx.chinaOffer.findFirst({
-          where: {
-            id: dto.sourceOfferId,
-            organizationId,
-            archivedAt: null,
-            validUntil: { gte: now },
-          },
-          include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
-        });
-        if (!offer)
-          throw new NotFoundException('Offre Chine active introuvable.');
-        const sourceVehicle = dto.sourceOfferVehicleId
-          ? offer.vehicles.find(
-              (vehicle) => vehicle.id === dto.sourceOfferVehicleId,
-            )
-          : offer.vehicles[0];
-        if (!sourceVehicle) {
-          throw new NotFoundException("Véhicule de l'offre introuvable.");
-        }
-        if (
-          ['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(
-            sourceVehicle.status,
-          ) ||
-          sourceVehicle.purchasedQuantity >= sourceVehicle.quantity
-        ) {
-          throw new ConflictException(
-            "Ce véhicule de l'offre n'est plus commercialisable.",
-          );
-        }
-        const normalized = this.normalizeCurrencies(dto);
-        let sourceOfferRevisionId = offer.currentRevisionId;
-        if (!sourceOfferRevisionId) {
-          const latest = await tx.chinaOfferRevision.aggregate({
-            where: { offerId: offer.id },
-            _max: { revisionNumber: true },
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const now = new Date();
+          const offer = await tx.chinaOffer.findFirst({
+            where: {
+              id: dto.sourceOfferId,
+              organizationId,
+              archivedAt: null,
+            },
+            include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
           });
-          const revision = await tx.chinaOfferRevision.create({
+          if (!offer) throw new NotFoundException('Offre Chine introuvable.');
+          if (offer.validUntil < now) {
+            throw new ConflictException(
+              "L'offre Chine a expiré. Renouvelez sa validité avant de créer un devis.",
+            );
+          }
+          const sourceVehicle = dto.sourceOfferVehicleId
+            ? offer.vehicles.find(
+                (vehicle) => vehicle.id === dto.sourceOfferVehicleId,
+              )
+            : offer.vehicles[0];
+          if (!sourceVehicle) {
+            throw new NotFoundException("Véhicule de l'offre introuvable.");
+          }
+          if (
+            ['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(
+              sourceVehicle.status,
+            ) ||
+            sourceVehicle.purchasedQuantity >= sourceVehicle.quantity
+          ) {
+            throw new ConflictException(
+              "Ce véhicule de l'offre n'est plus commercialisable.",
+            );
+          }
+          const normalized = this.normalizeCurrencies(dto);
+          let sourceOfferRevisionId = offer.currentRevisionId;
+          if (sourceOfferRevisionId) {
+            const sourceRevision = await tx.chinaOfferRevision.findFirst({
+              where: {
+                id: sourceOfferRevisionId,
+                offerId: offer.id,
+                organizationId,
+              },
+              select: { id: true },
+            });
+            if (!sourceRevision) {
+              throw new ConflictException(
+                "La révision tarifaire active de l'offre est invalide. Révisez l'offre avant de créer le devis.",
+              );
+            }
+          }
+          if (!sourceOfferRevisionId) {
+            const latest = await tx.chinaOfferRevision.aggregate({
+              where: { offerId: offer.id },
+              _max: { revisionNumber: true },
+            });
+            const revision = await tx.chinaOfferRevision.create({
+              data: {
+                organizationId,
+                offerId: offer.id,
+                revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
+                supplierPrice:
+                  offer.supplierPrice ??
+                  offer.purchasePrice ??
+                  sourceVehicle.supplierPrice,
+                currency: offer.currency,
+                incoterm: offer.incoterm,
+                localCost: offer.localCost,
+                totalOfferPrice:
+                  offer.totalOfferPrice ??
+                  offer.supplierPrice ??
+                  offer.purchasePrice,
+                location: offer.location,
+                quantity: offer.availableQuantity,
+                leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
+                validFrom: offer.validFrom,
+                validUntil: offer.validUntil,
+                paymentConditions: offer.paymentConditions,
+                snapshot: {
+                  brand: offer.brand,
+                  model: offer.model,
+                  version: offer.version,
+                  year: offer.year,
+                  condition: offer.condition,
+                  mileage: offer.mileage,
+                  specification: offer.specification,
+                },
+                reason: 'Base historique créée lors du premier devis',
+                createdBy: userId,
+              },
+            });
+            sourceOfferRevisionId = revision.id;
+            await tx.chinaOffer.update({
+              where: { id: offer.id },
+              data: { currentRevisionId: sourceOfferRevisionId },
+            });
+          }
+          const rates = await this.pricing.resolveRequiredRates(
+            tx,
+            organizationId,
+            normalized,
+            now,
+          );
+          const calculated = this.pricing.calculate(
+            dto.priceBasis,
+            normalized,
+            rates,
+          );
+
+          const quotation = await tx.customerQuotation.create({
             data: {
               organizationId,
-              offerId: offer.id,
-              revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
-              supplierPrice:
-                offer.supplierPrice ??
-                offer.purchasePrice ??
-                sourceVehicle.supplierPrice,
-              currency: offer.currency,
-              incoterm: offer.incoterm,
-              localCost: offer.localCost,
-              totalOfferPrice:
-                offer.totalOfferPrice ??
-                offer.supplierPrice ??
-                offer.purchasePrice,
-              location: offer.location,
-              quantity: offer.availableQuantity,
-              leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
-              validFrom: offer.validFrom,
-              validUntil: offer.validUntil,
-              paymentConditions: offer.paymentConditions,
-              snapshot: {
-                brand: offer.brand,
-                model: offer.model,
-                version: offer.version,
-                year: offer.year,
-                condition: offer.condition,
-                mileage: offer.mileage,
-                specification: offer.specification,
-              },
-              reason: 'Base historique créée lors du premier devis',
+              quotationNumber: await this.nextNumber(tx, organizationId),
+              sourceOfferId: offer.id,
+              sourceOfferRevisionId,
+              sourceOfferVehicleId: sourceVehicle.id,
+              priceBasis: dto.priceBasis,
+              currency: 'DZD',
+              cataloguePublished: true,
+              publishedAt: now,
+              expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
               createdBy: userId,
             },
           });
-          sourceOfferRevisionId = revision.id;
-          await tx.chinaOffer.update({
-            where: { id: offer.id },
-            data: { currentRevisionId: sourceOfferRevisionId },
+          const revision = await tx.customerQuotationRevision.create({
+            data: {
+              organizationId,
+              quotationId: quotation.id,
+              revisionNumber: 1,
+              vehicleAmount: calculated.vehicle.originalAmount,
+              freightAmount: calculated.freight.originalAmount,
+              insuranceAmount: calculated.insurance.originalAmount,
+              customsAmount: calculated.customs.originalAmount,
+              transitAmount: calculated.transit.originalAmount,
+              otherCostsAmount: calculated.otherCosts.reduce(
+                (sum, cost) => sum.add(cost.amountDzd),
+                new Prisma.Decimal(0),
+              ),
+              marginAmount: 0,
+              finalCustomerPrice: calculated.sellingPriceDzd,
+              containerPrice: calculated.containerPrice,
+              containerAllocation: calculated.containerAllocation,
+              exchangeRateId: calculated.vehicle.exchangeRateId,
+              exchangeRateSnapshot: calculated.vehicle.exchangeRateUsed,
+              finalCustomerPriceDzd: calculated.sellingPriceDzd,
+              sellingPriceDzd: calculated.sellingPriceDzd,
+              estimatedCifCostDzd: calculated.estimatedCifCostDzd,
+              estimatedLandedCostDzd: calculated.estimatedLandedCostDzd,
+              estimatedTotalCostDzd: calculated.estimatedTotalCostDzd,
+              estimatedProfitDzd: calculated.estimatedProfitDzd,
+              estimatedMarginPercent: calculated.estimatedMarginPercent,
+              paymentConditions: dto.paymentConditions,
+              validityNote: dto.validityNote,
+              notes: dto.notes,
+              reason: 'Création du devis',
+              snapshot: {
+                ...this.snapshot(dto, calculated),
+                customsIncluded: dto.priceBasis === 'DDP',
+                sourceOfferPrice: String(sourceVehicle.supplierPrice),
+                sourceOfferCurrency: sourceVehicle.currency,
+              },
+              createdBy: userId,
+              costItems: {
+                create: calculated.costs.map((cost, index) => ({
+                  organizationId,
+                  costType: cost.costType,
+                  costStatus: 'ESTIMATED',
+                  description: cost.description,
+                  originalAmount: cost.originalAmount,
+                  currency: cost.currency,
+                  exchangeRateId: cost.exchangeRateId,
+                  exchangeRateUsed: cost.exchangeRateUsed,
+                  amountDzd: cost.amountDzd,
+                  sortOrder: index + 1,
+                })),
+              },
+            },
           });
-        }
-        const rates = await this.pricing.resolveRequiredRates(
-          tx,
-          organizationId,
-          normalized,
-          now,
-        );
-        const calculated = this.pricing.calculate(
-          dto.priceBasis,
-          normalized,
-          rates,
-        );
-
-        const quotation = await tx.customerQuotation.create({
-          data: {
-            organizationId,
-            quotationNumber: await this.nextNumber(tx, organizationId),
-            sourceOfferId: offer.id,
-            sourceOfferRevisionId,
-            sourceOfferVehicleId: sourceVehicle.id,
-            priceBasis: dto.priceBasis,
-            currency: 'DZD',
-            cataloguePublished: true,
-            publishedAt: now,
-            expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-            createdBy: userId,
-          },
-        });
-        const revision = await tx.customerQuotationRevision.create({
-          data: {
-            organizationId,
-            quotationId: quotation.id,
-            revisionNumber: 1,
-            vehicleAmount: calculated.vehicle.originalAmount,
-            freightAmount: calculated.freight.originalAmount,
-            insuranceAmount: calculated.insurance.originalAmount,
-            customsAmount: calculated.customs.originalAmount,
-            transitAmount: calculated.transit.originalAmount,
-            otherCostsAmount: calculated.otherCosts.reduce(
-              (sum, cost) => sum.add(cost.amountDzd),
-              new Prisma.Decimal(0),
-            ),
-            marginAmount: 0,
-            finalCustomerPrice: calculated.sellingPriceDzd,
-            containerPrice: calculated.containerPrice,
-            containerAllocation: calculated.containerAllocation,
-            exchangeRateId: calculated.vehicle.exchangeRateId,
-            exchangeRateSnapshot: calculated.vehicle.exchangeRateUsed,
-            finalCustomerPriceDzd: calculated.sellingPriceDzd,
-            sellingPriceDzd: calculated.sellingPriceDzd,
-            estimatedCifCostDzd: calculated.estimatedCifCostDzd,
-            estimatedLandedCostDzd: calculated.estimatedLandedCostDzd,
-            estimatedTotalCostDzd: calculated.estimatedTotalCostDzd,
-            estimatedProfitDzd: calculated.estimatedProfitDzd,
-            estimatedMarginPercent: calculated.estimatedMarginPercent,
-            paymentConditions: dto.paymentConditions,
-            validityNote: dto.validityNote,
-            notes: dto.notes,
-            reason: 'Création du devis',
-            snapshot: {
-              ...this.snapshot(dto, calculated),
-              customsIncluded: dto.priceBasis === 'DDP',
-              sourceOfferPrice: String(sourceVehicle.supplierPrice),
-              sourceOfferCurrency: sourceVehicle.currency,
-            },
-            createdBy: userId,
-            costItems: {
-              create: calculated.costs.map((cost, index) => ({
-                organizationId,
-                costType: cost.costType,
-                costStatus: 'ESTIMATED',
-                description: cost.description,
-                originalAmount: cost.originalAmount,
-                currency: cost.currency,
-                exchangeRateId: cost.exchangeRateId,
-                exchangeRateUsed: cost.exchangeRateUsed,
-                amountDzd: cost.amountDzd,
-                sortOrder: index + 1,
-              })),
-            },
-          },
-        });
-        const updated = await tx.customerQuotation.update({
-          where: { id: quotation.id },
-          data: { currentRevisionId: revision.id },
-          include: { currentRevision: { include: { costItems: true } } },
-        });
-        const existingCatalogueItem = await tx.catalogueItem.findUnique({
-          where: { sourceOfferVehicleId: sourceVehicle.id },
-        });
-        const availableQuantity = Math.max(
-          existingCatalogueItem?.reservedQuantity ?? 0,
-          sourceVehicle.quantity - sourceVehicle.purchasedQuantity,
-        );
-        await tx.catalogueItem.upsert({
-          where: { sourceOfferVehicleId: sourceVehicle.id },
-          create: {
-            organizationId,
-            sourceOfferVehicleId: sourceVehicle.id,
-            availableQuantity,
-            publishedAt: now,
-            ...(dto.priceBasis === 'CIF'
-              ? { activeCifQuotationId: quotation.id }
-              : { activeDdpQuotationId: quotation.id }),
-          },
-          update: {
-            availableQuantity,
-            archivedAt: null,
-            publishedAt: now,
-            ...(dto.priceBasis === 'CIF'
-              ? { activeCifQuotationId: quotation.id }
-              : { activeDdpQuotationId: quotation.id }),
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            organizationId,
-            userId,
-            action: 'CUSTOMER_QUOTATION_CREATED',
-            entityType: 'CustomerQuotation',
-            entityId: updated.id,
-            newValues: {
-              sourceOfferId: offer.id,
+          const updated = await tx.customerQuotation.update({
+            where: { id: quotation.id },
+            data: { currentRevisionId: revision.id },
+            include: { currentRevision: { include: { costItems: true } } },
+          });
+          const existingCatalogueItem = await tx.catalogueItem.findUnique({
+            where: { sourceOfferVehicleId: sourceVehicle.id },
+          });
+          const availableQuantity = Math.max(
+            existingCatalogueItem?.reservedQuantity ?? 0,
+            sourceVehicle.quantity - sourceVehicle.purchasedQuantity,
+          );
+          await tx.catalogueItem.upsert({
+            where: { sourceOfferVehicleId: sourceVehicle.id },
+            create: {
+              organizationId,
               sourceOfferVehicleId: sourceVehicle.id,
-              priceBasis: dto.priceBasis,
-              sellingPriceDzd: calculated.sellingPriceDzd.toString(),
-              estimatedTotalCostDzd:
-                calculated.estimatedTotalCostDzd.toString(),
-              estimatedProfitDzd: calculated.estimatedProfitDzd.toString(),
+              availableQuantity,
+              publishedAt: now,
+              ...(dto.priceBasis === 'CIF'
+                ? { activeCifQuotationId: quotation.id }
+                : { activeDdpQuotationId: quotation.id }),
             },
-          },
-        });
-        return updated;
-      });
+            update: {
+              availableQuantity,
+              archivedAt: null,
+              publishedAt: now,
+              ...(dto.priceBasis === 'CIF'
+                ? { activeCifQuotationId: quotation.id }
+                : { activeDdpQuotationId: quotation.id }),
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              organizationId,
+              userId,
+              action: 'CUSTOMER_QUOTATION_CREATED',
+              entityType: 'CustomerQuotation',
+              entityId: updated.id,
+              newValues: {
+                sourceOfferId: offer.id,
+                sourceOfferVehicleId: sourceVehicle.id,
+                priceBasis: dto.priceBasis,
+                sellingPriceDzd: calculated.sellingPriceDzd.toString(),
+                estimatedTotalCostDzd:
+                  calculated.estimatedTotalCostDzd.toString(),
+                estimatedProfitDzd: calculated.estimatedProfitDzd.toString(),
+              },
+            },
+          });
+          return updated;
+        },
+        {
+          maxWait: 10_000,
+          timeout: 30_000,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
     } catch (error) {
       this.logger.error(
         `Quotation creation failed organization=${organizationId} offer=${dto.sourceOfferId} vehicle=${dto.sourceOfferVehicleId ?? 'first'}`,
         error instanceof Error ? error.stack : String(error),
       );
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (['P2002', 'P2034'].includes(error.code) && attempt < 2) {
+          this.logger.warn(
+            `Retrying quotation creation after ${error.code} organization=${organizationId} attempt=${attempt + 2}`,
+          );
+          return this.create(organizationId, userId, dto, attempt + 1);
+        }
+        if (error.code === 'P2028') {
+          throw new ServiceUnavailableException({
+            code: 'QUOTATION_TRANSACTION_TIMEOUT',
+            message:
+              'La création du devis a dépassé le délai de traitement. Aucune donnée partielle n’a été enregistrée; veuillez réessayer.',
+          });
+        }
+        if (error.code === 'P2003') {
+          throw new ConflictException({
+            code: 'QUOTATION_RELATION_INVALID',
+            message:
+              "Le devis référence une offre, un véhicule, un taux ou une révision qui n'existe plus.",
+          });
+        }
+        if (error.code === 'P2004') {
+          throw new BadRequestException({
+            code: 'QUOTATION_CONSTRAINT_INVALID',
+            message:
+              'Les montants ou devises du devis ne respectent pas les règles financières. Vérifiez les taux Finance et les montants saisis.',
+          });
+        }
+        if (error.code === 'P2002' || error.code === 'P2034') {
+          throw new ConflictException({
+            code: 'QUOTATION_CONCURRENT_UPDATE',
+            message:
+              "L'offre a été modifiée en même temps que le devis. Veuillez relancer la création.",
+          });
+        }
+        if (error.code === 'P2021' || error.code === 'P2022') {
+          throw new ServiceUnavailableException({
+            code: 'DATABASE_SCHEMA_OUTDATED',
+            message:
+              'La base de données de production doit être migrée avant de créer un devis.',
+          });
+        }
+      }
       throw error;
     }
   }

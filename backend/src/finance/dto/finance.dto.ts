@@ -388,9 +388,11 @@ export class FilterCostsDto extends PaginationDto {
 
 export class CreateExchangeRateDto {
   @IsString()
+  @IsIn(['USD', 'CNY'])
   baseCurrency: string;
 
   @IsString()
+  @IsIn(['DZD'])
   quoteCurrency: string;
 
   @IsNumber()

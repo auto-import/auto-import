@@ -24,6 +24,14 @@ describe('Offer and quotation pricing rules', () => {
         exchangeRateUsed: new Prisma.Decimal(1),
       },
     ],
+    [
+      'CNY',
+      {
+        currency: 'CNY',
+        exchangeRateId: 'rate-cny-20',
+        exchangeRateUsed: new Prisma.Decimal(20),
+      },
+    ],
   ]);
   const amounts = {
     vehicleAmount: 10_000,
@@ -84,6 +92,22 @@ describe('Offer and quotation pricing rules', () => {
     expect(result.estimatedTotalCostDzd.toNumber()).toBe(2_247_500);
     expect(result.estimatedProfitDzd.toNumber()).toBe(352_500);
     expect(result.estimatedMarginPercent.toNumber()).toBe(13.5577);
+  });
+
+  it('calculates a CNY vehicle, freight and insurance with Decimal snapshots', () => {
+    const result = pricing.calculate(
+      'DDP',
+      {
+        ...amounts,
+        vehicleCurrency: 'CNY',
+        containerCurrency: 'CNY',
+        insuranceCurrency: 'CNY',
+      },
+      rates,
+    );
+    expect(result.vehicle.amountDzd.toString()).toBe('200000');
+    expect(result.freight.amountDzd.toString()).toBe('30000');
+    expect(result.vehicle.exchangeRateId).toBe('rate-cny-20');
   });
 
   it('verifies the required 6000/3 DDP scenario exactly', () => {

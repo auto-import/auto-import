@@ -47,6 +47,10 @@ const actionLabels: Partial<Record<ApiOfferStatus, string>> = {
   EXPIRED: "Marquer expirée",
 };
 
+const FOREIGN_CURRENCIES = ["USD", "CNY"];
+const foreignCurrency = (value?: string) =>
+  FOREIGN_CURRENCIES.includes(value ?? "") ? value! : "USD";
+
 function offerActionError(cause: unknown, fallback: string): string {
   if (cause instanceof ApiError && cause.details.length) {
     return `${cause.message} : ${cause.details.join(" · ")}`;
@@ -95,7 +99,7 @@ export default function OfferDetailWorkspace({
     paymentConditions: "",
   });
   const [otherCosts, setOtherCosts] = useState([
-    { amount: "", currency: "DZD", description: "" },
+    { amount: "", currency: "USD", description: "" },
   ]);
   const [dzdRates, setDzdRates] = useState<
     Array<{ currency: string; exchangeRateUsed: string }>
@@ -209,20 +213,7 @@ export default function OfferDetailWorkspace({
     };
   }, [authoritativePreview, quotationDraft.calculation, quotationPayloadKey]);
   const liveCalculationError = quotationDraft.errors.join(" · ");
-  const currencyOptions = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          "DZD",
-          ...dzdRates.map((rate) => rate.currency),
-          quotationForm.vehicleCurrency,
-          quotationForm.containerCurrency,
-          quotationForm.insuranceCurrency,
-          quotationForm.transitCurrency,
-        ]),
-      ).filter(Boolean),
-    [dzdRates, quotationForm],
-  );
+  const currencyOptions = FOREIGN_CURRENCIES;
 
   useEffect(() => {
     if (!showQuotation) return;
@@ -344,7 +335,7 @@ export default function OfferDetailWorkspace({
     try {
       await commerceApi.quotations.create(quotationPayload);
       setShowQuotation(false);
-      setOtherCosts([{ amount: "", currency: "DZD", description: "" }]);
+      setOtherCosts([{ amount: "", currency: "USD", description: "" }]);
       await load();
     } catch (caught) {
       setQuotationError(
@@ -458,9 +449,9 @@ export default function OfferDetailWorkspace({
                           vehicleAmount: vehicle
                             ? String(vehicle.supplierPrice)
                             : "",
-                          vehicleCurrency: vehicle?.currency ?? "DZD",
-                          containerCurrency: vehicle?.currency ?? "DZD",
-                          insuranceCurrency: vehicle?.currency ?? "DZD",
+                          vehicleCurrency: foreignCurrency(vehicle?.currency),
+                          containerCurrency: foreignCurrency(vehicle?.currency),
+                          insuranceCurrency: foreignCurrency(vehicle?.currency),
                         }));
                         setShowQuotation(true);
                       }}
@@ -558,9 +549,7 @@ export default function OfferDetailWorkspace({
                   <Package className="h-4 w-4" />
                   Spécification
                 </h2>
-                <pre className="whitespace-pre-wrap text-sm text-muted">
-                  {JSON.stringify(offer.specification, null, 2)}
-                </pre>
+                <OfferSpecification offer={offer} />
               </div>
               <div className="card p-5">
                 <h2 className="mb-3 flex items-center gap-2 font-semibold">
@@ -853,9 +842,9 @@ export default function OfferDetailWorkspace({
                       vehicleAmount: vehicle
                         ? String(vehicle.supplierPrice)
                         : "",
-                      vehicleCurrency: vehicle?.currency ?? "DZD",
-                      containerCurrency: vehicle?.currency ?? "DZD",
-                      insuranceCurrency: vehicle?.currency ?? "DZD",
+                      vehicleCurrency: foreignCurrency(vehicle?.currency),
+                      containerCurrency: foreignCurrency(vehicle?.currency),
+                      insuranceCurrency: foreignCurrency(vehicle?.currency),
                     }));
                   }}
                 >
@@ -918,7 +907,10 @@ export default function OfferDetailWorkspace({
                       }))
                     }
                   />
-                  <RateEquivalent cost={pricingPreview?.vehicle} />
+                  <RateEquivalent
+                    cost={pricingPreview?.vehicle}
+                    required={Number(quotationForm.vehicleAmount) > 0}
+                  />
                 </div>
               </fieldset>
               <fieldset className="rounded-card border border-border p-4 sm:col-span-2">
@@ -969,7 +961,10 @@ export default function OfferDetailWorkspace({
                       <option value="4">1/4</option>
                     </select>
                   </label>
-                  <FreightEquivalent cost={pricingPreview?.freight} />
+                  <FreightEquivalent
+                    cost={pricingPreview?.freight}
+                    required={Number(quotationForm.containerPrice) > 0}
+                  />
                 </div>
               </fieldset>
               {(
@@ -1011,22 +1006,33 @@ export default function OfferDetailWorkspace({
                         }
                       />
                     </label>
-                    <CurrencySelect
-                      label={`Devise ${label}`}
-                      value={quotationForm[currencyKey]}
-                      currencies={currencyOptions}
-                      onChange={(currency) =>
-                        setQuotationForm((current) => ({
-                          ...current,
-                          [currencyKey]: currency,
-                        }))
-                      }
-                    />
+                    {currencyKey === "transitCurrency" ? (
+                      <div className="rounded-card border border-border p-3">
+                        <span className="field-label">Devise Transit</span>
+                        <p className="font-semibold">DZD</p>
+                        <p className="text-xs text-muted">Aucune conversion</p>
+                      </div>
+                    ) : (
+                      <CurrencySelect
+                        label={`Devise ${label}`}
+                        value={quotationForm[currencyKey]}
+                        currencies={currencyOptions}
+                        onChange={(currency) =>
+                          setQuotationForm((current) => ({
+                            ...current,
+                            [currencyKey]: currency,
+                          }))
+                        }
+                      />
+                    )}
                     <RateEquivalent
                       cost={
                         Number(quotationForm[amountKey].replace(",", ".")) > 0
                           ? cost
                           : undefined
+                      }
+                      required={
+                        Number(quotationForm[amountKey].replace(",", ".")) > 0
                       }
                     />
                   </div>
@@ -1161,6 +1167,7 @@ export default function OfferDetailWorkspace({
                             ]
                           : undefined
                       }
+                      required={Number(cost.amount.replace(",", ".")) > 0}
                     />
                     {otherCosts.length > 1 && (
                       <button
@@ -1185,7 +1192,7 @@ export default function OfferDetailWorkspace({
                   onClick={() =>
                     setOtherCosts((current) => [
                       ...current,
-                      { amount: "", currency: "DZD", description: "" },
+                      { amount: "", currency: "USD", description: "" },
                     ])
                   }
                 >
@@ -1331,6 +1338,70 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function OfferSpecification({ offer }: { offer: ApiOffer }) {
+  const labels: Record<string, string> = {
+    brand: "Marque",
+    model: "Modèle",
+    version: "Version",
+    year: "Année",
+    condition: "État",
+    mileage: "Kilométrage",
+    engine: "Moteur",
+    engineType: "Moteur",
+    transmission: "Transmission",
+    fuel: "Carburant",
+    fuelType: "Carburant",
+    color: "Couleur",
+    options: "Options",
+  };
+  const base: Array<[string, unknown]> = [
+    ["Marque", offer.brand],
+    ["Modèle", offer.model],
+    ["Version", offer.version],
+    ["Année", offer.year],
+    ["État", offer.condition],
+    ["Kilométrage", offer.mileage],
+  ];
+  const extra = Object.entries(offer.specification ?? {}).map(
+    ([key, value]): [string, unknown] => [
+      labels[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2"),
+      value,
+    ],
+  );
+  const rows = [...base, ...extra].filter(([, value]) => {
+    if (value === null || value === undefined || value === "") return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  });
+  if (!rows.length) {
+    return (
+      <p className="text-sm text-muted">Aucune spécification renseignée</p>
+    );
+  }
+  const display = (value: unknown) => {
+    if (Array.isArray(value)) return value.join(", ");
+    if (typeof value === "object" && value !== null)
+      return Object.entries(value)
+        .map(([key, item]) => `${labels[key] ?? key}: ${String(item)}`)
+        .join(" · ");
+    return String(value);
+  };
+  return (
+    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+      {rows.map(([label, value], index) => (
+        <div
+          key={`${label}-${index}`}
+          className="rounded-card border border-border p-3"
+        >
+          <dt className="text-xs text-muted">{label}</dt>
+          <dd className="mt-1 font-medium">{display(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function CurrencySelect({
   label,
   value,
@@ -1361,22 +1432,42 @@ function CurrencySelect({
   );
 }
 
-function RateEquivalent({ cost }: { cost?: QuotationCostCalculation }) {
+function RateEquivalent({
+  cost,
+  required = false,
+}: {
+  cost?: QuotationCostCalculation;
+  required?: boolean;
+}) {
   return (
     <div className="rounded-card border border-border p-3">
       <span className="field-label">Taux Finance utilisé</span>
       <p className="text-xs text-muted">
-        {cost ? `1 ${cost.currency} = ${cost.exchangeRateUsed} DZD` : "—"}
+        {cost
+          ? `1 ${cost.currency} = ${cost.exchangeRateUsed} DZD`
+          : required
+            ? "Taux Finance indisponible"
+            : "—"}
       </p>
       <p className="mt-1 text-xs text-muted">Équivalent DZD</p>
       <p className="font-semibold text-foreground">
-        {formatMoney(cost?.amountDzd, "DZD")}
+        {cost
+          ? formatMoney(cost.amountDzd, "DZD")
+          : required
+            ? "Indisponible"
+            : "0 DZD"}
       </p>
     </div>
   );
 }
 
-function FreightEquivalent({ cost }: { cost?: QuotationCostCalculation }) {
+function FreightEquivalent({
+  cost,
+  required = false,
+}: {
+  cost?: QuotationCostCalculation;
+  required?: boolean;
+}) {
   return (
     <div className="rounded-card border border-border p-3">
       <span className="field-label">Fret calculé</span>
@@ -1384,10 +1475,18 @@ function FreightEquivalent({ cost }: { cost?: QuotationCostCalculation }) {
         {formatMoney(cost?.amountOriginal, cost?.currency)}
       </p>
       <p className="mt-1 text-xs text-muted">
-        {cost ? `1 ${cost.currency} = ${cost.exchangeRateUsed} DZD` : "—"}
+        {cost
+          ? `1 ${cost.currency} = ${cost.exchangeRateUsed} DZD`
+          : required
+            ? "Taux Finance indisponible"
+            : "—"}
       </p>
       <p className="font-semibold text-foreground">
-        {formatMoney(cost?.amountDzd, "DZD")}
+        {cost
+          ? formatMoney(cost.amountDzd, "DZD")
+          : required
+            ? "Indisponible"
+            : "0 DZD"}
       </p>
     </div>
   );

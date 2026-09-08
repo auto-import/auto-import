@@ -58,6 +58,7 @@ export class CatalogueService {
               cataloguePublished: true,
               status: { notIn: ['REJECTED', 'EXPIRED'] },
               currentRevisionId: { not: null },
+              OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
             },
           },
         },
@@ -67,6 +68,7 @@ export class CatalogueService {
               cataloguePublished: true,
               status: { notIn: ['REJECTED', 'EXPIRED'] },
               currentRevisionId: { not: null },
+              OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
             },
           },
         },
@@ -81,7 +83,6 @@ export class CatalogueService {
           sourceOfferVehicle: {
             offer: {
               archivedAt: null,
-              validUntil: { gte: new Date() },
               OR: [
                 { offerStatus: null },
                 { offerStatus: { notIn: ['LOST_DEAL', 'EXPIRED'] } },

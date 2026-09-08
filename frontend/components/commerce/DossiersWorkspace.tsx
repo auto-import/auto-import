@@ -65,6 +65,7 @@ export default function DossiersWorkspace() {
           type,
           limit: 100,
           archivedOnly: view === "archives",
+          activeOnly: view === "active",
         }),
         commerceApi.dossiers.statistics({
           period:
@@ -247,10 +248,7 @@ export default function DossiersWorkspace() {
                 key={dossier.id}
                 className="grid items-center gap-3 p-4 hover:bg-surface md:grid-cols-[1fr_1fr_auto_auto]"
               >
-                <Link
-                  href={`/dossiers/${dossier.id}`}
-                  className="contents"
-                >
+                <Link href={`/dossiers/${dossier.id}`} className="contents">
                   <div className="flex items-center gap-3">
                     <FolderOpen className="h-5 w-5 text-muted" />
                     <div>
