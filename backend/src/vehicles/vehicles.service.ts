@@ -19,6 +19,11 @@ import {
 } from '../documents/storage.provider';
 import type { UploadedBufferFile } from '../documents/documents.service';
 import type { EligibleVehiclesDto } from './dto/eligible-vehicles.dto';
+import {
+  dossierAcquisitionTypes,
+  dossierInventoryWhere,
+  ownedInventoryWhere,
+} from './dossier-eligibility';
 import { DossierType } from '../dossiers/dto/dossier-type.enum';
 
 @Injectable()
@@ -283,7 +288,23 @@ export class VehiclesService {
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.VehicleWhereInput = { organizationId };
+    const where: Prisma.VehicleWhereInput = {
+      organizationId,
+      archivedAt: null,
+    };
+    if (filters.inventoryOnly)
+      where.AND = [ownedInventoryWhere(organizationId)];
+    if (filters.shipmentAssignable) {
+      where.AND = [
+        ...(filters.inventoryOnly ? [ownedInventoryWhere(organizationId)] : []),
+        {
+          status: { notIn: ['sold', 'delivered', 'rejected'] },
+          shipmentVehicles: {
+            none: { shipment: { status: { notIn: ['arrived', 'cancelled'] } } },
+          },
+        },
+      ];
+    }
 
     if (filters.search) {
       where.OR = [
@@ -339,10 +360,7 @@ export class VehiclesService {
   async eligibleForDossier(organizationId: string, query: EligibleVehiclesDto) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 50);
-    const sourceFilter =
-      query.type === DossierType.SHIPPING_ONLY
-        ? { in: ['external', 'clientRequest'] }
-        : { in: ['stock', 'chinaOffer', 'clientRequest'] };
+    const sourceFilter = { in: dossierAcquisitionTypes(query.type) };
     const searchWhere: Prisma.VehicleWhereInput = query.search
       ? {
           OR: [
@@ -358,12 +376,17 @@ export class VehiclesService {
       archivedAt: null,
       status: 'available',
       acquisitionType: sourceFilter,
+      AND: [dossierInventoryWhere(query.type, organizationId)],
       dossierVehicles: {
         none: { dossier: { status: { notIn: activeStatuses } } },
       },
       ...searchWhere,
     };
     const include = {
+      purchases: {
+        where: { organizationId, status: 'confirmed' },
+        select: { id: true },
+      },
       specs: true,
       photos: { where: { isPrimary: true }, include: { file: true } },
       dossierVehicles: {
@@ -413,6 +436,12 @@ export class VehiclesService {
             vehicle.status === 'reserved' ? 'RESERVED' : 'UNAVAILABLE_STATUS';
         else if (!sourceFilter.in.includes(vehicle.acquisitionType))
           reason = 'INCOMPATIBLE_WORKFLOW';
+        else if (
+          query.type !== DossierType.SHIPPING_ONLY &&
+          vehicle.acquisitionType !== 'stock' &&
+          !vehicle.purchases.length
+        )
+          reason = 'NOT_PURCHASED';
         else if (vehicle.dossierVehicles.length)
           reason = 'ACTIVE_DOSSIER_ASSIGNMENT';
         return {

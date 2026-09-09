@@ -7,7 +7,19 @@ import {
   IsString,
   Max,
   Min,
+  IsIn,
+  Matches,
+  MaxLength,
 } from 'class-validator';
+
+export class CreateCrmReferenceDto {
+  @IsIn(['COUNTRY']) kind: 'COUNTRY';
+  @IsString() @Matches(/\S/) @MaxLength(120) labelFr: string;
+  @IsOptional()
+  @IsString()
+  @Matches(/^\s*[a-zA-Z0-9_-]{2,40}\s*$/)
+  code?: string;
+}
 
 export class UpdateCrmReferenceDto {
   @IsOptional()

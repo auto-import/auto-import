@@ -25,6 +25,7 @@ import { DossierStatisticsDto } from './dto/dossier-statistics.dto';
 import { dossierCreatedRange } from '../common/helpers/zoned-date-range.helper';
 import { activeDossierWhere } from './dossier-scope';
 import { reserveCatalogueVehicle } from './catalogue-vehicle';
+import { dossierInventoryWhere } from '../vehicles/dossier-eligibility';
 import { ExchangeRatesService } from '../finance/exchange-rates.service';
 
 @Injectable()
@@ -389,10 +390,14 @@ export class DossiersService {
               organizationId,
               status: 'available',
               archivedAt: null,
+              ...(catalogueItemId || offerReservationId
+                ? {}
+                : {
+                    AND: [dossierInventoryWhere(dossierType, organizationId)],
+                  }),
               dossierVehicles: {
                 none: {
                   dossier: {
-                    archivedAt: null,
                     status: {
                       notIn: ['closed', 'serviceCompleted', 'cancelled'],
                     },
@@ -605,6 +610,15 @@ export class DossiersService {
           id: vehicleId,
           organizationId,
           status: 'available',
+          archivedAt: null,
+          AND: [dossierInventoryWhere(dossier.type, organizationId)],
+          dossierVehicles: {
+            none: {
+              dossier: {
+                status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+              },
+            },
+          },
         },
         data: { status: 'reserved' },
       });

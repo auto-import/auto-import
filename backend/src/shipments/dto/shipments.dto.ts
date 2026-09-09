@@ -7,11 +7,22 @@ import {
   IsIn,
   IsBoolean,
   IsPositive,
+  IsEnum,
+  IsUUID,
+  ArrayUnique,
+  Matches,
+  MaxLength,
 } from 'class-validator';
+import { ShipmentContainerType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class CreateShipmentDto {
+  @IsOptional()
+  @IsEnum(ShipmentContainerType)
+  containerType?: ShipmentContainerType;
+  @IsOptional() @IsUUID() departurePortId?: string;
+  @IsOptional() @IsUUID() arrivalPortId?: string;
   @IsOptional()
   @IsString()
   carrierPartnerId?: string;
@@ -50,6 +61,7 @@ export class CreateShipmentDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayUnique()
   @IsString({ each: true })
   vehicleIds?: string[];
 
@@ -64,6 +76,11 @@ export class CreateShipmentDto {
 }
 
 export class UpdateShipmentDto {
+  @IsOptional()
+  @IsEnum(ShipmentContainerType)
+  containerType?: ShipmentContainerType;
+  @IsOptional() @IsUUID() departurePortId?: string;
+  @IsOptional() @IsUUID() arrivalPortId?: string;
   @IsOptional()
   @IsString()
   carrierPartnerId?: string;
@@ -156,4 +173,10 @@ export class FilterShipmentsDto extends PaginationDto {
   @IsOptional()
   @IsString()
   blNumber?: string;
+}
+
+export class CreatePortDto {
+  @IsString() @Matches(/\S/) @MaxLength(120) name: string;
+  @IsString() @Matches(/^\s*[a-zA-Z0-9-]{2,20}\s*$/) code: string;
+  @IsOptional() @IsString() @MaxLength(120) country?: string;
 }

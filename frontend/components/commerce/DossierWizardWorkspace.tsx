@@ -76,7 +76,15 @@ export default function DossierWizardWorkspace() {
   const [step, setStep] = useState(0);
   const [clients, setClients] = useState<ApiClient[]>([]);
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehiclesError, setVehiclesError] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehiclePage, setVehiclePage] = useState(1);
+  const [vehiclePages, setVehiclePages] = useState(1);
+  const [vehicleReload, setVehicleReload] = useState(0);
   const [catalogueItems, setCatalogueItems] = useState<ApiCatalogueItem[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueError, setCatalogueError] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -103,20 +111,16 @@ export default function DossierWizardWorkspace() {
     heightCm: "",
     weightKg: "",
   });
+  const [externalPhotos, setExternalPhotos] = useState<File[]>([]);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [clientPage, vehiclePage, cataloguePage, userPage] =
-          await Promise.all([
-            crmApi.listClients({ limit: 100 }),
-            commerceApi.vehicles.list({ status: "available", limit: 100 }),
-            loadAllSourcingCatalogueItems(),
-            adminApi.listUsers({ status: "active", limit: 100 }),
-          ]);
+        const [clientPage, userPage] = await Promise.all([
+          crmApi.listClients({ limit: 100 }),
+          adminApi.listUsers({ status: "active", limit: 100 }),
+        ]);
         setClients(clientPage.items);
-        setVehicles(vehiclePage.items);
-        setCatalogueItems(cataloguePage);
         setUsers(userPage.items);
       } catch (caught) {
         setError(
@@ -127,6 +131,61 @@ export default function DossierWizardWorkspace() {
       }
     })();
   }, []);
+  async function loadCatalogue() {
+    setCatalogueLoading(true);
+    setCatalogueError("");
+    try {
+      setCatalogueItems(await loadAllSourcingCatalogueItems());
+    } catch (caught) {
+      setCatalogueError(
+        caught instanceof Error
+          ? caught.message
+          : "Impossible de charger le catalogue",
+      );
+    } finally {
+      setCatalogueLoading(false);
+    }
+  }
+  useEffect(() => {
+    void loadCatalogue();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setVehiclesLoading(true);
+    setVehiclesError("");
+    const timer = window.setTimeout(() => {
+      void commerceApi.vehicles
+        .eligible({
+          type,
+          search: vehicleSearch || undefined,
+          page: vehiclePage,
+          limit: 50,
+        })
+        .then((result) => {
+          if (!active) return;
+          setVehicles(result.items);
+          setVehiclePages(result.pagination.totalPages);
+        })
+        .catch((caught) => {
+          if (active) {
+            setVehicles([]);
+            setVehiclesError(
+              caught instanceof Error
+                ? caught.message
+                : "Impossible de charger les véhicules",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) setVehiclesLoading(false);
+        });
+    }, 180);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [type, vehicleSearch, vehiclePage, vehicleReload]);
 
   const selectedClient = useMemo(
     () => clients.find((item) => item.id === client.id),
@@ -165,10 +224,13 @@ export default function DossierWizardWorkspace() {
       return "Sélectionnez un véhicule disponible ou un véhicule commercialisé du Catalogue.";
     }
     if (step === 2 && type === DossierType.SHIPPING_ONLY) {
+      if (vehicleId) return "";
       const hasBrand = externalVehicle.brand.trim() !== "";
       const hasModel = externalVehicle.model.trim() !== "";
       if (hasBrand !== hasModel)
         return "Renseignez la marque et le modèle du véhicule externe (ou laissez les deux vides).";
+      if (hasBrand && externalPhotos.length !== 3)
+        return "Ajoutez les trois photos du véhicule externe.";
     }
     return "";
   }
@@ -195,32 +257,39 @@ export default function DossierWizardWorkspace() {
           email: client.email || undefined,
         });
         clientId = created.id;
+        setClient((current) => ({ ...current, id: created.id }));
+        setNewClient(false);
       }
       let externalVehicleId: string | undefined;
       if (
         type === DossierType.SHIPPING_ONLY &&
+        !vehicleId &&
         externalVehicle.brand.trim() &&
         externalVehicle.model.trim()
       ) {
-        const created = await commerceApi.vehicles.create({
-          brand: externalVehicle.brand.trim(),
-          model: externalVehicle.model.trim(),
-          acquisitionType: "external",
-          status: "available",
-          lengthCm: externalVehicle.lengthCm
-            ? Number(externalVehicle.lengthCm)
-            : undefined,
-          widthCm: externalVehicle.widthCm
-            ? Number(externalVehicle.widthCm)
-            : undefined,
-          heightCm: externalVehicle.heightCm
-            ? Number(externalVehicle.heightCm)
-            : undefined,
-          weightKg: externalVehicle.weightKg
-            ? Number(externalVehicle.weightKg)
-            : undefined,
-        });
+        const created = await commerceApi.vehicles.createWithPhotos(
+          {
+            brand: externalVehicle.brand.trim(),
+            model: externalVehicle.model.trim(),
+            acquisitionType: "external",
+            status: "available",
+            lengthCm: externalVehicle.lengthCm
+              ? Number(externalVehicle.lengthCm)
+              : undefined,
+            widthCm: externalVehicle.widthCm
+              ? Number(externalVehicle.widthCm)
+              : undefined,
+            heightCm: externalVehicle.heightCm
+              ? Number(externalVehicle.heightCm)
+              : undefined,
+            weightKg: externalVehicle.weightKg
+              ? Number(externalVehicle.weightKg)
+              : undefined,
+          },
+          externalPhotos,
+        );
         externalVehicleId = created.id;
+        setVehicleId(created.id);
       }
       const dossier = await commerceApi.dossiers.create({
         clientId,
@@ -319,7 +388,13 @@ export default function DossierWizardWorkspace() {
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        onClick={() => setType(option.value)}
+                        onClick={() => {
+                          setType(option.value);
+                          setVehicleId("");
+                          setCatalogueItemId("");
+                          setVehiclePage(1);
+                          setVehicleSearch("");
+                        }}
                         className={`group min-h-56 rounded-xl border-2 p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 ${selected ? "border-neutral-900 bg-neutral-50" : "border-neutral-200 hover:border-neutral-400"}`}
                       >
                         <span className="flex items-start justify-between gap-3">
@@ -435,6 +510,54 @@ export default function DossierWizardWorkspace() {
                   Décrivez le véhicule à expédier (texte libre). Il pourra aussi
                   être complété après la création du dossier.
                 </p>
+                <label className="mt-4 block">
+                  <span className="field-label">
+                    Véhicule externe déjà enregistré
+                  </span>
+                  <select
+                    aria-label="Véhicule externe déjà enregistré"
+                    className={inputClass}
+                    value={vehicleId}
+                    disabled={vehiclesLoading || Boolean(vehiclesError)}
+                    onChange={(event) => setVehicleId(event.target.value)}
+                  >
+                    <option value="">
+                      {vehiclesLoading
+                        ? "Chargement..."
+                        : vehicles.length
+                          ? "Sélectionner ou enregistrer un véhicule ci-dessous"
+                          : "Aucun véhicule disponible"}
+                    </option>
+                    {vehicles.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.brand} {item.model} ·{" "}
+                        {item.vin || "VIN en attente"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {vehiclesError && (
+                  <ErrorState
+                    message={vehiclesError}
+                    retry={() => setVehicleReload((value) => value + 1)}
+                  />
+                )}
+                {!vehicleId && (
+                  <label className="mt-4 block">
+                    <span className="field-label">
+                      Trois photos du nouveau véhicule externe
+                    </span>
+                    <input
+                      aria-label="Photos du véhicule externe"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      onChange={(event) =>
+                        setExternalPhotos(Array.from(event.target.files ?? []))
+                      }
+                    />
+                  </label>
+                )}
                 <div className="mt-7 grid gap-5 sm:grid-cols-2">
                   <label>
                     <span className="field-label">Marque</span>
@@ -495,22 +618,41 @@ export default function DossierWizardWorkspace() {
               <div className="mx-auto max-w-2xl">
                 <h2 className="text-xl font-bold">Véhicule et source</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Sélectionnez une source autoritative disponible pour ce
-                  dossier.
+                  Sélectionnez un véhicule en stock ou une offre du catalogue.
                 </p>
                 <div className="mt-6 space-y-5">
                   <label className="block">
                     <span className="field-label">Véhicule disponible</span>
+                    <input
+                      aria-label="Rechercher un véhicule disponible"
+                      className={inputClass}
+                      placeholder="Marque, modèle ou VIN"
+                      value={vehicleSearch}
+                      onChange={(event) => {
+                        setVehicleSearch(event.target.value);
+                        setVehiclePage(1);
+                        setVehicleId("");
+                      }}
+                    />
                     <select
                       aria-label="Véhicule disponible"
                       className={inputClass}
                       value={vehicleId}
+                      disabled={vehiclesLoading || Boolean(vehiclesError)}
                       onChange={(event) => {
                         setVehicleId(event.target.value);
                         if (event.target.value) setCatalogueItemId("");
                       }}
                     >
-                      <option value="">Aucun véhicule sélectionné</option>
+                      <option value="">
+                        {vehiclesLoading
+                          ? "Chargement..."
+                          : vehiclesError
+                            ? "Chargement impossible"
+                            : vehicles.length
+                              ? "Sélectionner un véhicule"
+                              : "Aucun véhicule disponible"}
+                      </option>
                       {vehicles.map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.brand} {item.model} ·{" "}
@@ -519,6 +661,47 @@ export default function DossierWizardWorkspace() {
                       ))}
                     </select>
                   </label>
+                  {vehiclesError && (
+                    <ErrorState
+                      message={vehiclesError}
+                      retry={() => setVehicleReload((value) => value + 1)}
+                    />
+                  )}
+                  {vehicleId && (
+                    <p role="status" className="text-sm text-green-700">
+                      Véhicule sélectionné. Il sera réservé à l’enregistrement
+                      du dossier.
+                    </p>
+                  )}
+                  {vehiclePages > 1 && (
+                    <div className="flex gap-3 text-sm">
+                      <button
+                        type="button"
+                        disabled={vehiclePage <= 1 || vehiclesLoading}
+                        onClick={() => {
+                          setVehiclePage((page) => page - 1);
+                          setVehicleId("");
+                        }}
+                      >
+                        Précédent
+                      </button>
+                      <span>
+                        {vehiclePage} / {vehiclePages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={
+                          vehiclePage >= vehiclePages || vehiclesLoading
+                        }
+                        onClick={() => {
+                          setVehiclePage((page) => page + 1);
+                          setVehicleId("");
+                        }}
+                      >
+                        Suivant
+                      </button>
+                    </div>
+                  )}
                   <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted">
                     <span className="h-px flex-1 bg-neutral-200" />
                     ou
@@ -528,6 +711,7 @@ export default function DossierWizardWorkspace() {
                     <span className="field-label">Demande de sourcing</span>
                     <select
                       aria-label="Demande de sourcing"
+                      disabled={catalogueLoading || Boolean(catalogueError)}
                       className={inputClass}
                       value={catalogueItemId}
                       onChange={(event) => {
@@ -536,7 +720,11 @@ export default function DossierWizardWorkspace() {
                       }}
                     >
                       <option value="">
-                        Aucun véhicule catalogue sélectionné
+                        {catalogueLoading
+                          ? "Chargement..."
+                          : catalogueError
+                            ? "Chargement impossible"
+                            : "Aucun véhicule catalogue sélectionné"}
                       </option>
                       {eligibleCatalogueItems.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -552,13 +740,21 @@ export default function DossierWizardWorkspace() {
                       publié.
                     </span>
                   </label>
-                  {!eligibleCatalogueItems.length && (
-                    <p className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                      Aucun véhicule catalogue disponible avec un devis{" "}
-                      {type === DossierType.VEHICLE_SALE_DDP ? "DDP" : "CIF"}{" "}
-                      publié.
-                    </p>
+                  {catalogueError && (
+                    <ErrorState
+                      message={catalogueError}
+                      retry={() => void loadCatalogue()}
+                    />
                   )}
+                  {!catalogueLoading &&
+                    !catalogueError &&
+                    !eligibleCatalogueItems.length && (
+                      <p className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        Aucun véhicule catalogue disponible avec un devis{" "}
+                        {type === DossierType.VEHICLE_SALE_DDP ? "DDP" : "CIF"}{" "}
+                        publié.
+                      </p>
+                    )}
                   {selectedCatalogueItem && (
                     <dl className="grid gap-3 rounded-card border bg-neutral-50 p-4 text-sm sm:grid-cols-2">
                       <div>

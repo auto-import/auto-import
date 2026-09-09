@@ -4,6 +4,7 @@ import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Camera, Fuel, Gauge, Plus, Search, Settings2, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { useAuth } from "@/components/AuthProvider";
@@ -104,6 +105,23 @@ export default function VehicleStockPolished() {
   const [saving, setSaving] = useState(false);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [lookups, setLookups] = useState<ApiVehicleLookup[]>([]);
+
+  async function openDetail(id: string) {
+    try {
+      const vehicle = await commerceApi.vehicles.get(id);
+      setSelected(vehicle);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Impossible de charger le véhicule",
+      );
+    }
+  }
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("vehicleId");
+    if (id) void openDetail(id);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -451,7 +469,7 @@ export default function VehicleStockPolished() {
                       </strong>
                       <button
                         className="font-semibold text-blue-700"
-                        onClick={() => setSelected(vehicle)}
+                        onClick={() => void openDetail(vehicle.id)}
                       >
                         Voir détails
                       </button>
@@ -665,6 +683,22 @@ function VehicleDialog({
             <div className="mt-5 border-t border-border pt-5 text-sm text-muted">
               <p>Fournisseur : {vehicle.supplier?.name ?? "Non renseigné"}</p>
               <p className="mt-1">VIN : {vehicle.vin ?? "Non renseigné"}</p>
+              <div className="mt-3 space-y-1">
+                <p className="font-semibold">Dossiers associés</p>
+                {vehicle.dossiers?.length ? (
+                  vehicle.dossiers.map((dossier) => (
+                    <Link
+                      key={dossier.id}
+                      className="block underline"
+                      href={`/dossiers/${dossier.id}`}
+                    >
+                      {dossier.reference}
+                    </Link>
+                  ))
+                ) : (
+                  <p>Aucun dossier associé.</p>
+                )}
+              </div>
               <p className="mt-1">
                 Entrepôt :{" "}
                 {vehicle.currentLocation?.warehouse?.name ?? "Non renseigné"} /{" "}

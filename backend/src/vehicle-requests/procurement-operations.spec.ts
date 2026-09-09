@@ -547,11 +547,19 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       await dossiersService.addVehicle('dossier-1', 'veh-1', ORG_A, 'user-1');
 
       expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
-        where: {
+        where: expect.objectContaining({
           id: 'veh-1',
           organizationId: ORG_A,
           status: 'available',
-        },
+          archivedAt: null,
+          dossierVehicles: {
+            none: {
+              dossier: {
+                status: { notIn: ['closed', 'serviceCompleted', 'cancelled'] },
+              },
+            },
+          },
+        }),
         data: { status: 'reserved' },
       });
     });

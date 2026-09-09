@@ -101,6 +101,7 @@ model Organization {
   brandingLogo          OrganizationBrandingLogo?
   vehicleLookupValues   VehicleLookupValue[]
   containerPresets      ContainerPreset[]
+  ports                 Port[]
   vehicleDutyRates      VehicleDutyRate[]
   localDeliveryRates    LocalDeliveryRate[]
   catalogueItems        CatalogueItem[]
@@ -1870,6 +1871,27 @@ model SupplierPayment {
   @@index([supplierId])
 }
 
+enum ShipmentContainerType {
+  THREE_VEHICLES
+  FOUR_VEHICLES
+}
+
+model Port {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name           String
+  code           String
+  country        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  departures     Shipment[] @relation("DeparturePort")
+  arrivals       Shipment[] @relation("ArrivalPort")
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+}
+
 model Shipment {
   id                  String           @id @default(uuid())
   organizationId      String
@@ -1882,6 +1904,11 @@ model Shipment {
   containerNumber     String?
   departurePort       String?
   arrivalPort         String?
+  departurePortId     String?
+  departurePortRecord Port? @relation("DeparturePort", fields: [departurePortId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  arrivalPortId       String?
+  arrivalPortRecord   Port? @relation("ArrivalPort", fields: [arrivalPortId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  containerType       ShipmentContainerType?
   etd                 DateTime?
   eta                 DateTime?
   actualDepartureDate DateTime?

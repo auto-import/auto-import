@@ -1,7 +1,16 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsBoolean } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export class FilterVehicleDto extends PaginationDto {
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  inventoryOnly?: boolean;
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  shipmentAssignable?: boolean;
   @IsOptional()
   @IsString()
   brand?: string;

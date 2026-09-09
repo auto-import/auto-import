@@ -28,6 +28,7 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
     notification: { createMany: jest.fn() },
     vehicle: {
       findFirst: jest.fn(),
+      updateMany: jest.fn(),
     },
     partner: {
       findFirst: jest.fn(),
@@ -36,6 +37,7 @@ describe('Phase 2 Shipments Comprehensive Tests', () => {
       upsert: jest.fn().mockResolvedValue({ value: 42 }),
     },
     $transaction: jest.fn((cb) => cb(mockPrisma)),
+    $queryRaw: jest.fn(),
   };
 
   beforeEach(() => {

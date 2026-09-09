@@ -383,6 +383,12 @@ export const crmApi = {
   referenceData() {
     return apiRequest<ApiCrmReference[]>("/crm/reference-data");
   },
+  createCountry(data: { labelFr: string; code?: string }) {
+    return apiRequest<ApiCrmReference>("/crm/reference-data", {
+      method: "POST",
+      body: JSON.stringify({ ...data, kind: "COUNTRY" }),
+    });
+  },
   assignees() {
     return apiRequest<AgentSummary[]>("/prospects/assignees");
   },

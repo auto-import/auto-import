@@ -1,4 +1,7 @@
 "use client";
+import PersistentReferenceSelect, {
+  type ReferenceDraft,
+} from "@/components/PersistentReferenceSelect";
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
@@ -231,19 +234,45 @@ function ClientForm({
     passportExpiry: "",
   });
   const [countries, setCountries] = useState<ApiCrmReference[]>([]);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [referencesError, setReferencesError] = useState("");
   const [identityDocument, setIdentityDocument] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const input =
     "rounded-input border border-border bg-background px-3 py-2 text-sm";
-  useEffect(() => {
-    void crmApi.referenceData().then((items) => {
+  async function loadCountries() {
+    setReferencesLoading(true);
+    setReferencesError("");
+    try {
+      const items = await crmApi.referenceData();
       const available = items.filter(
         (item) => item.kind === "COUNTRY" && item.active,
       );
       setCountries(available);
-    });
+    } catch (caught) {
+      setReferencesError(
+        caught instanceof Error
+          ? caught.message
+          : "Impossible de charger les pays",
+      );
+    } finally {
+      setReferencesLoading(false);
+    }
+  }
+  useEffect(() => {
+    void loadCountries();
   }, []);
+  async function createCountry(draft: ReferenceDraft) {
+    const country = await crmApi.createCountry({
+      labelFr: draft.name.trim(),
+      code: draft.code.trim() || undefined,
+    });
+    setCountries((items) =>
+      [...items, country].sort((a, b) => a.labelFr.localeCompare(b.labelFr)),
+    );
+    return country.id;
+  }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -316,34 +345,33 @@ function ClientForm({
             setValues({ ...values, email: event.target.value })
           }
         />
-        <select
-          className={input}
-          value={values.countryId}
-          onChange={(event) =>
-            setValues({ ...values, countryId: event.target.value })
-          }
-        >
-          <option value="">Pays de résidence</option>
-          {countries.map((country) => (
-            <option key={country.id} value={country.id}>
-              {country.labelFr}
-            </option>
-          ))}
-        </select>
-        <select
-          className={input}
-          value={values.nationalityCountryId}
-          onChange={(event) =>
-            setValues({ ...values, nationalityCountryId: event.target.value })
-          }
-        >
-          <option value="">Nationalité</option>
-          {countries.map((country) => (
-            <option key={country.id} value={country.id}>
-              {country.labelFr}
-            </option>
-          ))}
-        </select>
+        {(
+          [
+            ["countryId", "Pays de résidence"],
+            ["nationalityCountryId", "Nationalité"],
+          ] as const
+        ).map(([field, label]) => (
+          <PersistentReferenceSelect
+            key={field}
+            label={label}
+            value={values[field]}
+            options={countries.map((country) => ({
+              id: country.id,
+              label: country.labelFr,
+            }))}
+            loading={referencesLoading}
+            error={referencesError}
+            retry={() => void loadCountries()}
+            onChange={(id) =>
+              setValues((current) => ({ ...current, [field]: id }))
+            }
+            create={
+              hasPermission(Permission.CLIENTS_WRITE)
+                ? createCountry
+                : undefined
+            }
+          />
+        ))}
         {canWriteIdentity && (
           <select
             className={input}

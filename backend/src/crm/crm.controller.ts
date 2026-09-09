@@ -24,7 +24,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { CrmTimelineService } from './crm-timeline.service';
 import { CrmKpiService } from './crm-kpi.service';
 import { CrmReferenceService } from './crm-reference.service';
-import { UpdateCrmReferenceDto } from './dto/crm-reference.dto';
+import {
+  CreateCrmReferenceDto,
+  UpdateCrmReferenceDto,
+} from './dto/crm-reference.dto';
 
 class TimelineQueryDto {
   @IsOptional()
@@ -86,6 +89,15 @@ export class CrmController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.references.update(user.organizationId, id, dto, user.id);
+  }
+
+  @Post('reference-data')
+  @RequirePermission(Permission.CLIENTS_WRITE)
+  createReferenceData(
+    @Body() dto: CreateCrmReferenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.references.create(user.organizationId, user.id, dto);
   }
 
   @Get('timeline/:ownerType/:id')

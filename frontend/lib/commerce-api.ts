@@ -146,6 +146,7 @@ export interface ApiVehicleSpec {
 }
 
 export interface ApiVehicle {
+  dossiers?: Array<{ id: string; reference: string; status: string }>;
   id: string;
   vin?: string | null;
   brand: string;

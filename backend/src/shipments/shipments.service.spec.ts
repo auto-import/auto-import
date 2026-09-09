@@ -39,10 +39,12 @@ describe('ShipmentsService', () => {
 
     mockPrisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
+        $queryRaw: jest.fn(),
         shipmentStatusHistory: {
           create: jest.fn().mockResolvedValue({ id: 'hist-1' }),
         },
         shipment: {
+          findFirst: mockPrisma.shipment.findFirst,
           update: jest.fn().mockResolvedValue({
             id: 'shp-1',
             status: 'booked',

@@ -5,18 +5,19 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PackageCheck, Search } from "lucide-react";
 import Topbar from "@/components/Topbar";
-import { commerceApi, type ApiCatalogueItem } from "@/lib/commerce-api";
-import { VEHICLE_STATUS_LABELS_API } from "@/lib/api-contract";
 import {
-  EmptyState,
-  ErrorState,
-  inputClass,
-  LoadingState,
-} from "./common";
+  commerceApi,
+  type ApiCatalogueItem,
+  type ApiVehicle,
+} from "@/lib/commerce-api";
+import { VEHICLE_STATUS_LABELS_API } from "@/lib/api-contract";
+import { EmptyState, ErrorState, inputClass, LoadingState } from "./common";
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 export default function CatalogueWorkspace() {
   const [items, setItems] = useState<ApiCatalogueItem[]>([]);
+  const [source, setSource] = useState<"offers" | "stock">("offers");
+  const [stock, setStock] = useState<ApiVehicle[]>([]);
   const [filters, setFilters] = useState({
     search: "",
     status: "",
@@ -33,11 +34,18 @@ export default function CatalogueWorkspace() {
     setLoading(true);
     setError("");
     try {
-      const result = await commerceApi.catalogue.list({
-        ...filters,
-        limit: 12,
-      });
-      setItems(result.items);
+      let result;
+      if (source === "stock") {
+        result = await commerceApi.vehicles.list({
+          ...filters,
+          inventoryOnly: "true",
+          limit: 12,
+        });
+        setStock(result.items);
+      } else {
+        result = await commerceApi.catalogue.list({ ...filters, limit: 12 });
+        setItems(result.items);
+      }
       setPagination({
         page: result.pagination.page,
         totalPages: result.pagination.totalPages,
@@ -50,7 +58,7 @@ export default function CatalogueWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, source]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
@@ -60,9 +68,37 @@ export default function CatalogueWorkspace() {
     <>
       <Topbar
         title="Catalogue"
-        subtitle="Véhicules disposant d’un devis commercial publié"
+        subtitle="Stock et offres disposant d’un devis commercial publié"
       />
       <main className="space-y-6 p-4 sm:p-8">
+        <div
+          className="flex gap-3"
+          role="group"
+          aria-label="Source du catalogue"
+        >
+          <button
+            type="button"
+            aria-pressed={source === "offers"}
+            className="rounded-button border px-4 py-2"
+            onClick={() => {
+              setSource("offers");
+              setFilters({ search: "", status: "", page: 1 });
+            }}
+          >
+            Offres commercialisées
+          </button>
+          <button
+            type="button"
+            aria-pressed={source === "stock"}
+            className="rounded-button border px-4 py-2"
+            onClick={() => {
+              setSource("stock");
+              setFilters({ search: "", status: "", page: 1 });
+            }}
+          >
+            Véhicules en stock
+          </button>
+        </div>
         <section className="card flex flex-wrap items-center gap-3">
           <label className="relative min-w-64 flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
@@ -94,10 +130,14 @@ export default function CatalogueWorkspace() {
             <option value="">Toutes disponibilités</option>
             <option value="available">Disponible</option>
             <option value="reserved">Réservé</option>
-            <option value="inTransit">En transit</option>
-            <option value="inCustoms">En douane</option>
-            <option value="delivered">Livré</option>
-            <option value="sold">Vendu</option>
+            {source === "stock" && (
+              <>
+                <option value="inTransit">En transit</option>
+                <option value="inCustoms">En douane</option>
+                <option value="delivered">Livré</option>
+                <option value="sold">Vendu</option>
+              </>
+            )}
           </select>
         </section>
         <p className="text-sm text-muted">
@@ -106,6 +146,16 @@ export default function CatalogueWorkspace() {
         {error && <ErrorState message={error} retry={() => void load()} />}
         {loading ? (
           <LoadingState />
+        ) : source === "stock" ? (
+          stock.length ? (
+            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {stock.map((vehicle) => (
+                <StockCard key={vehicle.id} vehicle={vehicle} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState label="Aucun véhicule en stock." />
+          )
         ) : items.length === 0 ? (
           <EmptyState label="Aucun véhicule ne dispose encore d’un devis commercial." />
         ) : (
@@ -148,6 +198,24 @@ export default function CatalogueWorkspace() {
         )}
       </main>
     </>
+  );
+}
+
+function StockCard({ vehicle }: { vehicle: ApiVehicle }) {
+  return (
+    <article className="card space-y-3">
+      <h2 className="text-lg font-bold">
+        {vehicle.brand} {vehicle.model} {vehicle.trim}
+      </h2>
+      <p className="text-sm">{vehicle.vin || "VIN en attente"}</p>
+      <p>{VEHICLE_STATUS_LABELS_API[vehicle.status] ?? vehicle.status}</p>
+      <Link
+        className="inline-block text-sm underline"
+        href={`/vehicules?vehicleId=${encodeURIComponent(vehicle.id)}`}
+      >
+        Voir le véhicule et ses dossiers
+      </Link>
+    </article>
   );
 }
 

@@ -29,6 +29,7 @@ export function ErrorState({
         {message}
       </span>
       <button
+        type="button"
         onClick={retry}
         className="flex items-center gap-2 rounded-button border border-red-200 px-3 py-2"
       >

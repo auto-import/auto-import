@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, type CustomsFile } from '@prisma/client';
+import {
+  Prisma,
+  ShipmentContainerType,
+  type CustomsFile,
+} from '@prisma/client';
+import { containerCapacity } from './container-type';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExchangeRatesService } from '../finance/exchange-rates.service';
 import { paginate } from '../common/helpers/pagination.helper';
@@ -28,6 +33,80 @@ const SHIPMENT_TRANSITIONS: Record<string, readonly string[]> = {
 @Injectable()
 export class ShipmentsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async lockShipment(
+    tx: Prisma.TransactionClient,
+    id: string,
+    organizationId: string,
+  ) {
+    await tx.$queryRaw`SELECT id FROM "Shipment" WHERE id = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`;
+  }
+
+  private async shipmentReferences(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    dto: CreateShipmentDto | UpdateShipmentDto,
+  ) {
+    const data: {
+      departurePortId?: string;
+      arrivalPortId?: string;
+      departurePort?: string;
+      arrivalPort?: string;
+      containerType?: ShipmentContainerType;
+    } = {};
+    for (const field of ['departure', 'arrival'] as const) {
+      const id = dto[`${field}PortId`];
+      if (id) {
+        const port = await tx.port.findFirst({ where: { id, organizationId } });
+        if (!port)
+          throw new NotFoundException(
+            'Port introuvable dans votre organisation.',
+          );
+        data[`${field}PortId`] = port.id;
+        data[`${field}Port`] = `${port.name} (${port.code})`;
+      } else if (dto[`${field}Port`] !== undefined) {
+        throw new BadRequestException(
+          'Sélectionnez un port enregistré avec son identifiant.',
+        );
+      }
+    }
+    let legacyCapacity: number | undefined;
+    if (dto.containerPresetId) {
+      const preset = await tx.containerPreset.findFirst({
+        where: { id: dto.containerPresetId, organizationId, active: true },
+      });
+      if (!preset)
+        throw new NotFoundException('Type de conteneur introuvable.');
+      legacyCapacity = preset.maxVehicles;
+    }
+    data.containerType =
+      dto.containerType ??
+      (legacyCapacity === 3
+        ? ShipmentContainerType.THREE_VEHICLES
+        : legacyCapacity === 4
+          ? ShipmentContainerType.FOUR_VEHICLES
+          : undefined);
+    return data;
+  }
+
+  private assertCapacity(
+    type: ShipmentContainerType | null | undefined,
+    count: number,
+    legacy?: number,
+  ) {
+    const capacity = containerCapacity(type) ?? legacy;
+    if (!capacity)
+      throw new BadRequestException(
+        'Sélectionnez un conteneur de 3 ou 4 véhicules.',
+      );
+    if (count > capacity)
+      throw new ConflictException({
+        code: 'SHIPMENT_MAX_VEHICLES_EXCEEDED',
+        message: `Ce conteneur est limité à ${capacity} véhicules.`,
+        maxVehicles: capacity,
+        requestedCount: count,
+      });
+  }
 
   currentDzdRates(organizationId: string) {
     return new ExchangeRatesService(this.prisma).currentDzdRates(
@@ -82,7 +161,9 @@ export class ShipmentsService {
       where: { id: shipmentId },
       include: { containerPreset: true, vehicles: true },
     });
-    const maxVehicles = shipment.containerPreset?.maxVehicles;
+    const maxVehicles =
+      containerCapacity(shipment.containerType) ??
+      shipment.containerPreset?.maxVehicles;
     if (!maxVehicles || shipment.totalFreightCost == null) return;
     const perVehicle = new Prisma.Decimal(shipment.totalFreightCost)
       .div(maxVehicles)
@@ -122,6 +203,11 @@ export class ShipmentsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const references = await this.shipmentReferences(tx, organizationId, dto);
+      this.assertCapacity(
+        references.containerType,
+        dto.vehicleIds?.length ?? 0,
+      );
       const shipmentNumber = await this.generateShipmentNumber(
         tx,
         organizationId,
@@ -151,6 +237,7 @@ export class ShipmentsService {
           containerPresetId: dto.containerPresetId,
           totalFreightCost: dto.totalFreightCost,
           freightCurrency: dto.freightCurrency,
+          ...references,
           statusHistory: {
             create: {
               toStatus: 'pending',
@@ -162,32 +249,11 @@ export class ShipmentsService {
       });
 
       if (dto.vehicleIds && dto.vehicleIds.length > 0) {
-        // Enforce maxVehicles on initial creation
-        if (dto.containerPresetId) {
-          const preset = await tx.containerPreset.findUnique({
-            where: { id: dto.containerPresetId },
-          });
-          if (preset && dto.vehicleIds.length > preset.maxVehicles) {
-            throw new BadRequestException({
-              code: 'SHIPMENT_MAX_VEHICLES_EXCEEDED',
-              message: `Ce conteneur est limité à ${preset.maxVehicles} véhicules. Vous tentez d'en ajouter ${dto.vehicleIds.length}.`,
-              maxVehicles: preset.maxVehicles,
-              requestedCount: dto.vehicleIds.length,
-            });
-          }
-        }
         for (const vehicleId of dto.vehicleIds) {
-          const vehicle = await tx.vehicle.findFirst({
-            where: { id: vehicleId, organizationId },
+          await this.assignVehicle(tx, shipment.id, organizationId, userId, {
+            vehicleId,
+            capacityOverride: false,
           });
-          if (vehicle) {
-            await tx.shipmentVehicle.create({
-              data: {
-                shipmentId: shipment.id,
-                vehicleId,
-              },
-            });
-          }
         }
         await this.recalculateFreightShares(tx, shipment.id);
       }
@@ -195,6 +261,9 @@ export class ShipmentsService {
       return tx.shipment.findUnique({
         where: { id: shipment.id },
         include: {
+          containerPreset: true,
+          departurePortRecord: true,
+          arrivalPortRecord: true,
           carrierPartner: true,
           vehicles: {
             include: {
@@ -214,77 +283,109 @@ export class ShipmentsService {
   }
 
   async update(id: string, organizationId: string, dto: UpdateShipmentDto) {
-    const shipment = await this.prisma.shipment.findFirst({
-      where: { id, organizationId },
-    });
-    if (!shipment) throw new NotFoundException('Shipment not found');
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockShipment(tx, id, organizationId);
+      const shipment = await tx.shipment.findFirst({
+        where: { id, organizationId },
+        include: { containerPreset: true, vehicles: true },
+      });
+      if (!shipment) throw new NotFoundException('Shipment not found');
+      const references = await this.shipmentReferences(tx, organizationId, dto);
+      this.assertCapacity(
+        references.containerType ?? shipment.containerType,
+        shipment.vehicles.length,
+        shipment.containerPreset?.maxVehicles,
+      );
+      if (
+        dto.carrierPartnerId &&
+        !(await tx.partner.findFirst({
+          where: { id: dto.carrierPartnerId, organizationId },
+        }))
+      )
+        throw new NotFoundException('Carrier partner not found');
 
-    const updated = await this.prisma.shipment.update({
-      where: { id },
-      data: {
-        ...((dto.totalFreightCost !== undefined ||
-          dto.freightCurrency !== undefined) &&
-        (!shipment.freightExchangeRateSnapshot ||
-          (dto.totalFreightCost !== undefined &&
-            !shipment.totalFreightCost?.eq(dto.totalFreightCost)) ||
-          (dto.freightCurrency !== undefined &&
-            dto.freightCurrency !== shipment.freightCurrency))
-          ? await this.freightSnapshot(
-              this.prisma,
-              organizationId,
-              dto.totalFreightCost ?? shipment.totalFreightCost,
-              dto.freightCurrency ?? shipment.freightCurrency,
-              dto.freightExchangeRateId,
-            )
-          : {}),
-        carrierPartnerId:
-          dto.carrierPartnerId !== undefined
-            ? dto.carrierPartnerId
-            : shipment.carrierPartnerId,
-        blNumber: dto.blNumber !== undefined ? dto.blNumber : shipment.blNumber,
-        vesselName:
-          dto.vesselName !== undefined ? dto.vesselName : shipment.vesselName,
-        containerNumber:
-          dto.containerNumber !== undefined
-            ? dto.containerNumber
-            : shipment.containerNumber,
-        departurePort:
-          dto.departurePort !== undefined
-            ? dto.departurePort
-            : shipment.departurePort,
-        arrivalPort:
-          dto.arrivalPort !== undefined
-            ? dto.arrivalPort
-            : shipment.arrivalPort,
-        etd: dto.etd ? new Date(dto.etd) : shipment.etd,
-        eta: dto.eta ? new Date(dto.eta) : shipment.eta,
-        actualDepartureDate: dto.actualDepartureDate
-          ? new Date(dto.actualDepartureDate)
-          : shipment.actualDepartureDate,
-        actualArrivalDate: dto.actualArrivalDate
-          ? new Date(dto.actualArrivalDate)
-          : shipment.actualArrivalDate,
-        notes: dto.notes !== undefined ? dto.notes : shipment.notes,
-        containerPresetId:
-          dto.containerPresetId !== undefined
-            ? dto.containerPresetId
-            : shipment.containerPresetId,
-        totalFreightCost:
-          dto.totalFreightCost !== undefined
-            ? dto.totalFreightCost
-            : shipment.totalFreightCost,
-        freightCurrency:
-          dto.freightCurrency !== undefined
-            ? dto.freightCurrency
-            : shipment.freightCurrency,
-      },
-      include: {
-        carrierPartner: true,
-        vehicles: { include: { vehicle: true } },
-      },
-    });
+      const updated = await tx.shipment.update({
+        where: { id },
+        data: {
+          ...((dto.totalFreightCost !== undefined ||
+            dto.freightCurrency !== undefined) &&
+          (!shipment.freightExchangeRateSnapshot ||
+            (dto.totalFreightCost !== undefined &&
+              !shipment.totalFreightCost?.eq(dto.totalFreightCost)) ||
+            (dto.freightCurrency !== undefined &&
+              dto.freightCurrency !== shipment.freightCurrency))
+            ? await this.freightSnapshot(
+                tx,
+                organizationId,
+                dto.totalFreightCost ?? shipment.totalFreightCost,
+                dto.freightCurrency ?? shipment.freightCurrency,
+                dto.freightExchangeRateId,
+              )
+            : {}),
+          carrierPartnerId:
+            dto.carrierPartnerId !== undefined
+              ? dto.carrierPartnerId
+              : shipment.carrierPartnerId,
+          blNumber:
+            dto.blNumber !== undefined ? dto.blNumber : shipment.blNumber,
+          vesselName:
+            dto.vesselName !== undefined ? dto.vesselName : shipment.vesselName,
+          containerNumber:
+            dto.containerNumber !== undefined
+              ? dto.containerNumber
+              : shipment.containerNumber,
+          departurePort:
+            dto.departurePort !== undefined
+              ? dto.departurePort
+              : shipment.departurePort,
+          arrivalPort:
+            dto.arrivalPort !== undefined
+              ? dto.arrivalPort
+              : shipment.arrivalPort,
+          etd: dto.etd ? new Date(dto.etd) : shipment.etd,
+          eta: dto.eta ? new Date(dto.eta) : shipment.eta,
+          actualDepartureDate: dto.actualDepartureDate
+            ? new Date(dto.actualDepartureDate)
+            : shipment.actualDepartureDate,
+          actualArrivalDate: dto.actualArrivalDate
+            ? new Date(dto.actualArrivalDate)
+            : shipment.actualArrivalDate,
+          notes: dto.notes !== undefined ? dto.notes : shipment.notes,
+          containerPresetId:
+            dto.containerPresetId !== undefined
+              ? dto.containerPresetId
+              : shipment.containerPresetId,
+          totalFreightCost:
+            dto.totalFreightCost !== undefined
+              ? dto.totalFreightCost
+              : shipment.totalFreightCost,
+          freightCurrency:
+            dto.freightCurrency !== undefined
+              ? dto.freightCurrency
+              : shipment.freightCurrency,
+          ...references,
+        },
+        include: {
+          containerPreset: true,
+          departurePortRecord: true,
+          arrivalPortRecord: true,
+          carrierPartner: true,
+          vehicles: { include: { vehicle: true } },
+        },
+      });
 
-    return updated;
+      await this.recalculateFreightShares(tx, id);
+      return tx.shipment.findUniqueOrThrow({
+        where: { id: updated.id },
+        include: {
+          containerPreset: true,
+          departurePortRecord: true,
+          arrivalPortRecord: true,
+          vehicles: { include: { vehicle: true } },
+          carrierPartner: true,
+        },
+      });
+    });
   }
 
   async transition(
@@ -293,19 +394,20 @@ export class ShipmentsService {
     userId: string,
     dto: TransitionShipmentDto,
   ) {
-    const shipment = await this.prisma.shipment.findFirst({
-      where: { id, organizationId },
-    });
-    if (!shipment) throw new NotFoundException('Shipment not found');
-    if (shipment.status === dto.status) return this.findOne(id, organizationId);
-    if (!SHIPMENT_TRANSITIONS[shipment.status]?.includes(dto.status)) {
-      throw new ConflictException({
-        code: 'SHIPMENT_INVALID_TRANSITION',
-        message: `${shipment.status} cannot transition to ${dto.status}`,
-      });
-    }
-
     return this.prisma.$transaction(async (tx) => {
+      await this.lockShipment(tx, id, organizationId);
+      const shipment = await tx.shipment.findFirst({
+        where: { id, organizationId },
+      });
+      if (!shipment) throw new NotFoundException('Shipment not found');
+      if (shipment.status === dto.status) return shipment;
+      if (!SHIPMENT_TRANSITIONS[shipment.status]?.includes(dto.status)) {
+        throw new ConflictException({
+          code: 'SHIPMENT_INVALID_TRANSITION',
+          message: `${shipment.status} cannot transition to ${dto.status}`,
+        });
+      }
+
       await tx.shipmentStatusHistory.create({
         data: {
           shipmentId: id,
@@ -315,6 +417,29 @@ export class ShipmentsService {
           comment: dto.comment,
         },
       });
+
+      // Dossier-linked vehicles retain the authoritative dossier milestone workflow.
+      // Apply inventory departure before reading the response relations.
+      if (dto.status === 'inTransit') {
+        await tx.vehicle.updateMany({
+          where: {
+            organizationId,
+            archivedAt: null,
+            status: { in: ['available', 'reserved'] },
+            shipmentVehicles: { some: { shipmentId: id } },
+            dossierVehicles: {
+              none: {
+                dossier: {
+                  status: {
+                    notIn: ['closed', 'serviceCompleted', 'cancelled'],
+                  },
+                },
+              },
+            },
+          },
+          data: { status: 'inTransit' },
+        });
+      }
 
       const updated = await tx.shipment.update({
         where: { id },
@@ -379,7 +504,22 @@ export class ShipmentsService {
     userId: string,
     dto: AddShipmentVehicleDto,
   ) {
-    const shipment = await this.prisma.shipment.findFirst({
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockShipment(tx, shipmentId, organizationId);
+      await this.assignVehicle(tx, shipmentId, organizationId, userId, dto);
+      await this.recalculateFreightShares(tx, shipmentId);
+    });
+    return this.findOne(shipmentId, organizationId);
+  }
+
+  private async assignVehicle(
+    tx: Prisma.TransactionClient,
+    shipmentId: string,
+    organizationId: string,
+    userId: string,
+    dto: AddShipmentVehicleDto,
+  ) {
+    const shipment = await tx.shipment.findFirst({
       where: { id: shipmentId, organizationId },
       include: {
         containerPreset: true,
@@ -387,10 +527,30 @@ export class ShipmentsService {
       },
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
-    const vehicle = await this.prisma.vehicle.findFirst({
+    if (!['pending', 'booked', 'loading'].includes(shipment.status))
+      throw new ConflictException(
+        'Le chargement de cette expédition est fermé.',
+      );
+    // Serialize assignments of the same vehicle across different containers.
+    await tx.$queryRaw`SELECT id FROM "Vehicle" WHERE id = ${dto.vehicleId} AND "organizationId" = ${organizationId} FOR UPDATE`;
+    const vehicle = await tx.vehicle.findFirst({
       where: { id: dto.vehicleId, organizationId, archivedAt: null },
     });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (['sold', 'delivered', 'rejected'].includes(vehicle.status))
+      throw new ConflictException('Ce véhicule ne peut pas être chargé.');
+    if (
+      await tx.shipmentVehicle.findFirst({
+        where: {
+          vehicleId: vehicle.id,
+          shipmentId: { not: shipmentId },
+          shipment: { status: { notIn: ['arrived', 'cancelled'] } },
+        },
+      })
+    )
+      throw new ConflictException(
+        'Ce véhicule est déjà affecté à une autre expédition active.',
+      );
     if (shipment.vehicles.some((item) => item.vehicleId === vehicle.id)) {
       throw new ConflictException(
         'Vehicle is already assigned to this shipment',
@@ -398,17 +558,11 @@ export class ShipmentsService {
     }
 
     // ── Hard vehicle count enforcement (no override allowed) ──
-    if (shipment.containerPreset) {
-      const maxVehicles = shipment.containerPreset.maxVehicles;
-      if (shipment.vehicles.length >= maxVehicles) {
-        throw new ConflictException({
-          code: 'SHIPMENT_MAX_VEHICLES_EXCEEDED',
-          message: `Ce conteneur est limité à ${maxVehicles} véhicules. Il en contient déjà ${shipment.vehicles.length}.`,
-          maxVehicles,
-          currentCount: shipment.vehicles.length,
-        });
-      }
-    }
+    this.assertCapacity(
+      shipment.containerType,
+      shipment.vehicles.length + 1,
+      shipment.containerPreset?.maxVehicles,
+    );
 
     const capacity = this.capacitySummary(shipment);
     const nextVolume = this.vehicleVolume(vehicle);
@@ -455,30 +609,26 @@ export class ShipmentsService {
     if (exceeds && !dto.overrideReason?.trim()) {
       throw new BadRequestException('An override reason is required');
     }
-    await this.prisma.$transaction(async (tx) => {
-      await tx.shipmentVehicle.create({
+    await tx.shipmentVehicle.create({
+      data: {
+        shipmentId,
+        vehicleId: vehicle.id,
+        addedBy: userId,
+        capacityOverride: exceeds,
+        overrideReason: exceeds ? dto.overrideReason : undefined,
+      },
+    });
+    if (exceeds) {
+      await tx.shipmentStatusHistory.create({
         data: {
           shipmentId,
-          vehicleId: vehicle.id,
-          addedBy: userId,
-          capacityOverride: exceeds,
-          overrideReason: exceeds ? dto.overrideReason : undefined,
+          fromStatus: shipment.status,
+          toStatus: shipment.status,
+          changedBy: userId,
+          comment: `Capacity override for vehicle ${vehicle.vin ?? vehicle.id}: ${dto.overrideReason} (${warnings.join(', ')})`,
         },
       });
-      if (exceeds) {
-        await tx.shipmentStatusHistory.create({
-          data: {
-            shipmentId,
-            fromStatus: shipment.status,
-            toStatus: shipment.status,
-            changedBy: userId,
-            comment: `Capacity override for vehicle ${vehicle.vin ?? vehicle.id}: ${dto.overrideReason} (${warnings.join(', ')})`,
-          },
-        });
-      }
-      await this.recalculateFreightShares(tx, shipmentId);
-    });
-    return this.findOne(shipmentId, organizationId);
+    }
   }
 
   async removeVehicle(
@@ -486,20 +636,25 @@ export class ShipmentsService {
     vehicleId: string,
     organizationId: string,
   ) {
-    const shipment = await this.prisma.shipment.findFirst({
-      where: { id: shipmentId, organizationId },
-    });
-    if (!shipment) throw new NotFoundException('Expédition introuvable.');
-
-    const link = await this.prisma.shipmentVehicle.findFirst({
-      where: { shipmentId, vehicleId },
-    });
-    if (!link)
-      throw new NotFoundException(
-        'Ce véhicule n\'est pas affecté à cette expédition.',
-      );
-
     await this.prisma.$transaction(async (tx) => {
+      await this.lockShipment(tx, shipmentId, organizationId);
+      const shipment = await tx.shipment.findFirst({
+        where: { id: shipmentId, organizationId },
+      });
+      if (!shipment) throw new NotFoundException('Expédition introuvable.');
+      if (!['pending', 'booked', 'loading'].includes(shipment.status))
+        throw new ConflictException(
+          'Le chargement de cette expédition est fermé.',
+        );
+
+      const link = await tx.shipmentVehicle.findFirst({
+        where: { shipmentId, vehicleId },
+      });
+      if (!link)
+        throw new NotFoundException(
+          "Ce véhicule n'est pas affecté à cette expédition.",
+        );
+
       await tx.shipmentVehicle.delete({ where: { id: link.id } });
       await this.recalculateFreightShares(tx, shipmentId);
     });
@@ -850,6 +1005,7 @@ export class ShipmentsService {
   }
 
   private capacitySummary(shipment: {
+    containerType?: ShipmentContainerType | null;
     containerPreset?: {
       maxVolumeM3: Prisma.Decimal;
       maxPayloadKg: Prisma.Decimal;
@@ -884,9 +1040,11 @@ export class ShipmentsService {
       0,
     );
     const maxVehicles =
+      containerCapacity(shipment.containerType) ??
       ('containerPreset' in shipment &&
-      (shipment as { containerPreset?: { maxVehicles?: number } | null })
-        .containerPreset?.maxVehicles) ?? null;
+        (shipment as { containerPreset?: { maxVehicles?: number } | null })
+          .containerPreset?.maxVehicles) ??
+      null;
     const totalFreight =
       'totalFreightCost' in shipment
         ? Number(

@@ -479,7 +479,11 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
     const created = await request(app.getHttpServer())
       .post('/api/shipments')
       .auth(token, { type: 'bearer' })
-      .send({ totalFreightCost: 10000.25, freightCurrency: 'USD' });
+      .send({
+        containerType: 'THREE_VEHICLES',
+        totalFreightCost: 10000.25,
+        freightCurrency: 'USD',
+      });
     expect(created.status).toBe(201);
     const shipment = dataOf<{ id: string; freightAmountDzd: string }>(created);
     expect(shipment.freightAmountDzd).toBe(

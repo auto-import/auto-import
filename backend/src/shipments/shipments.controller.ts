@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +21,7 @@ import {
   UpdateShipmentDto,
 } from './dto/shipments.dto';
 import { ShipmentsService } from './shipments.service';
+import { CONTAINER_TYPES } from './container-type';
 
 @Controller('shipments')
 export class ShipmentsController {
@@ -24,6 +34,12 @@ export class ShipmentsController {
     @Query() query: FilterShipmentsDto,
   ) {
     return this.shipments.findAll(user.organizationId, query);
+  }
+
+  @Get('container-types')
+  @RequirePermission(Permission.SHIPMENTS_READ)
+  containerTypes() {
+    return CONTAINER_TYPES;
   }
 
   @Get(':id')

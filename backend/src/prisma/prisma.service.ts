@@ -16,7 +16,7 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
   private readonly connectionPool: pg.Pool;
   private static readonly REQUIRED_MIGRATION =
-    '20260908120000_supplier_references_vehicle_hierarchy';
+    '20260911120000_persistent_shipping_references';
 
   constructor() {
     const connectionString = process.env.DATABASE_URL;

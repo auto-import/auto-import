@@ -1,6 +1,28 @@
 import { apiRequest } from "@/lib/api";
 import type { PaginatedData } from "@/lib/api-contract";
 
+export type ShipmentContainerType = "THREE_VEHICLES" | "FOUR_VEHICLES";
+export interface ApiContainerType {
+  code: ShipmentContainerType;
+  label: string;
+  capacity: number;
+}
+export interface ApiPort {
+  id: string;
+  name: string;
+  code: string;
+  country?: string | null;
+}
+export const fetchContainerTypes = () =>
+  apiRequest<ApiContainerType[]>("/shipments/container-types");
+export const fetchPorts = () => apiRequest<ApiPort[]>("/ports");
+export const createPort = (data: {
+  name: string;
+  code: string;
+  country?: string;
+}) =>
+  apiRequest<ApiPort>("/ports", { method: "POST", body: JSON.stringify(data) });
+
 export interface ApiLogisticsCost {
   id: string;
   type: string;
@@ -26,6 +48,11 @@ export interface ApiLogisticsStatusHistory {
 }
 
 export interface ApiShipment {
+  containerType?: ShipmentContainerType | null;
+  departurePortId?: string | null;
+  arrivalPortId?: string | null;
+  departurePortRecord?: ApiPort | null;
+  arrivalPortRecord?: ApiPort | null;
   id: string;
   organizationId: string;
   shipmentNumber: string;
@@ -196,6 +223,9 @@ export async function fetchShipment(id: string): Promise<ApiShipment> {
 }
 
 export async function createShipment(data: {
+  containerType?: ShipmentContainerType;
+  departurePortId?: string;
+  arrivalPortId?: string;
   carrierPartnerId?: string;
   blNumber?: string;
   vesselName?: string;

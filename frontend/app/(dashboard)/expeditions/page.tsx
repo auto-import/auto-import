@@ -16,14 +16,33 @@ import {
   transitionCustomsFile,
   type ApiShipment,
   type ApiCustomsFile,
+  fetchContainerTypes,
+  fetchPorts,
+  createPort,
+  type ApiPort,
+  type ApiContainerType,
+  type ShipmentContainerType,
 } from "@/lib/logistics-api";
 import { formatDate, formatMontant } from "@/lib/constants";
 import type { Column } from "@/types";
 import { Search, Ship, Plus, RefreshCw } from "lucide-react";
 import ShipmentDetailDialog from "@/components/commerce/ShipmentDetailDialog";
-import { commerceApi } from "@/lib/commerce-api";
+import PersistentReferenceSelect, {
+  type ReferenceDraft,
+} from "@/components/PersistentReferenceSelect";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
 
 export default function ExpeditionsPage() {
+  const { hasPermission } = useAuth();
+  const [ports, setPorts] = useState<ApiPort[]>([]);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [referencesError, setReferencesError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [formSaving, setFormSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [shipmentError, setShipmentError] = useState("");
+  const [customsError, setCustomsError] = useState("");
   const [activeTab, setActiveTab] = useState<"shipments" | "customs">(
     "shipments",
   );
@@ -49,14 +68,16 @@ export default function ExpeditionsPage() {
   const [newContainer, setNewContainer] = useState("");
   const [newVessel, setNewVessel] = useState("");
   const [newBl, setNewBl] = useState("");
-  const [newDepPort, setNewDepPort] = useState("Shanghai (CNSHA)");
-  const [newArrPort, setNewArrPort] = useState("Djen Djen (DZDJE)");
+  const [newDepPort, setNewDepPort] = useState("");
+  const [newArrPort, setNewArrPort] = useState("");
   const [newEtd, setNewEtd] = useState("");
   const [newEta, setNewEta] = useState("");
-  const [containerPresets, setContainerPresets] = useState<
-    Array<Record<string, string | number>>
-  >([]);
-  const [newContainerPresetId, setNewContainerPresetId] = useState("");
+  const [containerPresets, setContainerPresets] = useState<ApiContainerType[]>(
+    [],
+  );
+  const [newContainerPresetId, setNewContainerPresetId] = useState<
+    ShipmentContainerType | ""
+  >("");
   const [newFreightCost, setNewFreightCost] = useState("");
   const [newFreightCurrency, setNewFreightCurrency] = useState("USD");
   const [freightRates, setFreightRates] = useState<FinanceDzdRate[]>([]);
@@ -98,6 +119,7 @@ export default function ExpeditionsPage() {
 
   const loadShipments = useCallback(async () => {
     setShipmentLoading(true);
+    setShipmentError("");
     try {
       const res = await fetchShipments({
         page: shipmentPage,
@@ -107,8 +129,12 @@ export default function ExpeditionsPage() {
       });
       setShipments(res.items || []);
       setShipmentTotal(res.pagination?.totalItems || 0);
-    } catch {
-      // ignore
+    } catch (cause) {
+      setShipmentError(
+        cause instanceof Error
+          ? cause.message
+          : "Impossible de charger les expéditions",
+      );
     } finally {
       setShipmentLoading(false);
     }
@@ -116,6 +142,7 @@ export default function ExpeditionsPage() {
 
   const loadCustoms = useCallback(async () => {
     setCustomsLoading(true);
+    setCustomsError("");
     try {
       const res = await fetchCustomsFiles({
         page: customsPage,
@@ -125,8 +152,12 @@ export default function ExpeditionsPage() {
       });
       setCustomsFiles(res.items || []);
       setCustomsTotal(res.pagination?.totalItems || 0);
-    } catch {
-      // ignore
+    } catch (cause) {
+      setCustomsError(
+        cause instanceof Error
+          ? cause.message
+          : "Impossible de charger les dossiers douaniers",
+      );
     } finally {
       setCustomsLoading(false);
     }
@@ -142,9 +173,40 @@ export default function ExpeditionsPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [activeTab, loadShipments, loadCustoms]);
+  async function loadReferences() {
+    setReferencesLoading(true);
+    setReferencesError("");
+    try {
+      const [types, availablePorts] = await Promise.all([
+        fetchContainerTypes(),
+        fetchPorts(),
+      ]);
+      setContainerPresets(types);
+      setPorts(availablePorts);
+    } catch (cause) {
+      setReferencesError(
+        cause instanceof Error
+          ? cause.message
+          : "Impossible de charger les références d’expédition",
+      );
+    } finally {
+      setReferencesLoading(false);
+    }
+  }
   useEffect(() => {
-    void commerceApi.configuration.containerPresets().then(setContainerPresets);
-  }, []);
+    if (showShipmentModal) void loadReferences();
+  }, [showShipmentModal]);
+  async function savePort(draft: ReferenceDraft) {
+    const port = await createPort({
+      name: draft.name.trim(),
+      code: draft.code.trim(),
+      country: draft.country.trim() || undefined,
+    });
+    setPorts((items) =>
+      [...items, port].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    return port.id;
+  }
 
   const handleTransitionShipment = async (id: string, nextStatus: string) => {
     setActionLoading(id);
@@ -199,16 +261,20 @@ export default function ExpeditionsPage() {
   const handleCreateShipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newFreightCost && freightEquivalent === null) return;
+    if (formSaving) return;
+    setFormSaving(true);
+    setFormError("");
+    setNotice("");
     try {
       await createShipment({
         containerNumber: newContainer || undefined,
         vesselName: newVessel || undefined,
         blNumber: newBl || undefined,
-        departurePort: newDepPort || undefined,
-        arrivalPort: newArrPort || undefined,
+        departurePortId: newDepPort || undefined,
+        arrivalPortId: newArrPort || undefined,
         etd: newEtd || undefined,
         eta: newEta || undefined,
-        containerPresetId: newContainerPresetId || undefined,
+        containerType: newContainerPresetId || undefined,
         totalFreightCost: newFreightCost ? Number(newFreightCost) : undefined,
         freightCurrency: newFreightCost ? newFreightCurrency : undefined,
         freightExchangeRateId: newFreightCost
@@ -219,12 +285,20 @@ export default function ExpeditionsPage() {
       setNewContainer("");
       setNewVessel("");
       setNewBl("");
+      setNotice("Expédition enregistrée.");
+      setNewContainerPresetId("");
+      setNewDepPort("");
+      setNewArrPort("");
+      setNewEtd("");
+      setNewEta("");
+      setNewFreightCost("");
       await loadShipments();
     } catch (err) {
-      alert(
-        (err instanceof Error ? err.message : "") ||
-          "Erreur de création d’expédition",
+      setFormError(
+        err instanceof Error ? err.message : "Erreur de création d’expédition",
       );
+    } finally {
+      setFormSaving(false);
     }
   };
 
@@ -387,7 +461,8 @@ export default function ExpeditionsPage() {
             className="inline-flex flex-col items-start justify-center gap-0.5 px-2.5 py-1.5 rounded bg-surface border text-xs font-semibold"
           >
             <span>
-              {max != null ? `${count} / ${max}` : count} véhicule{(max ?? count) !== 1 ? "s" : ""}
+              {max != null ? `${count} / ${max}` : count} véhicule
+              {(max ?? count) !== 1 ? "s" : ""}
             </span>
             <span className="font-normal text-muted">
               {total != null
@@ -629,6 +704,11 @@ export default function ExpeditionsPage() {
       />
 
       <div className="p-8 space-y-6">
+        {(activeTab === "shipments" ? shipmentError : customsError) && (
+          <p role="alert" className="text-red-700">
+            {activeTab === "shipments" ? shipmentError : customsError}
+          </p>
+        )}
         {/* Navigation Tabs */}
         <div className="flex border-b border-border gap-6">
           <button
@@ -766,29 +846,49 @@ export default function ExpeditionsPage() {
       </div>
 
       {/* Shipment Modal */}
+      {notice && (
+        <p role="status" className="px-8 text-sm text-green-700">
+          {notice}
+        </p>
+      )}
       {showShipmentModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="card max-w-md w-full p-6 space-y-4">
+          <div className="card max-w-md w-full max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <h3 className="font-bold text-lg text-foreground">
               Créer une expédition maritime
             </h3>
             <form onSubmit={handleCreateShipment} className="space-y-4">
+              {formError && (
+                <p role="alert" className="text-sm text-red-700">
+                  {formError}
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">
                     Type conteneur
                   </label>
                   <select
+                    aria-label="Type conteneur"
+                    disabled={referencesLoading || Boolean(referencesError)}
                     required
                     value={newContainerPresetId}
                     onChange={(event) =>
-                      setNewContainerPresetId(event.target.value)
+                      setNewContainerPresetId(
+                        event.target.value as ShipmentContainerType | "",
+                      )
                     }
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                   >
-                    <option value="">Sélectionner</option>
+                    <option value="">
+                      {referencesLoading
+                        ? "Chargement..."
+                        : containerPresets.length
+                          ? "Sélectionner"
+                          : "Aucun type disponible"}
+                    </option>
                     {containerPresets.map((preset) => (
-                      <option key={String(preset.id)} value={String(preset.id)}>
+                      <option key={preset.code} value={preset.code}>
                         {String(preset.label)}
                       </option>
                     ))}
@@ -886,28 +986,44 @@ export default function ExpeditionsPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
-                    Port de Départ
-                  </label>
-                  <input
-                    type="text"
-                    value={newDepPort}
-                    onChange={(e) => setNewDepPort(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
-                    Port d’Arrivée
-                  </label>
-                  <input
-                    type="text"
-                    value={newArrPort}
-                    onChange={(e) => setNewArrPort(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
-                  />
-                </div>
+                <PersistentReferenceSelect
+                  label="Port de départ"
+                  value={newDepPort}
+                  onChange={setNewDepPort}
+                  options={ports.map((port) => ({
+                    id: port.id,
+                    label: `${port.name} (${port.code})`,
+                  }))}
+                  loading={referencesLoading}
+                  error={referencesError}
+                  retry={() => void loadReferences()}
+                  create={
+                    hasPermission(Permission.SHIPMENTS_WRITE)
+                      ? savePort
+                      : undefined
+                  }
+                  port
+                  required
+                />
+                <PersistentReferenceSelect
+                  label="Port d’arrivée"
+                  value={newArrPort}
+                  onChange={setNewArrPort}
+                  options={ports.map((port) => ({
+                    id: port.id,
+                    label: `${port.name} (${port.code})`,
+                  }))}
+                  loading={referencesLoading}
+                  error={referencesError}
+                  retry={() => void loadReferences()}
+                  create={
+                    hasPermission(Permission.SHIPMENTS_WRITE)
+                      ? savePort
+                      : undefined
+                  }
+                  port
+                  required
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -946,11 +1062,14 @@ export default function ExpeditionsPage() {
                 <button
                   type="submit"
                   disabled={
-                    Boolean(newFreightCost) && freightEquivalent === null
+                    formSaving ||
+                    referencesLoading ||
+                    Boolean(referencesError) ||
+                    (Boolean(newFreightCost) && freightEquivalent === null)
                   }
                   className="px-4 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
                 >
-                  Créer l’expédition
+                  {formSaving ? "Enregistrement..." : "Créer l’expédition"}
                 </button>
               </div>
             </form>
