@@ -71,6 +71,9 @@ export interface ApiShipment {
     remainingWeightKg: number | null;
     totalWeightKg: number | null;
     vehicleCount: number;
+    maxVehicles: number | null;
+    freightPerVehicle: number | null;
+    freightCurrency: string | null;
   };
   createdAt: string;
   updatedAt?: string;
@@ -78,6 +81,8 @@ export interface ApiShipment {
   vehicles?: Array<{
     id: string;
     vehicleId: string;
+    freightShare?: string | number | null;
+    freightCurrency?: string | null;
     vehicle?: {
       id: string;
       brand: string;
@@ -224,6 +229,16 @@ export async function addShipmentVehicle(
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function removeShipmentVehicle(
+  shipmentId: string,
+  vehicleId: string,
+): Promise<ApiShipment> {
+  return apiRequest<ApiShipment>(
+    `/shipments/${shipmentId}/vehicles/${vehicleId}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function transitionShipment(

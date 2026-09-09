@@ -69,6 +69,35 @@ export class ShipmentsService {
     };
   }
 
+  /**
+   * Recalculate the per-vehicle freight share for every vehicle in a shipment.
+   * Uses container capacity (maxVehicles) as divisor, NOT the actual vehicle count.
+   * Business rule: 1 vehicle = totalFreight / maxVehicles.
+   */
+  private async recalculateFreightShares(
+    tx: Prisma.TransactionClient,
+    shipmentId: string,
+  ) {
+    const shipment = await tx.shipment.findUniqueOrThrow({
+      where: { id: shipmentId },
+      include: { containerPreset: true, vehicles: true },
+    });
+    const maxVehicles = shipment.containerPreset?.maxVehicles;
+    if (!maxVehicles || shipment.totalFreightCost == null) return;
+    const perVehicle = new Prisma.Decimal(shipment.totalFreightCost)
+      .div(maxVehicles)
+      .toDecimalPlaces(2);
+    for (const sv of shipment.vehicles) {
+      await tx.shipmentVehicle.update({
+        where: { id: sv.id },
+        data: {
+          freightShare: perVehicle,
+          freightCurrency: shipment.freightCurrency,
+        },
+      });
+    }
+  }
+
   private async generateShipmentNumber(
     tx: Prisma.TransactionClient,
     organizationId: string,
@@ -133,6 +162,20 @@ export class ShipmentsService {
       });
 
       if (dto.vehicleIds && dto.vehicleIds.length > 0) {
+        // Enforce maxVehicles on initial creation
+        if (dto.containerPresetId) {
+          const preset = await tx.containerPreset.findUnique({
+            where: { id: dto.containerPresetId },
+          });
+          if (preset && dto.vehicleIds.length > preset.maxVehicles) {
+            throw new BadRequestException({
+              code: 'SHIPMENT_MAX_VEHICLES_EXCEEDED',
+              message: `Ce conteneur est limité à ${preset.maxVehicles} véhicules. Vous tentez d'en ajouter ${dto.vehicleIds.length}.`,
+              maxVehicles: preset.maxVehicles,
+              requestedCount: dto.vehicleIds.length,
+            });
+          }
+        }
         for (const vehicleId of dto.vehicleIds) {
           const vehicle = await tx.vehicle.findFirst({
             where: { id: vehicleId, organizationId },
@@ -146,6 +189,7 @@ export class ShipmentsService {
             });
           }
         }
+        await this.recalculateFreightShares(tx, shipment.id);
       }
 
       return tx.shipment.findUnique({
@@ -352,6 +396,20 @@ export class ShipmentsService {
         'Vehicle is already assigned to this shipment',
       );
     }
+
+    // ── Hard vehicle count enforcement (no override allowed) ──
+    if (shipment.containerPreset) {
+      const maxVehicles = shipment.containerPreset.maxVehicles;
+      if (shipment.vehicles.length >= maxVehicles) {
+        throw new ConflictException({
+          code: 'SHIPMENT_MAX_VEHICLES_EXCEEDED',
+          message: `Ce conteneur est limité à ${maxVehicles} véhicules. Il en contient déjà ${shipment.vehicles.length}.`,
+          maxVehicles,
+          currentCount: shipment.vehicles.length,
+        });
+      }
+    }
+
     const capacity = this.capacitySummary(shipment);
     const nextVolume = this.vehicleVolume(vehicle);
     const warnings: string[] = [];
@@ -418,7 +476,34 @@ export class ShipmentsService {
           },
         });
       }
+      await this.recalculateFreightShares(tx, shipmentId);
     });
+    return this.findOne(shipmentId, organizationId);
+  }
+
+  async removeVehicle(
+    shipmentId: string,
+    vehicleId: string,
+    organizationId: string,
+  ) {
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { id: shipmentId, organizationId },
+    });
+    if (!shipment) throw new NotFoundException('Expédition introuvable.');
+
+    const link = await this.prisma.shipmentVehicle.findFirst({
+      where: { shipmentId, vehicleId },
+    });
+    if (!link)
+      throw new NotFoundException(
+        'Ce véhicule n\'est pas affecté à cette expédition.',
+      );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.shipmentVehicle.delete({ where: { id: link.id } });
+      await this.recalculateFreightShares(tx, shipmentId);
+    });
+
     return this.findOne(shipmentId, organizationId);
   }
 
@@ -798,6 +883,29 @@ export class ShipmentsService {
       (sum, item) => sum + Number(item.vehicle.weightKg ?? 0),
       0,
     );
+    const maxVehicles =
+      ('containerPreset' in shipment &&
+      (shipment as { containerPreset?: { maxVehicles?: number } | null })
+        .containerPreset?.maxVehicles) ?? null;
+    const totalFreight =
+      'totalFreightCost' in shipment
+        ? Number(
+            (shipment as { totalFreightCost?: Prisma.Decimal | null })
+              .totalFreightCost ?? 0,
+          )
+        : null;
+    const freightCurrency =
+      'freightCurrency' in shipment
+        ? (shipment as { freightCurrency?: string | null }).freightCurrency
+        : null;
+    const freightPerVehicle =
+      maxVehicles && totalFreight
+        ? Number(
+            new Prisma.Decimal(totalFreight)
+              .div(maxVehicles)
+              .toDecimalPlaces(2),
+          )
+        : null;
     return {
       usedVolumeM3,
       remainingVolumeM3:
@@ -808,6 +916,9 @@ export class ShipmentsService {
         totalWeight === null ? null : totalWeight - usedWeightKg,
       totalWeightKg: totalWeight,
       vehicleCount: shipment.vehicles.length,
+      maxVehicles,
+      freightPerVehicle,
+      freightCurrency,
     };
   }
 }

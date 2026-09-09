@@ -375,10 +375,11 @@ export default function ExpeditionsPage() {
       header: "Véhicules",
       render: (row) => {
         const count = row.capacity?.vehicleCount ?? row.vehicles?.length ?? 0;
+        const max = row.capacity?.maxVehicles;
+        const freightPer = row.capacity?.freightPerVehicle;
+        const freightCur = row.capacity?.freightCurrency;
         const used = row.capacity?.usedVolumeM3;
         const total = row.capacity?.totalVolumeM3;
-        const usedKg = row.capacity?.usedWeightKg;
-        const totalKg = row.capacity?.totalWeightKg;
         return (
           <button
             type="button"
@@ -386,14 +387,14 @@ export default function ExpeditionsPage() {
             className="inline-flex flex-col items-start justify-center gap-0.5 px-2.5 py-1.5 rounded bg-surface border text-xs font-semibold"
           >
             <span>
-              {count} véhicule{count !== 1 ? "s" : ""}
+              {max != null ? `${count} / ${max}` : count} véhicule{(max ?? count) !== 1 ? "s" : ""}
             </span>
             <span className="font-normal text-muted">
               {total != null
                 ? `${(used ?? 0).toFixed(1)} / ${Number(total).toFixed(1)} m³`
                 : `${(used ?? 0).toFixed(1)} m³`}
-              {totalKg != null
-                ? ` · ${Math.round(usedKg ?? 0)} / ${Math.round(Number(totalKg))} kg`
+              {freightPer != null
+                ? ` · ${formatMontant(freightPer)} ${freightCur || ""}/véh`
                 : ""}
             </span>
           </button>

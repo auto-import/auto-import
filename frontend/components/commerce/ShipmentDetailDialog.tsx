@@ -6,8 +6,10 @@ import { commerceApi, type ApiVehicle } from "@/lib/commerce-api";
 import {
   addShipmentVehicle,
   fetchShipment,
+  removeShipmentVehicle,
   type ApiShipment,
 } from "@/lib/logistics-api";
+import { formatMontant } from "@/lib/constants";
 import { inputClass } from "./common";
 
 export default function ShipmentDetailDialog({
@@ -23,6 +25,7 @@ export default function ShipmentDetailDialog({
   const [vehicles, setVehicles] = useState<ApiVehicle[]>([]);
   const [vehicleId, setVehicleId] = useState("");
   const [error, setError] = useState("");
+  const [removing, setRemoving] = useState<string | null>(null);
   const load = async () => {
     const [record, page] = await Promise.all([
       fetchShipment(id),
@@ -32,6 +35,10 @@ export default function ShipmentDetailDialog({
     setVehicles(page.items.filter((vehicle) => !record.vehicles?.some((link) => link.vehicleId === vehicle.id)));
   };
   useEffect(() => { void load().catch((cause) => setError(cause instanceof Error ? cause.message : "Chargement impossible")); }, [id]);
+
+  const maxVehicles = shipment?.capacity?.maxVehicles ?? null;
+  const atCapacity = maxVehicles != null && (shipment?.capacity?.vehicleCount ?? 0) >= maxVehicles;
+
   function prospective(vehicle: ApiVehicle | undefined) {
     if (!vehicle) return null;
     const volume =
@@ -55,12 +62,13 @@ export default function ShipmentDetailDialog({
   }
   const selected = vehicles.find((vehicle) => vehicle.id === vehicleId);
   const preview = prospective(selected);
+
   async function assign() {
     if (!vehicleId) return;
     setError("");
     if (preview?.wouldExceed) {
       if (!window.confirm("La capacité serait dépassée. Confirmer un override explicite ?")) return;
-      const overrideReason = window.prompt("Justification obligatoire de l’override")?.trim();
+      const overrideReason = window.prompt("Justification obligatoire de l'override")?.trim();
       if (!overrideReason) return;
       await addShipmentVehicle(id, { vehicleId, capacityOverride: true, overrideReason });
     } else {
@@ -68,9 +76,9 @@ export default function ShipmentDetailDialog({
         await addShipmentVehicle(id, { vehicleId });
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : "Affectation impossible";
-        if (!message.toLowerCase().includes("capacity")) throw cause;
+        if (!message.toLowerCase().includes("capacity") && !message.toLowerCase().includes("limité")) throw cause;
         if (!window.confirm("La capacité ou les dimensions seraient dépassées. Confirmer un override explicite ?")) return;
-        const overrideReason = window.prompt("Justification obligatoire de l’override")?.trim();
+        const overrideReason = window.prompt("Justification obligatoire de l'override")?.trim();
         if (!overrideReason) return;
         await addShipmentVehicle(id, { vehicleId, capacityOverride: true, overrideReason });
       }
@@ -78,31 +86,58 @@ export default function ShipmentDetailDialog({
     setVehicleId("");
     await Promise.all([load(), changed()]);
   }
+
+  async function handleRemove(vehicleIdToRemove: string) {
+    if (!window.confirm("Retirer ce véhicule de l'expédition ?")) return;
+    setRemoving(vehicleIdToRemove);
+    try {
+      await removeShipmentVehicle(id, vehicleIdToRemove);
+      await Promise.all([load(), changed()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Retrait impossible");
+    } finally {
+      setRemoving(null);
+    }
+  }
+
   if (!shipment) return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="card p-8">{error || "Chargement…"}</div></div>;
   const suppliers = [...new Set(shipment.vehicles?.map((link) => link.vehicle?.supplier?.name).filter(Boolean))];
+  const cap = shipment.capacity;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
       <section className="card max-h-[92vh] w-full max-w-6xl overflow-y-auto p-6">
         <div className="flex items-start justify-between"><div><h2 className="text-xl font-bold">{shipment.shipmentNumber}</h2><p className="text-sm text-muted">{shipment.containerPreset?.label || "Type de conteneur non configuré"} · {shipment.containerNumber || "N° conteneur en attente"}</p></div><button onClick={close} className="rounded-lg border px-3 py-2">Fermer</button></div>
         {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
-          <Metric label="Volume utilisé" value={`${shipment.capacity?.usedVolumeM3.toFixed(2) ?? 0} / ${shipment.capacity?.totalVolumeM3 ?? "—"} m³`} />
-          <Metric label="Volume restant" value={`${shipment.capacity?.remainingVolumeM3?.toFixed(2) ?? "—"} m³`} />
-          <Metric label="Poids utilisé" value={`${shipment.capacity?.usedWeightKg.toFixed(0) ?? 0} / ${shipment.capacity?.totalWeightKg ?? "—"} kg`} />
-          <Metric label="Poids restant" value={`${shipment.capacity?.remainingWeightKg?.toFixed(0) ?? "—"} kg`} />
+        <div className="mt-6 grid gap-4 md:grid-cols-5">
+          <Metric label="Véhicules" value={maxVehicles != null ? `${cap?.vehicleCount ?? 0} / ${maxVehicles}` : `${cap?.vehicleCount ?? 0}`} highlight={atCapacity} />
+          <Metric label="Volume utilisé" value={`${cap?.usedVolumeM3?.toFixed(2) ?? 0} / ${cap?.totalVolumeM3 ?? "—"} m³`} />
+          <Metric label="Volume restant" value={`${cap?.remainingVolumeM3?.toFixed(2) ?? "—"} m³`} />
+          <Metric label="Fret par véhicule" value={cap?.freightPerVehicle != null ? `${formatMontant(cap.freightPerVehicle)} ${cap.freightCurrency || ""}` : "—"} />
+          <Metric label="Fret total" value={shipment.totalFreightCost != null ? `${formatMontant(Number(shipment.totalFreightCost))} ${shipment.freightCurrency || ""}` : "—"} />
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-2"><Metric label="Fournisseurs véhicules" value={suppliers.join(", ") || "Non renseignés"} /><Metric label="Forwarder" value={shipment.carrierPartner?.name || "Non affecté"} /></div>
         <div className="mt-7">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-72 flex-1"><span className="field-label">Ajouter un véhicule</span><select className={inputClass} value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}><option value="">Sélectionner</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.vin || "VIN manquant"} · {vehicle.brand} {vehicle.model}</option>)}</select></label>
-            <button type="button" onClick={() => void assign().catch((cause) => setError(cause instanceof Error ? cause.message : "Affectation impossible"))} className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white">Affecter</button>
+            <label className="min-w-72 flex-1">
+              <span className="field-label">Ajouter un véhicule</span>
+              <select className={inputClass} value={vehicleId} onChange={(event) => setVehicleId(event.target.value)} disabled={atCapacity}>
+                <option value="">{atCapacity ? `Capacité atteinte (${maxVehicles}/${maxVehicles})` : "Sélectionner"}</option>
+                {!atCapacity && vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.vin || "VIN manquant"} · {vehicle.brand} {vehicle.model}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={() => void assign().catch((cause) => setError(cause instanceof Error ? cause.message : "Affectation impossible"))} disabled={!vehicleId || atCapacity} className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Affecter</button>
           </div>
-          {selected && preview && (
+          {atCapacity && (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 font-medium">
+              ⚠ Ce conteneur est limité à {maxVehicles} véhicules — capacité atteinte.
+            </p>
+          )}
+          {selected && preview && !atCapacity && (
             <div className={`mt-3 rounded-lg border p-3 text-sm ${preview.wouldExceed ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-neutral-50"}`}>
               <p className="font-semibold">{selected.vin || "VIN manquant"} · {selected.brand} {selected.model}</p>
               <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
-                <span>Volume : +{preview.volume != null ? preview.volume.toFixed(2) : "—"} m³{shipment.capacity?.totalVolumeM3 != null ? ` → ${((shipment.capacity.usedVolumeM3 ?? 0) + (preview.volume ?? 0)).toFixed(2)} / ${Number(shipment.capacity.totalVolumeM3).toFixed(2)} m³` : ""}</span>
-                <span>Poids : +{preview.weight != null ? `${preview.weight} kg` : "—"}{shipment.capacity?.totalWeightKg != null ? ` → ${Math.round((shipment.capacity.usedWeightKg ?? 0) + (preview.weight ?? 0))} / ${Math.round(Number(shipment.capacity.totalWeightKg))} kg` : ""}</span>
+                <span>Volume : +{preview.volume != null ? preview.volume.toFixed(2) : "—"} m³{cap?.totalVolumeM3 != null ? ` → ${((cap.usedVolumeM3 ?? 0) + (preview.volume ?? 0)).toFixed(2)} / ${Number(cap.totalVolumeM3).toFixed(2)} m³` : ""}</span>
+                <span>Poids : +{preview.weight != null ? `${preview.weight} kg` : "—"}{cap?.totalWeightKg != null ? ` → ${Math.round((cap.usedWeightKg ?? 0) + (preview.weight ?? 0))} / ${Math.round(Number(cap.totalWeightKg))} kg` : ""}</span>
               </div>
               {preview.wouldExceed && (
                 <p className="mt-2 font-semibold">⚠ La capacité serait dépassée{preview.overVolume ? " en volume" : ""}{preview.overVolume && preview.overWeight ? " et" : ""}{preview.overWeight ? " en poids" : ""}. Un override explicite sera demandé à la confirmation.</p>
@@ -113,7 +148,51 @@ export default function ShipmentDetailDialog({
             </div>
           )}
         </div>
-        <div className="mt-7 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b text-xs uppercase text-muted"><th className="p-3">VIN / véhicule</th><th className="p-3">Dimensions</th><th className="p-3">Poids</th><th className="p-3">Dossier / client</th><th className="p-3">Fournisseur</th></tr></thead><tbody>{shipment.vehicles?.map((link) => { const vehicle = link.vehicle; const parent = vehicle?.dossierVehicles?.[0]?.dossier; return <tr key={link.id} className="border-b"><td className="p-3"><b>{vehicle?.vin || "VIN manquant"}</b><br />{vehicle?.brand} {vehicle?.model}</td><td className="p-3">{vehicle?.lengthCm && vehicle.widthCm && vehicle.heightCm ? `${vehicle.lengthCm} × ${vehicle.widthCm} × ${vehicle.heightCm} cm` : "À compléter"}</td><td className="p-3">{vehicle?.weightKg ? `${vehicle.weightKg} kg` : "À compléter"}</td><td className="p-3">{parent ? <Link href={`/dossiers/${parent.id}`} className="font-semibold text-blue-700 underline">{parent.reference} · {parent.client.firstName} {parent.client.lastName}</Link> : "Non lié"}</td><td className="p-3">{vehicle?.supplier?.name || "—"}</td></tr>; })}</tbody></table></div>
+        <div className="mt-7 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b text-xs uppercase text-muted">
+                <th className="p-3">VIN / véhicule</th>
+                <th className="p-3">Dimensions</th>
+                <th className="p-3">Poids</th>
+                <th className="p-3">Part de fret</th>
+                <th className="p-3">Dossier / client</th>
+                <th className="p-3">Fournisseur</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shipment.vehicles?.map((link) => {
+                const vehicle = link.vehicle;
+                const parent = vehicle?.dossierVehicles?.[0]?.dossier;
+                return (
+                  <tr key={link.id} className="border-b">
+                    <td className="p-3"><b>{vehicle?.vin || "VIN manquant"}</b><br />{vehicle?.brand} {vehicle?.model}</td>
+                    <td className="p-3">{vehicle?.lengthCm && vehicle.widthCm && vehicle.heightCm ? `${vehicle.lengthCm} × ${vehicle.widthCm} × ${vehicle.heightCm} cm` : "À compléter"}</td>
+                    <td className="p-3">{vehicle?.weightKg ? `${vehicle.weightKg} kg` : "À compléter"}</td>
+                    <td className="p-3 font-semibold">
+                      {link.freightShare != null
+                        ? `${formatMontant(Number(link.freightShare))} ${link.freightCurrency || ""}`
+                        : "—"}
+                    </td>
+                    <td className="p-3">{parent ? <Link href={`/dossiers/${parent.id}`} className="font-semibold text-blue-700 underline">{parent.reference} · {parent.client.firstName} {parent.client.lastName}</Link> : "Non lié"}</td>
+                    <td className="p-3">{vehicle?.supplier?.name || "—"}</td>
+                    <td className="p-3">
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(link.vehicleId)}
+                        disabled={removing === link.vehicleId}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-40"
+                      >
+                        {removing === link.vehicleId ? "Retrait…" : "Retirer"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         <div className="mt-7">
           <h3 className="font-bold">Documents liés</h3>
           {shipment.documents?.length ? (
@@ -137,4 +216,11 @@ export default function ShipmentDetailDialog({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border p-4"><p className="text-xs font-semibold uppercase text-muted">{label}</p><p className="mt-1 font-bold">{value}</p></div>; }
+function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${highlight ? "border-amber-300 bg-amber-50" : ""}`}>
+      <p className="text-xs font-semibold uppercase text-muted">{label}</p>
+      <p className={`mt-1 font-bold ${highlight ? "text-amber-800" : ""}`}>{value}</p>
+    </div>
+  );
+}

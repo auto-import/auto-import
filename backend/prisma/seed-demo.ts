@@ -1617,6 +1617,42 @@ async function seedFinanceLogistics(): Promise<void> {
       });
     }
 
+    // ── Container Presets (3-vehicle and 4-vehicle containers) ──
+    const preset3Id = key('container-preset', '3veh');
+    const preset4Id = key('container-preset', '4veh');
+    await tx.containerPreset.upsert({
+      where: { organizationId_code: { organizationId: PRIMARY_ORG_ID, code: '3VEH' } },
+      update: {},
+      create: {
+        id: preset3Id,
+        organizationId: PRIMARY_ORG_ID,
+        code: '3VEH',
+        label: 'Conteneur 3 véhicules',
+        maxVehicles: 3,
+        internalLengthCm: 590,
+        internalWidthCm: 235,
+        internalHeightCm: 239,
+        maxVolumeM3: 33.2,
+        maxPayloadKg: 26000,
+      },
+    });
+    await tx.containerPreset.upsert({
+      where: { organizationId_code: { organizationId: PRIMARY_ORG_ID, code: '4VEH' } },
+      update: {},
+      create: {
+        id: preset4Id,
+        organizationId: PRIMARY_ORG_ID,
+        code: '4VEH',
+        label: 'Conteneur 4 véhicules',
+        maxVehicles: 4,
+        internalLengthCm: 1200,
+        internalWidthCm: 235,
+        internalHeightCm: 269,
+        maxVolumeM3: 67.7,
+        maxPayloadKg: 26500,
+      },
+    });
+
     const shipmentStatuses = [
       'booked',
       'loading',
@@ -1634,6 +1670,8 @@ async function seedFinanceLogistics(): Promise<void> {
       const eta = at(etd, 35);
       const late = index === 2;
       const effectiveEta = late ? at(config.anchor, -3) : eta;
+      const presetId = index % 2 === 0 ? preset3Id : preset4Id;
+      const freightCost = index % 2 === 0 ? 3000 : 4000;
       await tx.shipment.upsert({
         where: { id: key('shipment', index) },
         update: { status, eta: effectiveEta },
@@ -1647,6 +1685,9 @@ async function seedFinanceLogistics(): Promise<void> {
             index % 3
           ],
           containerNumber: `MSCU${String(1000000 + index)}`,
+          containerPresetId: presetId,
+          totalFreightCost: freightCost,
+          freightCurrency: 'USD',
           departurePort: index % 2 ? 'Shanghai' : 'Qingdao',
           arrivalPort: index % 2 ? 'Oran' : 'Alger',
           etd,
@@ -1661,7 +1702,7 @@ async function seedFinanceLogistics(): Promise<void> {
           notes: late
             ? 'Expédition active en retard'
             : index === 4
-              ? 'Expédition achevée à l’heure'
+              ? 'Expédition achevée à l\'heure'
               : 'Suivi opérationnel fictif',
           createdAt: at(etd, -3),
         },

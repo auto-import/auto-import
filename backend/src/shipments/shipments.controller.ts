@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -90,5 +90,15 @@ export class ShipmentsController {
     @Body() dto: AddShipmentVehicleDto,
   ) {
     return this.shipments.addVehicle(id, user.organizationId, user.id, dto);
+  }
+
+  @Delete(':id/vehicles/:vehicleId')
+  @RequirePermission(Permission.SHIPMENTS_WRITE)
+  removeVehicle(
+    @Param('id') id: string,
+    @Param('vehicleId') vehicleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.shipments.removeVehicle(id, vehicleId, user.organizationId);
   }
 }
