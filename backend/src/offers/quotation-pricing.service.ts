@@ -185,11 +185,11 @@ export class QuotationPricingService {
     const estimatedProfitDzd = sellingPriceDzd
       .sub(estimatedTotalCostDzd)
       .toDecimalPlaces(2);
-    const estimatedMarginPercent = sellingPriceDzd.isPositive()
+    const estimatedMarginPercent = sellingPriceDzd.gt(0)
       ? estimatedProfitDzd.mul(100).div(sellingPriceDzd).toDecimalPlaces(4)
       : new Prisma.Decimal(0);
     const costs = [...operationalCosts, customs].filter((item) =>
-      item.originalAmount.isPositive(),
+      item.originalAmount.gt(0),
     );
 
     return {

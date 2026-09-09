@@ -49,19 +49,23 @@ describe('Offer and quotation pricing rules', () => {
 
   it('calculates FCA and FOB supplier totals without conversion', () => {
     const offers = new OffersService({} as never, {} as never);
-    const calculate = (
-      offers as unknown as {
-        offerPricing: (
-          incoterm: string,
-          supplierPrice: number,
-          localCost?: number,
-        ) => { localCost: Prisma.Decimal; totalOfferPrice: Prisma.Decimal };
-      }
-    ).offerPricing.bind(offers);
+    const pricingFacade = offers as unknown as {
+      offerPricing: (
+        incoterm: string,
+        supplierPrice: number,
+        localCost?: number,
+      ) => { localCost: Prisma.Decimal; totalOfferPrice: Prisma.Decimal };
+    };
 
-    expect(calculate('FCA', 8_000, 500).totalOfferPrice.toNumber()).toBe(8_500);
-    expect(calculate('FOB', 8_000, 500).totalOfferPrice.toNumber()).toBe(8_000);
-    expect(calculate('FOB', 8_000, 500).localCost.toNumber()).toBe(0);
+    expect(
+      pricingFacade.offerPricing('FCA', 8_000, 500).totalOfferPrice.toNumber(),
+    ).toBe(8_500);
+    expect(
+      pricingFacade.offerPricing('FOB', 8_000, 500).totalOfferPrice.toNumber(),
+    ).toBe(8_000);
+    expect(
+      pricingFacade.offerPricing('FOB', 8_000, 500).localCost.toNumber(),
+    ).toBe(0);
   });
 
   it.each([
@@ -81,6 +85,26 @@ describe('Offer and quotation pricing rules', () => {
     expect(result.estimatedCifCostDzd.toNumber()).toBe(1_747_500);
     expect(result.estimatedLandedCostDzd.toNumber()).toBe(2_247_500);
     expect(result.estimatedTotalCostDzd.toNumber()).toBe(1_747_500);
+  });
+
+  it('excludes zero-valued optional costs from persisted cost rows', () => {
+    const result = pricing.calculate(
+      'CIF',
+      {
+        ...amounts,
+        containerPrice: 0,
+        insuranceAmount: 0,
+        transitAmount: 0,
+        customsAmount: 0,
+      },
+      rates,
+    );
+    // Decimal.isPositive() includes +0; PostgreSQL requires amount > 0.
+    expect(result.costs.map((cost) => cost.costType)).toEqual(['VEHICLE']);
+    expect(result.customs.amountDzd.toString()).toBe('0');
+    expect(result.estimatedTotalCostDzd.eq(result.vehicle.amountDzd)).toBe(
+      true,
+    );
   });
 
   it('implements DDP total, profit and margin in DZD', () => {

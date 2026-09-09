@@ -58,7 +58,7 @@ export function calculateActualProfitability(
   }
 
   const sellingPriceDzd = new Prisma.Decimal(sellingPriceDzdValue);
-  if (!sellingPriceDzd.isPositive()) {
+  if (!sellingPriceDzd.gt(0)) {
     return {
       available: false,
       finalized,

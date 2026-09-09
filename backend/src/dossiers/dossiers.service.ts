@@ -49,7 +49,40 @@ export class DossiersService {
       create: { organizationId, key: `dossier:${year}`, value: 1 },
       update: { value: { increment: 1 } },
     });
-    return `CA-${year}-${String(sequence.value).padStart(5, '0')}`;
+    const prefix = `CA-${year}-`;
+    const reference = `${prefix}${String(sequence.value).padStart(5, '0')}`;
+    const existing = await tx.dossier.findUnique({
+      where: { organizationId_reference: { organizationId, reference } },
+      select: { id: true },
+    });
+    if (!existing) return reference;
+
+    // The upsert holds the tenant/year sequence row lock until commit. Older
+    // imports can contain references not reflected in CommerceSequence. Repair
+    // its high-water mark under that lock, before reserving any inventory.
+    const references = await tx.dossier.findMany({
+      where: { organizationId, reference: { startsWith: prefix } },
+      select: { reference: true },
+    });
+    const highest = references.reduce((current, dossier) => {
+      const suffix = dossier.reference.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) return current;
+      const value = Number(suffix);
+      return Number.isSafeInteger(value) ? Math.max(current, value) : current;
+    }, sequence.value);
+    if (highest >= 2_147_483_647) {
+      throw new ConflictException(
+        'La numérotation des dossiers a atteint sa limite annuelle.',
+      );
+    }
+    const repaired = await tx.commerceSequence.update({
+      where: { organizationId_key: { organizationId, key: `dossier:${year}` } },
+      data: { value: highest + 1 },
+    });
+    this.logger.warn(
+      `Dossier sequence reconciled organization=${organizationId} year=${year} previous=${sequence.value} next=${repaired.value}`,
+    );
+    return `${prefix}${String(repaired.value).padStart(5, '0')}`;
   }
 
   private mapDossierWithVehicles<
@@ -217,178 +250,256 @@ export class DossiersService {
       }
     }
 
-    const dossier = await this.prisma.$transaction(async (prisma) => {
-      const reference = await this.generateReference(prisma, organizationId);
-      let commercialQuotationId: string | undefined;
-      let commercialQuotationRevisionId: string | undefined;
-      let cataloguePricing:
-        { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal } | undefined;
-      if (catalogueItemId) {
-        if (dossierType === DossierType.SHIPPING_ONLY) {
-          throw new ConflictException(
-            'Un dossier Expédition seule ne peut pas réserver un article du catalogue commercial.',
-          );
-        }
-        const catalogueItem = await prisma.catalogueItem.findFirst({
-          where: { id: catalogueItemId, organizationId, archivedAt: null },
-          include: {
-            sourceOfferVehicle: true,
-            activeCifQuotation: { include: { currentRevision: true } },
-            activeDdpQuotation: { include: { currentRevision: true } },
-          },
-        });
-        if (!catalogueItem) {
-          throw new NotFoundException('Véhicule catalogue introuvable.');
-        }
-        const quotation =
-          dossierType === DossierType.VEHICLE_SALE_DDP
-            ? catalogueItem.activeDdpQuotation
-            : catalogueItem.activeCifQuotation;
-        if (
-          !quotation?.cataloguePublished ||
-          !quotation.currentRevision ||
-          ['REJECTED', 'EXPIRED'].includes(quotation.status)
-        ) {
-          throw new ConflictException(
-            `Aucun devis ${dossierType === DossierType.VEHICLE_SALE_DDP ? 'DDP' : 'CIF'} publié n'est disponible pour ce véhicule.`,
-          );
-        }
-        const reservedCatalogue = await prisma.$executeRaw`
+    let operation = 'allocate-reference';
+    const dossier = await this.prisma
+      .$transaction(async (prisma) => {
+        const reference = await this.generateReference(prisma, organizationId);
+        let commercialQuotationId: string | undefined;
+        let commercialQuotationRevisionId: string | undefined;
+        let cataloguePricing:
+          { cifPrice?: Prisma.Decimal; ddpPrice?: Prisma.Decimal } | undefined;
+        if (catalogueItemId) {
+          operation = 'load-catalogue-pricing';
+          if (dossierType === DossierType.SHIPPING_ONLY) {
+            throw new ConflictException(
+              'Un dossier Expédition seule ne peut pas réserver un article du catalogue commercial.',
+            );
+          }
+          const catalogueItem = await prisma.catalogueItem.findFirst({
+            where: { id: catalogueItemId, organizationId, archivedAt: null },
+            include: {
+              sourceOfferVehicle: { include: { offer: true } },
+              activeCifQuotation: { include: { currentRevision: true } },
+              activeDdpQuotation: { include: { currentRevision: true } },
+            },
+          });
+          if (!catalogueItem) {
+            throw new NotFoundException('Véhicule catalogue introuvable.');
+          }
+          const source = catalogueItem.sourceOfferVehicle;
+          if (
+            source.organizationId !== organizationId ||
+            source.offer.organizationId !== organizationId ||
+            source.offer.archivedAt ||
+            ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+              source.status,
+            ) ||
+            ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+              source.offer.offerStatus ?? '',
+            )
+          ) {
+            throw new ConflictException(
+              "Ce véhicule fournisseur n'est plus disponible pour un dossier.",
+            );
+          }
+          const quotation =
+            dossierType === DossierType.VEHICLE_SALE_DDP
+              ? catalogueItem.activeDdpQuotation
+              : catalogueItem.activeCifQuotation;
+          if (
+            !quotation?.cataloguePublished ||
+            !quotation.currentRevision ||
+            ['REJECTED', 'EXPIRED'].includes(quotation.status) ||
+            (quotation.expiresAt !== null && quotation.expiresAt < new Date())
+          ) {
+            throw new ConflictException(
+              `Aucun devis ${dossierType === DossierType.VEHICLE_SALE_DDP ? 'DDP' : 'CIF'} publié n'est disponible pour ce véhicule.`,
+            );
+          }
+          if (
+            quotation.organizationId !== organizationId ||
+            quotation.sourceOfferVehicleId !== source.id ||
+            quotation.priceBasis !==
+              (dossierType === DossierType.VEHICLE_SALE_DDP ? 'DDP' : 'CIF') ||
+            quotation.currentRevision.organizationId !== organizationId ||
+            quotation.currentRevision.quotationId !== quotation.id ||
+            quotation.currency !== 'DZD' ||
+            !quotation.currentRevision.finalCustomerPriceDzd.isFinite() ||
+            !quotation.currentRevision.finalCustomerPriceDzd.gt(0)
+          ) {
+            throw new ConflictException({
+              code: 'CATALOGUE_PRICING_INVALID',
+              message:
+                'Le devis publié ne possède pas un prix DZD et une révision valides pour ce véhicule. Vérifiez la tarification du catalogue.',
+            });
+          }
+          operation = 'reserve-catalogue';
+          const reservedCatalogue = await prisma.$executeRaw`
           UPDATE "CatalogueItem"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${catalogueItem.id}
             AND "organizationId" = ${organizationId}
             AND "archivedAt" IS NULL
             AND "reservedQuantity" + 1 <= "availableQuantity"`;
-        if (reservedCatalogue !== 1) {
-          throw new ConflictException(
-            'Ce véhicule catalogue vient d’être réservé par un autre dossier.',
-          );
-        }
-        const reservedOfferVehicle = await prisma.$executeRaw`
+          if (reservedCatalogue !== 1) {
+            throw new ConflictException(
+              'Ce véhicule catalogue vient d’être réservé par un autre dossier.',
+            );
+          }
+          operation = 'reserve-offer-vehicle';
+          const reservedOfferVehicle = await prisma.$executeRaw`
           UPDATE "ChinaOfferVehicle"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${catalogueItem.sourceOfferVehicleId}
             AND "organizationId" = ${organizationId}
             AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
-        if (reservedOfferVehicle !== 1) {
-          throw new ConflictException(
-            "La quantité disponible de l'offre a changé. Rechargez le catalogue.",
-          );
+          if (reservedOfferVehicle !== 1) {
+            throw new ConflictException(
+              "La quantité disponible de l'offre a changé. Rechargez le catalogue.",
+            );
+          }
+          operation = 'reserve-source-offer';
+          const reservedOffer = await prisma.$executeRaw`
+          UPDATE "ChinaOffer"
+          SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
+          WHERE "id" = ${source.offerId}
+            AND "organizationId" = ${organizationId}
+            AND "archivedAt" IS NULL
+            AND "reservedQuantity" + 1 <= "availableQuantity"`;
+          if (reservedOffer !== 1) {
+            throw new ConflictException(
+              "La disponibilité de l'offre fournisseur a changé. Rechargez le catalogue.",
+            );
+          }
+          commercialQuotationId = quotation.id;
+          commercialQuotationRevisionId = quotation.currentRevision.id;
+          cataloguePricing =
+            dossierType === DossierType.VEHICLE_SALE_DDP
+              ? { ddpPrice: quotation.currentRevision.finalCustomerPriceDzd }
+              : { cifPrice: quotation.currentRevision.finalCustomerPriceDzd };
         }
-        await prisma.chinaOffer.update({
-          where: { id: catalogueItem.sourceOfferVehicle.offerId },
-          data: { reservedQuantity: { increment: 1 } },
-        });
-        commercialQuotationId = quotation.id;
-        commercialQuotationRevisionId = quotation.currentRevision.id;
-        cataloguePricing =
-          dossierType === DossierType.VEHICLE_SALE_DDP
-            ? { ddpPrice: quotation.currentRevision.finalCustomerPriceDzd }
-            : { cifPrice: quotation.currentRevision.finalCustomerPriceDzd };
-      }
-      if (uniqueVehicleIds.length > 0) {
-        const reserved = await prisma.vehicle.updateMany({
-          where: {
-            id: { in: uniqueVehicleIds },
+        if (uniqueVehicleIds.length > 0) {
+          operation = 'reserve-stock-vehicles';
+          const reserved = await prisma.vehicle.updateMany({
+            where: {
+              id: { in: uniqueVehicleIds },
+              organizationId,
+              status: 'available',
+            },
+            data: { status: 'reserved' },
+          });
+          if (reserved.count !== uniqueVehicleIds.length) {
+            throw new ConflictException(
+              'One or more vehicles are no longer available',
+            );
+          }
+        }
+        // Create dossier
+        operation = 'create-dossier';
+        const newDossier = await prisma.dossier.create({
+          data: {
+            reference,
+            type: dossierType,
             organizationId,
-            status: 'available',
+            clientId,
+            vehicleRequestId: createDossierDto.vehicleRequestId,
+            orderId,
+            catalogueItemId,
+            commercialQuotationId,
+            commercialQuotationRevisionId,
+            ...cataloguePricing,
+            priceCurrency: cataloguePricing ? 'DZD' : undefined,
+            priceLockedAt: cataloguePricing ? new Date() : undefined,
+            status: initialStatus,
+            workflowVersion: 2,
+            salesUserId: salesUserIdToUse,
+            opsUserId,
+            chinaResponsibleId,
+            openedAt: new Date(),
+            dossierVehicles:
+              uniqueVehicleIds.length > 0
+                ? {
+                    create: uniqueVehicleIds.map((vId) => ({
+                      vehicleId: vId,
+                      assignedAt: new Date(),
+                    })),
+                  }
+                : undefined,
           },
-          data: { status: 'reserved' },
-        });
-        if (reserved.count !== uniqueVehicleIds.length) {
-          throw new ConflictException(
-            'One or more vehicles are no longer available',
-          );
-        }
-      }
-      // Create dossier
-      const newDossier = await prisma.dossier.create({
-        data: {
-          reference,
-          type: dossierType,
-          organizationId,
-          clientId,
-          vehicleRequestId: createDossierDto.vehicleRequestId,
-          orderId,
-          catalogueItemId,
-          commercialQuotationId,
-          commercialQuotationRevisionId,
-          ...cataloguePricing,
-          priceCurrency: cataloguePricing ? 'DZD' : undefined,
-          priceLockedAt: cataloguePricing ? new Date() : undefined,
-          status: initialStatus,
-          workflowVersion: 2,
-          salesUserId: salesUserIdToUse,
-          opsUserId,
-          chinaResponsibleId,
-          openedAt: new Date(),
-          dossierVehicles:
-            uniqueVehicleIds.length > 0
-              ? {
-                  create: uniqueVehicleIds.map((vId) => ({
-                    vehicleId: vId,
-                    assignedAt: new Date(),
-                  })),
-                }
-              : undefined,
-        },
-        include: {
-          client: true,
-          dossierVehicles: {
-            include: {
-              vehicle: {
-                include: {
-                  specs: true,
-                  photos: true,
+          include: {
+            client: true,
+            dossierVehicles: {
+              include: {
+                vehicle: {
+                  include: {
+                    specs: true,
+                    photos: true,
+                  },
                 },
               },
             },
+            order: true,
+            offerReservation: {
+              include: { offer: { include: { supplier: true } } },
+            },
+            catalogueItem: {
+              include: { sourceOfferVehicle: { include: { offer: true } } },
+            },
+            commercialQuotation: { include: { currentRevision: true } },
           },
-          order: true,
-          offerReservation: {
-            include: { offer: { include: { supplier: true } } },
-          },
-          catalogueItem: {
-            include: { sourceOfferVehicle: { include: { offer: true } } },
-          },
-          commercialQuotation: { include: { currentRevision: true } },
-        },
-      });
-
-      // Create initial status history
-      await prisma.dossierStatusHistory.create({
-        data: {
-          dossierId: newDossier.id,
-          toStatus: newDossier.status,
-          changedBy: salesUserIdToUse,
-          comment:
-            uniqueVehicleIds.length > 0
-              ? `Dossier created with ${uniqueVehicleIds.length} vehicle(s)`
-              : 'Dossier created',
-        },
-      });
-
-      if (offerReservationId) {
-        const linked = await prisma.offerReservation.updateMany({
-          where: {
-            id: offerReservationId,
-            organizationId,
-            clientId,
-            status: 'active',
-            dossierId: null,
-          },
-          data: { dossierId: newDossier.id },
         });
-        if (linked.count !== 1) {
-          throw new ConflictException(
-            'Offer reservation was linked concurrently',
-          );
-        }
-      }
 
-      return newDossier;
-    });
+        // Create initial status history
+        operation = 'create-status-history';
+        await prisma.dossierStatusHistory.create({
+          data: {
+            dossierId: newDossier.id,
+            toStatus: newDossier.status,
+            changedBy: salesUserIdToUse,
+            comment:
+              uniqueVehicleIds.length > 0
+                ? `Dossier created with ${uniqueVehicleIds.length} vehicle(s)`
+                : 'Dossier created',
+          },
+        });
+
+        if (offerReservationId) {
+          operation = 'link-offer-reservation';
+          const linked = await prisma.offerReservation.updateMany({
+            where: {
+              id: offerReservationId,
+              organizationId,
+              clientId,
+              status: 'active',
+              dossierId: null,
+            },
+            data: { dossierId: newDossier.id },
+          });
+          if (linked.count !== 1) {
+            throw new ConflictException(
+              'Offer reservation was linked concurrently',
+            );
+          }
+        }
+
+        operation = 'commit';
+        return newDossier;
+      })
+      .catch((error: unknown) => {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError
+            ? error.code
+            : undefined;
+        this.logger.error(
+          `Dossier creation failed operation=${operation} organization=${organizationId} actor=${salesUserId} catalogue=${catalogueItemId ?? 'none'} prismaCode=${prismaCode ?? 'none'}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        if (prismaCode === 'P2002') {
+          throw new ConflictException({
+            code: 'DOSSIER_REFERENCE_CONFLICT',
+            message:
+              'Un dossier utilise déjà cette référence, commande ou demande de véhicule. Vérifiez les dossiers existants.',
+          });
+        }
+        if (prismaCode === 'P2003' || prismaCode === 'P2025') {
+          throw new ConflictException({
+            code: 'DOSSIER_RELATION_CHANGED',
+            message:
+              'Un élément lié au dossier a été supprimé ou modifié. Rechargez les données avant de réessayer.',
+          });
+        }
+        throw error;
+      });
 
     this.logger.log(
       `Dossier created: ${dossier.reference} (${dossier.id}) [${dossierType}] with ${uniqueVehicleIds.length} vehicle(s)`,
@@ -821,7 +932,10 @@ export class DossiersService {
           dossier.organizationId,
         )
       : {
-          available: Boolean(dossier.cifPrice && dossier.ddpPrice),
+          available:
+            dossier.type === DossierType.VEHICLE_SALE_DDP
+              ? dossier.ddpPrice != null
+              : dossier.cifPrice != null,
           locked: Boolean(dossier.priceLockedAt),
           cifPrice: dossier.cifPrice ? Number(dossier.cifPrice) : undefined,
           ddpPrice: dossier.ddpPrice ? Number(dossier.ddpPrice) : undefined,

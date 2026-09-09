@@ -48,7 +48,7 @@ export class CostsService {
     if (existing) return existing;
 
     const amount = new Prisma.Decimal(purchase.purchasePrice);
-    if (!amount.isPositive()) {
+    if (!amount.gt(0)) {
       throw new BadRequestException('Purchase cost amount must be positive');
     }
     const currency = purchase.currency.toUpperCase();
@@ -122,7 +122,7 @@ export class CostsService {
       return null;
 
     const amount = new Prisma.Decimal(customsFile.customsAmount);
-    if (!amount.isPositive()) return null;
+    if (!amount.gt(0)) return null;
 
     const sourceModule = 'CUSTOMS_ACTUAL';
     const existing = await tx.financeTransaction.findUnique({

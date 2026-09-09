@@ -2,6 +2,24 @@ import { Prisma } from '@prisma/client';
 import { calculateActualProfitability } from './profitability-calculation';
 
 describe('estimated and actual profitability separation', () => {
+  it('does not divide by a zero selling price', () => {
+    const result = calculateActualProfitability(
+      0,
+      [
+        {
+          amount: new Prisma.Decimal(100),
+          currency: 'DZD',
+          amountInBaseCurrency: new Prisma.Decimal(100),
+          status: 'POSTED',
+          costScope: 'DIRECT',
+        },
+      ],
+      false,
+    );
+    expect(result.available).toBe(false);
+    expect(result.marginPercent).toBeNull();
+    expect(result.error).toContain('Prix de vente DZD invalide');
+  });
   it('calculates real profitability without modifying the estimated snapshot', () => {
     const estimated = Object.freeze({
       totalCostDzd: '2200000',

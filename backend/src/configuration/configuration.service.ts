@@ -336,14 +336,34 @@ export class ConfigurationService {
       },
     });
     if (!dossier) throw new NotFoundException('Dossier introuvable.');
-    if ((dossier.cifPrice || dossier.ddpPrice) && dossier.priceLockedAt) {
+    if (dossier.priceLockedAt) {
+      // A commercial dossier snapshots exactly its selected CIF or DDP basis.
+      // The other basis is legitimately null; never rebuild a locked snapshot.
+      const selectedPrice =
+        dossier.type === 'VEHICLE_SALE_DDP'
+          ? dossier.ddpPrice
+          : dossier.type === 'VEHICLE_SALE_CIF'
+            ? dossier.cifPrice
+            : (dossier.cifPrice ?? dossier.ddpPrice);
+      const missing = [
+        ...(selectedPrice == null ||
+        !selectedPrice.isFinite() ||
+        !selectedPrice.gt(0)
+          ? ['prix commercial historique']
+          : []),
+        ...(!dossier.priceCurrency?.trim()
+          ? ['devise du prix historique']
+          : []),
+      ];
       return {
-        available: true,
+        available: missing.length === 0,
         locked: true,
-        cifPrice: dossier.cifPrice ? Number(dossier.cifPrice) : undefined,
-        ddpPrice: dossier.ddpPrice ? Number(dossier.ddpPrice) : undefined,
+        cifPrice:
+          dossier.cifPrice == null ? undefined : Number(dossier.cifPrice),
+        ddpPrice:
+          dossier.ddpPrice == null ? undefined : Number(dossier.ddpPrice),
         currency: dossier.priceCurrency,
-        missing: [],
+        missing,
       };
     }
     const missing: string[] = [];
@@ -469,25 +489,30 @@ export class ConfigurationService {
       dossierId,
       organizationId,
     );
-    if (!pricing.available) return pricing;
-    const dossier = await this.prisma.dossier.findFirst({
-      where: { id: dossierId, organizationId },
-    });
-    if (!dossier) return pricing;
-    const lockedWithSnapshot =
-      dossier.priceLockedAt &&
-      dossier.cifPrice != null &&
-      dossier.ddpPrice != null;
-    if (!lockedWithSnapshot) {
-      await this.prisma.dossier.update({
-        where: { id: dossierId },
-        data: {
-          cifPrice: new Prisma.Decimal(pricing.cifPrice!),
-          ddpPrice: new Prisma.Decimal(pricing.ddpPrice!),
-          priceCurrency: pricing.currency,
-        },
-      });
+    if (!pricing.available || pricing.locked) return pricing;
+    const { cifPrice, ddpPrice, currency } = pricing;
+    if (
+      cifPrice == null ||
+      ddpPrice == null ||
+      !currency ||
+      !Number.isFinite(cifPrice) ||
+      !Number.isFinite(ddpPrice)
+    ) {
+      throw new BadRequestException(
+        'La configuration tarifaire du dossier est incomplète.',
+      );
     }
+    // Do not overwrite a price locked concurrently after the calculation.
+    const updated = await this.prisma.dossier.updateMany({
+      where: { id: dossierId, organizationId, priceLockedAt: null },
+      data: {
+        cifPrice: new Prisma.Decimal(cifPrice),
+        ddpPrice: new Prisma.Decimal(ddpPrice),
+        priceCurrency: currency,
+      },
+    });
+    if (updated.count === 0)
+      return this.calculateDossierPricing(dossierId, organizationId);
     return pricing;
   }
 }
