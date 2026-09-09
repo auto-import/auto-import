@@ -59,7 +59,7 @@ export class CreateShipmentDto {
   @IsNumber()
   @IsPositive()
   totalFreightCost?: number;
-  @IsOptional() @IsIn(['USD', 'CNY']) freightCurrency?: string;
+  @IsOptional() @IsIn(['USD', 'CNY', 'DZD']) freightCurrency?: string;
   @IsOptional() @IsString() freightExchangeRateId?: string;
 }
 
@@ -114,7 +114,7 @@ export class UpdateShipmentDto {
   @IsNumber()
   @IsPositive()
   totalFreightCost?: number;
-  @IsOptional() @IsIn(['USD', 'CNY']) freightCurrency?: string;
+  @IsOptional() @IsIn(['USD', 'CNY', 'DZD']) freightCurrency?: string;
   @IsOptional() @IsString() freightExchangeRateId?: string;
 }
 

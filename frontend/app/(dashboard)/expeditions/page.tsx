@@ -818,6 +818,7 @@ export default function ExpeditionsPage() {
                       className="w-20 px-2 py-2 text-sm border border-border rounded-input bg-background"
                     >
                       <option value="USD">USD</option>
+                      <option value="DZD">DZD</option>
                       <option value="CNY">CNY</option>
                     </select>
                   </div>
