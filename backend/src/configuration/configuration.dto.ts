@@ -68,6 +68,6 @@ export class UpsertDutyRateDto {
 export class UpsertDeliveryRateDto {
   @IsString() destination: string;
   @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() amount?: number;
-  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsIn(['DZD']) currency?: string;
   @IsOptional() @IsBoolean() active?: boolean;
 }

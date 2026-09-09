@@ -341,7 +341,7 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
       expect(rate.toString()).toBe('135.5');
     });
 
-    it('should calculate inverse exchange rate correctly when base and quote are swapped', async () => {
+    it('rejects an inverse row for a USD to DZD conversion', async () => {
       mockPrisma.exchangeRate.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -352,13 +352,9 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
           effectiveAt: new Date('2026-01-01T00:00:00Z'),
         });
 
-      const rate = await exchangeRatesService.findEffectiveRate(
-        'org-1',
-        'USD',
-        'DZD',
-      );
-      // 1 / 135.0 = 0.0074074074...
-      expect(Number(rate.toString())).toBeCloseTo(1 / 135.0, 6);
+      await expect(
+        exchangeRatesService.findEffectiveRate('org-1', 'USD', 'DZD'),
+      ).rejects.toThrow('mauvais sens');
     });
 
     it('should return 1 for identical base and quote currencies', async () => {

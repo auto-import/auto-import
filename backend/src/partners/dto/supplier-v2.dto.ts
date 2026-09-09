@@ -32,14 +32,14 @@ export class CreateSupplierContactDto {
 export class CreateSupplierBankDto {
   @IsString() label: string;
   @IsOptional() @IsString() bankName?: string;
-  @IsString() currency: string;
+  @IsIn(['USD', 'CNY']) currency: string;
   @IsObject() details: Record<string, unknown>;
 }
 
 export class UpdateSupplierBankDto {
   @IsOptional() @IsString() label?: string;
   @IsOptional() @IsString() bankName?: string;
-  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsIn(['USD', 'CNY']) currency?: string;
   @IsOptional() @IsObject() details?: Record<string, unknown>;
 }
 

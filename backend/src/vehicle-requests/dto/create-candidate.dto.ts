@@ -1,4 +1,11 @@
-import { IsUUID, IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import {
+  IsUUID,
+  IsOptional,
+  IsString,
+  IsNumber,
+  Min,
+  IsIn,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum CandidateStatus {
@@ -21,7 +28,7 @@ export class CreateCandidateDto {
   proposedPrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

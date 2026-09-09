@@ -1,7 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -16,6 +16,7 @@ import { DossiersService } from '../src/dossiers/dossiers.service';
 import { CostsService } from '../src/finance/costs.service';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
+import PDFDocument from 'pdfkit';
 
 function dataOf<T>(response: Response): T {
   const body = JSON.parse(response.text) as { success: boolean; data: T };
@@ -205,6 +206,10 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
       .get(`/api/catalogue/${item.id}`)
       .auth(token, { type: 'bearer' });
     expect(selected.status).toBe(200);
+    expect(
+      dataOf<{ dossierEligibility: { cif: boolean; ddp: boolean } }>(selected)
+        .dossierEligibility[priceBasis === 'CIF' ? 'cif' : 'ddp'],
+    ).toBe(true);
     const rawOffer = await prisma.chinaOffer.findUniqueOrThrow({
       where: { id: offer.id },
     });
@@ -223,6 +228,300 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
         catalogueItemId: itemId,
       });
   }
+
+  function testContractPdf() {
+    return new Promise<Buffer>((resolve) => {
+      const doc = new PDFDocument();
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.text('Signed test contract - disposable regression database only');
+      doc.end();
+    });
+  }
+  async function signedDossier(currency: 'USD' | 'CNY') {
+    const { item } = await catalogue(currency, 'CIF');
+    const created = dataOf<{ id: string; vehicles: Array<{ id: string }> }>(
+      await createDossier(item.id),
+    );
+    expect(created.vehicles).toHaveLength(1);
+    const transition = (payload: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .patch(`/api/dossiers/${created.id}/status`)
+        .auth(token, { type: 'bearer' })
+        .send(payload);
+    expect((await transition({ status: 'clientConfirmed' })).status).toBe(200);
+    const pdf = await testContractPdf();
+    const uploaded = await request(app.getHttpServer())
+      .post('/api/documents/upload')
+      .auth(token, { type: 'bearer' })
+      .field('dossierId', created.id)
+      .field('kind', 'CONTRACT')
+      .field('documentType', 'SIGNED_CONTRACT')
+      .attach('file', pdf, {
+        filename: 'contract.pdf',
+        contentType: 'application/pdf',
+      });
+    expect(uploaded.status).toBe(201);
+    expect((await transition({ status: 'contractSigned' })).status).toBe(200);
+    return { ...created, transition, item };
+  }
+
+  it.each(['USD', 'CNY'] as const)(
+    'persists %s deposit, dossier vehicle, booking and purchase through real HTTP workflow',
+    async (currency) => {
+      const dossier = await signedDossier(currency);
+      const rate = await prisma.exchangeRate.findFirstOrThrow({
+        where: { organizationId, baseCurrency: currency, isActive: true },
+        orderBy: { effectiveAt: 'desc' },
+      });
+      const date = new Date().toISOString().slice(0, 10);
+      const deposit = await dossier.transition({
+        status: 'depositReceived',
+        deposit: {
+          amount: 10000.25,
+          currency,
+          exchangeRateId: rate.id,
+          paymentMethod: 'BANK_TRANSFER',
+          receivedAt: date,
+        },
+      });
+      expect(deposit.status).toBe(200);
+      const unrelated = await dossier.transition({
+        status: 'vehicleBooking',
+        vehicleBooking: { vehicleId: randomUUID(), bookingDate: date },
+      });
+      expect(unrelated.status).toBe(400);
+      expect(unrelated.text).toContain('ne fait pas partie');
+      const bookings = await Promise.all(
+        [0, 1].map(() =>
+          dossier.transition({
+            status: 'vehicleBooking',
+            vehicleBooking: {
+              vehicleId: dossier.vehicles[0].id,
+              bookingDate: date,
+            },
+          }),
+        ),
+      );
+      expect(bookings.map((r) => r.status).sort()).toEqual([200, 409]);
+      const purchase = await dossier.transition({
+        status: 'purchaseConfirmed',
+        purchase: {
+          invoiceNumber: `TEST-${randomUUID()}`,
+          amount: 8000.15,
+          currency,
+          exchangeRateId: rate.id,
+          supplierId,
+          invoiceDate: date,
+        },
+      });
+      expect(purchase.status).toBe(200);
+      const original = await prisma.financeTransaction.findMany({
+        where: { dossierId: dossier.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(original).toHaveLength(2);
+      expect(original.map((row) => row.amountDzd.toString())).toEqual([
+        rate.rate.mul('10000.25').toDecimalPlaces(2).toString(),
+        rate.rate.mul('8000.15').toDecimalPlaces(2).toString(),
+      ]);
+      const changedRate = await prisma.exchangeRate.create({
+        data: {
+          organizationId,
+          baseCurrency: currency,
+          quoteCurrency: 'DZD',
+          rate: rate.rate.add(5),
+          effectiveAt: new Date(),
+        },
+      });
+      const reloaded = await request(app.getHttpServer())
+        .get(`/api/dossiers/${dossier.id}`)
+        .auth(token, { type: 'bearer' });
+      expect(
+        dataOf<{
+          vehicles: Array<{ id: string }>;
+          vehicleBookingVehicleId: string;
+        }>(reloaded),
+      ).toMatchObject({
+        vehicles: [{ id: dossier.vehicles[0].id }],
+        vehicleBookingVehicleId: dossier.vehicles[0].id,
+      });
+      expect(
+        await prisma.vehicle.count({
+          where: { sourceOfferVehicleId: dossier.item.sourceOfferVehicleId },
+        }),
+      ).toBe(1);
+      const stored = await prisma.financeTransaction.findMany({
+        where: { dossierId: dossier.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(stored.map((row) => row.amountDzd.toString())).toEqual(
+        original.map((row) => row.amountDzd.toString()),
+      );
+      await prisma.exchangeRate.update({
+        where: { id: changedRate.id },
+        data: { isActive: false },
+      });
+    },
+  );
+
+  it('rejects missing rates, arbitrary currencies and stale displayed rates without changing the dossier', async () => {
+    const dossier = await signedDossier('USD');
+    const deposit = {
+      amount: 10000,
+      currency: 'USD',
+      paymentMethod: 'CASH',
+      receivedAt: new Date().toISOString().slice(0, 10),
+    };
+    expect(
+      (
+        await dossier.transition({
+          status: 'depositReceived',
+          deposit: { ...deposit, currency: 'usd' },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await dossier.transition({
+          status: 'depositReceived',
+          deposit: { ...deposit, exchangeRateId: randomUUID() },
+        })
+      ).status,
+    ).toBe(409);
+    const active = await prisma.exchangeRate.findMany({
+      where: { organizationId, baseCurrency: 'USD', isActive: true },
+    });
+    await prisma.exchangeRate.updateMany({
+      where: { id: { in: active.map((r) => r.id) } },
+      data: { isActive: false },
+    });
+    expect(
+      (await dossier.transition({ status: 'depositReceived', deposit })).status,
+    ).toBe(409);
+    expect(
+      await prisma.payment.count({ where: { dossierId: dossier.id } }),
+    ).toBe(0);
+    expect(
+      (await prisma.dossier.findUniqueOrThrow({ where: { id: dossier.id } }))
+        .status,
+    ).toBe('contractSigned');
+    await prisma.exchangeRate.updateMany({
+      where: { id: { in: active.map((r) => r.id) } },
+      data: { isActive: true },
+    });
+  });
+
+  it('backfills an existing catalogue dossier without duplicating an identifiable vehicle', async () => {
+    const { item } = await catalogue('CNY', 'CIF');
+    const source = await prisma.chinaOfferVehicle.findUniqueOrThrow({
+      where: { id: item.sourceOfferVehicleId },
+    });
+    const vin = `MIGRATION-${randomUUID()}`;
+    await prisma.chinaOfferVehicle.update({
+      where: { id: source.id },
+      data: { vin },
+    });
+    const existing = await prisma.vehicle.create({
+      data: {
+        organizationId,
+        vin,
+        brand: source.brand,
+        model: source.model,
+        currency: 'CNY',
+        acquisitionType: 'chinaOffer',
+      },
+    });
+    const legacy = await prisma.dossier.create({
+      data: {
+        organizationId,
+        reference: `LEGACY-${randomUUID()}`,
+        clientId,
+        salesUserId: userId,
+        catalogueItemId: item.id,
+        status: 'depositReceived',
+      },
+    });
+    const migration = await readFile(
+      join(
+        process.cwd(),
+        'prisma/migrations/20260909180000_catalogue_dossier_vehicle_link/migration.sql',
+      ),
+      'utf8',
+    );
+    const backfill = migration.match(/DO \$\$[\s\S]*?END \$\$;/)?.[0];
+    if (!backfill) throw new Error('Migration backfill block missing');
+    await prisma.$executeRawUnsafe(backfill);
+    await prisma.$executeRawUnsafe(backfill);
+    expect(
+      await prisma.dossierVehicle.findMany({ where: { dossierId: legacy.id } }),
+    ).toEqual([expect.objectContaining({ vehicleId: existing.id })]);
+    expect(await prisma.vehicle.count({ where: { vin } })).toBe(1);
+    const detail = await request(app.getHttpServer())
+      .get(`/api/dossiers/${legacy.id}`)
+      .auth(token, { type: 'bearer' });
+    expect(
+      dataOf<{ vehicles: Array<{ id: string }> }>(detail).vehicles[0].id,
+    ).toBe(existing.id);
+  });
+
+  it('preserves freight snapshots on metadata edits, and recalculates an explicit amount/currency edit', async () => {
+    const date = new Date();
+    const usd = await prisma.exchangeRate.findFirstOrThrow({
+      where: { organizationId, baseCurrency: 'USD', isActive: true },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    const cny = await prisma.exchangeRate.findFirstOrThrow({
+      where: { organizationId, baseCurrency: 'CNY', isActive: true },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    const created = await request(app.getHttpServer())
+      .post('/api/shipments')
+      .auth(token, { type: 'bearer' })
+      .send({ totalFreightCost: 10000.25, freightCurrency: 'USD' });
+    expect(created.status).toBe(201);
+    const shipment = dataOf<{ id: string; freightAmountDzd: string }>(created);
+    expect(shipment.freightAmountDzd).toBe(
+      usd.rate.mul('10000.25').toDecimalPlaces(2).toString(),
+    );
+    const newer = await prisma.exchangeRate.create({
+      data: {
+        organizationId,
+        baseCurrency: 'USD',
+        quoteCurrency: 'DZD',
+        rate: usd.rate.add(5),
+        effectiveAt: date,
+      },
+    });
+    const edited = await request(app.getHttpServer())
+      .put(`/api/shipments/${shipment.id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ notes: 'Updated metadata' });
+    expect(edited.status).toBe(200);
+    expect(
+      (
+        await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })
+      ).freightAmountDzd?.toString(),
+    ).toBe(shipment.freightAmountDzd);
+    expect(
+      (
+        await request(app.getHttpServer())
+          .put(`/api/shipments/${shipment.id}`)
+          .auth(token, { type: 'bearer' })
+          .send({ totalFreightCost: 100, freightCurrency: 'CNY' })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })
+      ).freightAmountDzd?.toString(),
+    ).toBe(cny.rate.mul(100).toString());
+    await prisma.exchangeRate.update({
+      where: { id: newer.id },
+      data: { isActive: false },
+    });
+  });
 
   it.each([
     ['USD', 'CIF'],
@@ -690,6 +989,18 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
   (process.env.DOSSIER_BROWSER_URL ? it : it.skip)(
     'completes the actual catalogue → dossier form → detail in Chrome',
     async () => {
+      for (const currency of ['USD', 'CNY']) {
+        const configured = await request(app.getHttpServer())
+          .post('/api/finance/exchange-rates')
+          .auth(token, { type: 'bearer' })
+          .send({
+            baseCurrency: currency,
+            quoteCurrency: 'DZD',
+            rate: currency === 'USD' ? 250 : 35,
+            isActive: true,
+          });
+        expect(configured.status).toBe(201);
+      }
       const { item } = await catalogue('USD', 'CIF');
       await app.listen(55440, '127.0.0.1');
       const run = await promisify(execFile)(
@@ -702,6 +1013,9 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
             DOSSIER_BROWSER_PASSWORD: browserPassword,
             DOSSIER_BROWSER_CLIENT: clientId,
             DOSSIER_BROWSER_ITEM: item.id,
+            DOSSIER_BROWSER_CONTRACT: (await testContractPdf()).toString(
+              'base64',
+            ),
             DOSSIER_BROWSER_API: 'http://127.0.0.1:55440/api',
           },
           timeout: 120000,
@@ -715,6 +1029,14 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
       };
       expect(result.post.status).toBe(201);
       expect(result.detail.status).toBe(200);
+      const booked = await prisma.dossier.findUniqueOrThrow({
+        where: { id: result.dossierId },
+        include: { dossierVehicles: true },
+      });
+      expect(booked.vehicleBookingVehicleId).toBe(
+        booked.dossierVehicles[0].vehicleId,
+      );
+      expect(booked.status).toBe('vehicleBooking');
       expect(
         (
           await prisma.dossier.findUniqueOrThrow({

@@ -76,6 +76,29 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message:
           'La base de données ERP doit être mise à jour. Exécutez les migrations avant de réessayer.',
       };
+    } else if (
+      exception instanceof Prisma.PrismaClientKnownRequestError &&
+      ['P2002', 'P2003', 'P2025', 'P2034', 'P2020'].includes(exception.code)
+    ) {
+      status =
+        exception.code === 'P2025'
+          ? HttpStatus.NOT_FOUND
+          : exception.code === 'P2020'
+            ? HttpStatus.BAD_REQUEST
+            : HttpStatus.CONFLICT;
+      const messages: Record<string, string> = {
+        P2002: 'Cette référence existe déjà. Vérifiez les données saisies.',
+        P2003:
+          'Cette opération est incompatible avec les enregistrements liés.',
+        P2025: 'L’enregistrement demandé n’existe plus. Rechargez les données.',
+        P2034:
+          'Les données ont été modifiées simultanément. Rechargez puis réessayez.',
+        P2020: 'Le montant dépasse la capacité du champ comptable.',
+      };
+      errorBody = {
+        code: this.codeForStatus(status),
+        message: messages[exception.code],
+      };
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       errorBody = {

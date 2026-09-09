@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExchangeRatesService } from './exchange-rates.service';
 
 export interface ConfirmedCustomerPaymentProjection {
   id: string;
@@ -47,16 +48,19 @@ export class FinanceProjectionService {
       treasuryAccountId?: string;
       supportingDocumentId?: string;
     } = {},
+    savedRate?: Prisma.Decimal,
   ) {
     const currency = payment.currency.toUpperCase();
     const occurredAt = payment.paymentDate ?? new Date();
-    const rate = await this.resolveDzdRate(
-      tx,
-      organizationId,
-      currency,
-      occurredAt,
-      payment.exchangeRateId,
-    );
+    const rate =
+      savedRate ??
+      (await this.resolveDzdRate(
+        tx,
+        organizationId,
+        currency,
+        occurredAt,
+        payment.exchangeRateId,
+      ));
     return tx.financeTransaction.upsert({
       where: {
         organizationId_sourceModule_sourceRecordId: {
@@ -160,38 +164,14 @@ export class FinanceProjectionService {
     occurredAt: Date,
     exchangeRateId?: string | null,
   ): Promise<Prisma.Decimal> {
-    if (currency === 'DZD') return new Prisma.Decimal(1);
-
-    const selected = exchangeRateId
-      ? await tx.exchangeRate.findFirst({
-          where: {
-            id: exchangeRateId,
-            organizationId,
-            effectiveAt: { lte: occurredAt },
-            OR: [
-              { baseCurrency: currency, quoteCurrency: 'DZD' },
-              { baseCurrency: 'DZD', quoteCurrency: currency },
-            ],
-          },
-        })
-      : await tx.exchangeRate.findFirst({
-          where: {
-            organizationId,
-            baseCurrency: currency,
-            quoteCurrency: 'DZD',
-            effectiveAt: { lte: occurredAt },
-          },
-          orderBy: { effectiveAt: 'desc' },
-        });
-
-    if (!selected || selected.rate.isZero()) {
-      throw new ConflictException({
-        code: 'HISTORICAL_EXCHANGE_RATE_REQUIRED',
-        message: `A historical ${currency}/DZD exchange rate is required before validation`,
-      });
+    const selected = await new ExchangeRatesService(
+      this.prisma,
+    ).findActiveDzdRateSnapshot(tx, organizationId, currency, occurredAt);
+    if (exchangeRateId && selected.exchangeRateId !== exchangeRateId) {
+      throw new ConflictException(
+        'Le taux Finance sélectionné ne correspond plus au taux actif.',
+      );
     }
-    return selected.quoteCurrency === 'DZD'
-      ? selected.rate
-      : new Prisma.Decimal(1).dividedBy(selected.rate);
+    return selected.rate;
   }
 }

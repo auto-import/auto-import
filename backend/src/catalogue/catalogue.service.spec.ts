@@ -32,6 +32,7 @@ describe('CatalogueService quotation projection', () => {
           },
         },
         activeCifQuotation: {
+          cataloguePublished: true,
           id: 'quotation-cif',
           quotationNumber: 'DEV-CIF',
           priceBasis: 'CIF',
@@ -47,6 +48,7 @@ describe('CatalogueService quotation projection', () => {
           },
         },
         activeDdpQuotation: {
+          cataloguePublished: true,
           id: 'quotation-ddp',
           quotationNumber: 'DEV-DDP',
           priceBasis: 'DDP',

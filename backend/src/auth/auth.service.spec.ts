@@ -196,7 +196,10 @@ describe('AuthService refresh sessions', () => {
       {},
     );
     expect(transactionUserUpdate).toHaveBeenCalled();
-    const passwordUpdate = transactionUserUpdate.mock.calls[0][0];
+    const passwordUpdate = transactionUserUpdate.mock.calls[0][0] as {
+      where: { id: string };
+      data: { passwordHash: string };
+    };
     expect(passwordUpdate.where).toEqual({ id: activeUser.id });
     expect(typeof passwordUpdate.data.passwordHash).toBe('string');
     expect(transactionSessionUpdateMany).toHaveBeenCalledWith(

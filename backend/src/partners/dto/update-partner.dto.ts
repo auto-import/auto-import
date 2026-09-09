@@ -8,7 +8,6 @@ import {
   IsInt,
   Min,
   IsNotEmpty,
-  Matches,
   ValidateIf,
 } from 'class-validator';
 import { SUPPLIER_TYPES } from '../supplier-types';
@@ -59,7 +58,7 @@ export class UpdatePartnerDto {
   @IsOptional() @IsString() wechat?: string;
   @IsOptional()
   @IsString()
-  @Matches(/^[A-Za-z]{3}$/)
+  @IsIn(['USD', 'CNY'])
   preferredCurrency?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) incoterms?: string[];
   @IsOptional()

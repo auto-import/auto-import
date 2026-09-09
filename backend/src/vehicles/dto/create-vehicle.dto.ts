@@ -113,7 +113,7 @@ export class CreateVehicleDto {
   ddpPrice?: number;
 
   @IsOptional()
-  @IsIn(['DZD', 'USD', 'CNY', 'EUR'])
+  @IsIn(['DZD', 'USD', 'CNY'])
   currency?: string;
 
   @IsOptional()

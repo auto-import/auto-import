@@ -28,7 +28,7 @@ export class CreatePaymentPlanDto {
   @IsPositive()
   totalAmount: number;
 
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency: string;
 
   @IsOptional()
@@ -96,7 +96,7 @@ export class RecordPaymentDto {
   @IsPositive()
   amount: number;
 
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency: string;
 
   @IsOptional()
@@ -182,7 +182,7 @@ export class CreateCustomerDepositDto {
   @IsPositive()
   amount: number;
 
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency: string;
 
   @IsOptional()
@@ -230,7 +230,7 @@ export class CreateSupplierPaymentDto {
   @IsPositive()
   amount: number;
 
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency: string;
 
   @IsOptional()
@@ -297,7 +297,7 @@ export class CreateCostDto {
   @IsPositive()
   amount: number;
 
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency: string;
 
   @IsOptional()

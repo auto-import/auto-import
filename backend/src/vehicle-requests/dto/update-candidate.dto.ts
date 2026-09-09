@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsIn, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateCandidateDto {
@@ -9,7 +9,7 @@ export class UpdateCandidateDto {
   proposedPrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

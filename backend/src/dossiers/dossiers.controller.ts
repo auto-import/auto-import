@@ -158,6 +158,12 @@ export class DossiersController {
     return this.dossiersService.update(id, dto, user.id, user.organizationId);
   }
 
+  @Get('finance/dzd-rates')
+  @RequirePermission(Permission.DOSSIERS_READ)
+  currentDzdRates(@CurrentUser() user: AuthenticatedUser) {
+    return this.dossiersService.currentDzdRates(user.organizationId);
+  }
+
   @Post(':id/upgrade-to-ddp')
   @RequirePermission(Permission.DOSSIERS_WRITE)
   upgradeToDdp(
@@ -175,10 +181,7 @@ export class DossiersController {
 
   @Post(':id/restore')
   @RequirePermission(Permission.DOSSIERS_ARCHIVE_MANAGE)
-  restore(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
+  restore(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.dossiersService.restore(id, user.organizationId, user.id);
   }
 

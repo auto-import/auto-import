@@ -51,7 +51,7 @@ export class CreateCustomsFileDto {
   feesAmount?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

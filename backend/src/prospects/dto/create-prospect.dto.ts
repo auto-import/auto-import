@@ -24,7 +24,7 @@ export class LeadVehicleRequirementDto {
   @IsOptional() @IsInt() @Min(1900) @Max(2200) maxYear?: number;
   @IsOptional() @IsNumber() @Min(0) budgetMin?: number;
   @IsOptional() @IsNumber() @Min(0) budgetMax?: number;
-  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsIn(['USD', 'CNY', 'DZD']) currency?: string;
   @IsOptional() @IsString() preferredColor?: string;
   @IsOptional() @IsString() requirements?: string;
 }
@@ -67,7 +67,8 @@ export class CreateProspectDto {
   @IsOptional() @IsString() nextAction?: string;
   @IsOptional() @IsString() nextActionAt?: string;
 
-  @IsOptional() @IsIn(['VEHICLE', 'SHIPPING']) needType?: 'VEHICLE' | 'SHIPPING';
+  @IsOptional() @IsIn(['VEHICLE', 'SHIPPING']) needType?:
+    'VEHICLE' | 'SHIPPING';
   @IsOptional() @IsString() shippingDescription?: string;
   @IsOptional() @IsString() shippingCargoType?: string;
   @IsOptional() @IsString() shippingDestination?: string;

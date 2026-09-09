@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Topbar, StatusBadge, DataTable } from "@/components";
+import { amountDzd, type FinanceDzdRate } from "@/lib/dossier-money";
 import {
   fetchOrganizationFinancialOverview,
   fetchSupplierPayments,
@@ -9,6 +10,7 @@ import {
   fetchCosts,
   createCost,
   fetchExchangeRates,
+  fetchCurrentDzdRates,
   createExchangeRate,
   setExchangeRateActive,
   type OrganizationFinancialOverview,
@@ -72,25 +74,51 @@ export default function FinanceDashboardPage() {
   // Exchange rates
   const [exchangeRates, setExchangeRates] = useState<ApiExchangeRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
-  const configuredCurrencies = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          "DZD",
-          ...exchangeRates.flatMap((rate) => [
-            rate.baseCurrency,
-            rate.quoteCurrency,
-          ]),
-        ]),
-      ).sort(),
-    [exchangeRates],
-  );
+  const configuredCurrencies = ["USD", "CNY"];
 
   // Modals
   const [showCostModal, setShowCostModal] = useState(false);
   const [newCostType, setNewCostType] = useState("RENT");
   const [newCostAmount, setNewCostAmount] = useState("");
-  const [newCostCurrency, setNewCostCurrency] = useState("DZD");
+  const [newCostCurrency, setNewCostCurrency] = useState("USD");
+  const [activeCostRates, setActiveCostRates] = useState<FinanceDzdRate[]>([]);
+  const [costRateError, setCostRateError] = useState("");
+  const activeCostRate = activeCostRates.find(
+    (rate) => rate.currency === newCostCurrency,
+  );
+  const costEquivalent = amountDzd(
+    newCostAmount,
+    activeCostRate?.exchangeRateUsed,
+  );
+  useEffect(() => {
+    if (!showCostModal) return;
+    let active = true;
+    const refresh = () => {
+      void fetchCurrentDzdRates()
+        .then((result) => {
+          if (active) {
+            setActiveCostRates(result.rates);
+            setCostRateError("");
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setActiveCostRates([]);
+            setCostRateError(
+              error instanceof Error
+                ? error.message
+                : "Taux Finance indisponibles.",
+            );
+          }
+        });
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refresh);
+    };
+  }, [showCostModal]);
   const [newCostDesc, setNewCostDesc] = useState("");
   const [newCostTreasuryId, setNewCostTreasuryId] = useState("");
 
@@ -293,13 +321,20 @@ export default function FinanceDashboardPage() {
 
   const handleCreateCost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCostAmount || Number(newCostAmount) <= 0) return;
+    if (
+      !newCostAmount ||
+      Number(newCostAmount) <= 0 ||
+      costEquivalent === null ||
+      !activeCostRate
+    )
+      return;
     try {
       await createCost({
         type: newCostType,
         costScope: "OPERATING",
         amount: Number(newCostAmount),
         currency: newCostCurrency,
+        exchangeRateId: activeCostRate.exchangeRateId ?? undefined,
         description: newCostDesc,
         treasuryAccountId: newCostTreasuryId || undefined,
       });
@@ -1261,10 +1296,24 @@ export default function FinanceDashboardPage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={costEquivalent === null || !activeCostRate}
                   className="px-4 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   Enregistrer
                 </button>
+              </div>
+              <div aria-live="polite" className="text-sm">
+                <p>
+                  Taux Finance utilisé :{" "}
+                  {activeCostRate
+                    ? `1 ${newCostCurrency} = ${activeCostRate.exchangeRateUsed} DZD`
+                    : `Aucun taux ${newCostCurrency} → DZD actif n'est configuré dans Finance.`}
+                </p>
+                <p>
+                  Équivalent :{" "}
+                  {costEquivalent === null ? "—" : `${costEquivalent} DZD`}
+                </p>
+                {costRateError && <p role="alert">{costRateError}</p>}
               </div>
             </form>
           </div>

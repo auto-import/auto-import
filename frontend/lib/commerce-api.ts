@@ -383,6 +383,7 @@ export interface ApiCustomerQuotation {
 }
 
 export interface ApiCatalogueItem {
+  dossierEligibility?: { cif: boolean; ddp: boolean };
   id: string;
   catalogueItemId: string;
   sourceOfferVehicleId: string;

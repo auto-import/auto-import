@@ -314,7 +314,13 @@ export class ConfigurationService {
     const dossier = await this.prisma.dossier.findFirst({
       where: { id: dossierId, organizationId },
       include: {
-        purchases: { orderBy: { createdAt: 'desc' }, take: 1 },
+        purchases: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            costs: { where: { type: 'PURCHASE', status: 'POSTED' }, take: 1 },
+          },
+        },
         dossierVehicles: {
           include: {
             vehicle: {
@@ -372,14 +378,18 @@ export class ConfigurationService {
     const shipment = dossierVehicle?.shipmentVehicles[0]?.shipment;
     if (!purchase) missing.push('coût d’achat fournisseur');
     if (!dossierVehicle) missing.push('véhicule');
-    if (!shipment?.totalFreightCost) missing.push('coût total du fret');
+    if (shipment?.totalFreightCost == null) missing.push('coût total du fret');
     if (!shipment?.freightCurrency) missing.push('devise du fret');
-    if (
-      purchase &&
-      shipment?.freightCurrency &&
-      purchase.currency !== shipment.freightCurrency
-    )
-      missing.push('taux de conversion des devises');
+    const purchaseDzd =
+      purchase?.costs?.[0]?.amountInBaseCurrency ??
+      (purchase?.currency === 'DZD' ? purchase.purchasePrice : null);
+    const freightDzd =
+      shipment?.freightAmountDzd ??
+      (shipment?.freightCurrency === 'DZD' ? shipment.totalFreightCost : null);
+    if (purchase && purchaseDzd == null)
+      missing.push('conversion DZD historique du coût d’achat');
+    if (shipment && freightDzd == null)
+      missing.push('conversion DZD historique du fret');
     const settings = await this.prisma.organizationSettings.findUnique({
       where: { organizationId },
     });
@@ -460,25 +470,31 @@ export class ConfigurationService {
     const share = weightBinding
       ? Number(dossierVehicle.weightKg) / totalWeight
       : volume(dossierVehicle) / totalVolume;
-    const freight = Number(shipment.totalFreightCost) * share;
-    const base = Number(purchase.purchasePrice);
-    const insurance =
-      (base + freight) * (Number(settings.insuranceRatePercent) / 100);
-    const cifPrice = base + freight + insurance;
-    const duty = dossier.dutyOverrideAmount
-      ? Number(dossier.dutyOverrideAmount)
-      : cifPrice * (Number(dutyRate.ratePercent) / 100);
-    const ddpPrice = cifPrice + duty + Number(deliveryRate.amount);
+    const freight = new Prisma.Decimal(freightDzd!)
+      .mul(share)
+      .toDecimalPlaces(2);
+    const base = new Prisma.Decimal(purchaseDzd!);
+    const insurance = base
+      .add(freight)
+      .mul(settings.insuranceRatePercent)
+      .div(100)
+      .toDecimalPlaces(2);
+    const cifPrice = base.add(freight).add(insurance);
+    const duty =
+      dossier.dutyOverrideAmount != null
+        ? dossier.dutyOverrideAmount
+        : cifPrice.mul(dutyRate.ratePercent).div(100).toDecimalPlaces(2);
+    const ddpPrice = cifPrice.add(duty).add(deliveryRate.amount);
     return {
       available: true,
       locked: Boolean(dossier.priceLockedAt),
-      cifPrice,
-      ddpPrice,
-      currency: purchase.currency,
-      freightAllocation: freight,
+      cifPrice: cifPrice.toNumber(),
+      ddpPrice: ddpPrice.toNumber(),
+      currency: 'DZD',
+      freightAllocation: freight.toNumber(),
       allocationBasis: weightBinding ? 'WEIGHT' : 'VOLUME',
-      insurance,
-      customsDuty: duty,
+      insurance: insurance.toNumber(),
+      customsDuty: duty.toNumber(),
       localDelivery: Number(deliveryRate.amount),
       missing: [],
     };

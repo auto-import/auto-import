@@ -4,6 +4,7 @@ import {
   IsUUID,
   IsNumber,
   IsInt,
+  IsIn,
   Min,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -88,7 +89,7 @@ export class CreateVehicleRequestDto {
   budgetMax?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

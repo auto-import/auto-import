@@ -3,6 +3,81 @@ import { ConfigurationService } from './configuration.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('Locked dossier pricing snapshots', () => {
+  it('combines USD purchase and CNY freight snapshots with local charges entirely in DZD', async () => {
+    const unit = {
+      id: 'v1',
+      lengthCm: new Prisma.Decimal(400),
+      widthCm: new Prisma.Decimal(200),
+      heightCm: new Prisma.Decimal(150),
+      weightKg: new Prisma.Decimal(1000),
+      bodyType: 'SUV',
+    };
+    const shipment = {
+      totalFreightCost: new Prisma.Decimal(1000),
+      freightCurrency: 'CNY',
+      freightAmountDzd: new Prisma.Decimal(35000),
+      arrivalPort: 'Alger',
+      vehicles: [{ vehicle: unit }],
+    };
+    const dossier = {
+      priceLockedAt: null,
+      purchases: [
+        {
+          purchasePrice: new Prisma.Decimal(10000),
+          currency: 'USD',
+          costs: [{ amountInBaseCurrency: new Prisma.Decimal(2500000) }],
+        },
+      ],
+      dossierVehicles: [
+        { vehicle: { ...unit, shipmentVehicles: [{ shipment }] } },
+      ],
+    };
+    const prisma = {
+      dossier: { findFirst: jest.fn().mockResolvedValue(dossier) },
+      organizationSettings: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ insuranceRatePercent: new Prisma.Decimal(1) }),
+      },
+      vehicleDutyRate: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ ratePercent: new Prisma.Decimal(10) }),
+      },
+      localDeliveryRate: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({
+            amount: new Prisma.Decimal(1000),
+            currency: 'DZD',
+          }),
+      },
+    };
+    const service = new ConfigurationService(
+      prisma as unknown as PrismaService,
+    );
+    expect(await service.calculateDossierPricing('d1', 'org')).toMatchObject({
+      currency: 'DZD',
+      cifPrice: 2560350,
+      ddpPrice: 2817385,
+    });
+    const legacyShipment = { ...shipment, freightAmountDzd: null };
+    prisma.dossier.findFirst.mockResolvedValue({
+      ...dossier,
+      dossierVehicles: [
+        {
+          vehicle: {
+            ...unit,
+            shipmentVehicles: [{ shipment: legacyShipment }],
+          },
+        },
+      ],
+    });
+    expect(await service.calculateDossierPricing('d1', 'org')).toMatchObject({
+      available: false,
+      missing: expect.arrayContaining(['conversion DZD historique du fret']),
+    });
+  });
   it.each([
     ['VEHICLE_SALE_CIF', 3000000, null],
     ['VEHICLE_SALE_DDP', null, 3500000],

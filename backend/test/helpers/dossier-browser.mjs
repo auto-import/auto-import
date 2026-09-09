@@ -141,10 +141,10 @@ try {
     password: process.env.DOSSIER_BROWSER_PASSWORD,
   });
   const login = await evaluate(
-    `fetch(${JSON.stringify(`${api}/auth/login`)},{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(${credentials})}).then(r=>r.status)`,
+    `fetch(${JSON.stringify(`${api}/auth/login`)},{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(${credentials})}).then(async r=>({status:r.status,accessToken:(await r.json()).data?.accessToken}))`,
   );
-  if (login !== 201 && login !== 200)
-    throw new Error(`Browser login returned ${login}`);
+  if (login.status !== 201 && login.status !== 200)
+    throw new Error(`Browser login returned ${login.status}`);
   await navigate(`/catalogue/${process.env.DOSSIER_BROWSER_ITEM}`);
   await waitFor(
     "document.body.innerText.includes('Tarification CIF')",
@@ -176,6 +176,46 @@ try {
   );
   if (post?.status !== 201 || detail?.status !== 200)
     throw new Error(JSON.stringify(responses));
+  await click('Client confirmé');
+  // Upload valid signed-contract evidence through the real API; the workflow
+  // still validates the stored bytes before allowing the next transition.
+  const uploadStatus = await evaluate(`(async()=>{
+    const bytes=Uint8Array.from(atob(${JSON.stringify(process.env.DOSSIER_BROWSER_CONTRACT)}),c=>c.charCodeAt(0));
+    const form=new FormData(); form.set('file',new Blob([bytes],{type:'application/pdf'}),'contract.pdf');
+    form.set('dossierId',${JSON.stringify(dossierId)});form.set('kind','CONTRACT');form.set('documentType','SIGNED_CONTRACT');
+    return (await fetch(${JSON.stringify(`${api}/documents/upload`)},{method:'POST',credentials:'include',headers:{Authorization:${JSON.stringify(`Bearer ${login.accessToken}`)}},body:form})).status;
+  })()`);
+  if (uploadStatus !== 201) throw new Error(`Contract upload returned ${uploadStatus}`);
+  await click('Contrat signé');
+  await click('Acompte reçu');
+  await waitFor("document.querySelector('[role=dialog]')!==null", 'deposit modal');
+  const setField = async (label, value, tag = 'input') => {
+    await evaluate(`(()=>{
+      const element=[...document.querySelectorAll('[role=dialog] label')].find(l=>l.textContent.includes(${JSON.stringify(label)}))?.querySelector(${JSON.stringify(tag)});
+      if(!element)throw new Error('Field missing: '+${JSON.stringify(label)});
+      Object.getOwnPropertyDescriptor(${tag === 'select' ? 'HTMLSelectElement' : 'HTMLInputElement'}.prototype,'value').set.call(element,${JSON.stringify(value)});
+      element.dispatchEvent(new Event(${tag === 'select' ? "'change'" : "'input'"},{bubbles:true}));
+    })()`);
+  };
+  await setField('Montant reçu', '10000');
+  await waitFor("document.querySelector('[role=dialog]').innerText.includes('2500000.00 DZD')", 'USD Finance conversion');
+  await setField('Devise', 'CNY', 'select');
+  await waitFor("document.querySelector('[role=dialog]').innerText.includes('350000.00 DZD')", 'CNY Finance conversion');
+  await setField('Devise', 'USD', 'select');
+  await setField('Moyen de paiement', 'BANK_TRANSFER', 'select');
+  await click('Valider l’étape');
+  await waitFor("document.querySelector('[role=dialog]')===null", 'deposit saved');
+  await click('Vehicle Booking');
+  await waitFor("document.querySelector('[role=dialog] select')?.value.length>0", 'assigned booking vehicle');
+  const vehicleId = await evaluate("document.querySelector('[role=dialog] select').value");
+  const optionCount = await evaluate("document.querySelector('[role=dialog] select').options.length");
+  if (optionCount !== 2) throw new Error('Booking contains unexpected vehicles');
+  await click('Valider l’étape');
+  await waitFor("document.querySelector('[role=dialog]')===null", 'booking saved');
+  await navigate(`/dossiers/${dossierId}`);
+  await waitFor("document.body.innerText.includes('CA-')", 'reloaded booking');
+  const saved = await evaluate(`fetch(${JSON.stringify(`${api}/dossiers/${dossierId}`)},{credentials:'include',headers:{Authorization:${JSON.stringify(`Bearer ${login.accessToken}`)}}}).then(r=>r.json()).then(r=>r.data)`);
+  if(saved.vehicleBookingVehicleId!==vehicleId||saved.vehicles[0]?.id!==vehicleId)throw new Error('Booking changed on reload');
   console.log(JSON.stringify({ dossierId, post, detail }));
 } finally {
   socket?.close();

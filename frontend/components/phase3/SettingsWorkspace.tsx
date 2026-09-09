@@ -180,12 +180,9 @@ export default function SettingsWorkspace() {
               <select
                 className={inputClass}
                 value={settings.baseCurrency}
-                onChange={(event) => field("baseCurrency", event.target.value)}
+                disabled
               >
                 <option>DZD</option>
-                <option>USD</option>
-                <option>EUR</option>
-                <option>CNY</option>
               </select>
             </label>
           </Section>

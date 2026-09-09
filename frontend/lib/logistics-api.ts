@@ -51,6 +51,8 @@ export interface ApiShipment {
   containerPresetId?: string | null;
   totalFreightCost?: string | number | null;
   freightCurrency?: string | null;
+  freightExchangeRateSnapshot?: string | null;
+  freightAmountDzd?: string | null;
   containerPreset?: {
     id: string;
     code: string;
@@ -202,6 +204,7 @@ export async function createShipment(data: {
   containerPresetId?: string;
   totalFreightCost?: number;
   freightCurrency?: string;
+  freightExchangeRateId?: string;
 }): Promise<ApiShipment> {
   return apiRequest<ApiShipment>("/shipments", {
     method: "POST",
@@ -211,7 +214,11 @@ export async function createShipment(data: {
 
 export async function addShipmentVehicle(
   id: string,
-  data: { vehicleId: string; capacityOverride?: boolean; overrideReason?: string },
+  data: {
+    vehicleId: string;
+    capacityOverride?: boolean;
+    overrideReason?: string;
+  },
 ): Promise<ApiShipment> {
   return apiRequest<ApiShipment>(`/shipments/${id}/vehicles`, {
     method: "POST",

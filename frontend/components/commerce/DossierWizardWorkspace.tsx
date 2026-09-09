@@ -144,8 +144,8 @@ export default function DossierWizardWorkspace() {
     () =>
       catalogueItems.filter((item) =>
         type === DossierType.VEHICLE_SALE_DDP
-          ? Boolean(item.ddpPrice)
-          : Boolean(item.cifPrice),
+          ? item.dossierEligibility?.ddp === true
+          : item.dossierEligibility?.cif === true,
       ),
     [catalogueItems, type],
   );

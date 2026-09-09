@@ -34,6 +34,8 @@ export class CostsService {
       purchaseDate?: Date | null;
       createdAt?: Date;
     },
+    conversionDate?: Date,
+    expectedExchangeRateId?: string,
   ) {
     const sourceModule = 'PURCHASE_COMMITMENT';
     const existing = await tx.financeTransaction.findUnique({
@@ -58,9 +60,22 @@ export class CostsService {
       tx,
       organizationId,
       currency,
-      occurredAt,
+      conversionDate ?? occurredAt,
     );
     const amountDzd = amount.mul(rateSnapshot.rate).toDecimalPlaces(2);
+    if (
+      expectedExchangeRateId &&
+      expectedExchangeRateId !== rateSnapshot.exchangeRateId
+    ) {
+      throw new BadRequestException(
+        'Le taux Finance a changé. Rouvrez le formulaire pour vérifier le nouveau calcul.',
+      );
+    }
+    if (!amountDzd.isFinite() || amountDzd.gte('10000000000')) {
+      throw new BadRequestException(
+        'Le montant converti dépasse la limite comptable (10 milliards DZD).',
+      );
+    }
     const cost = await tx.cost.create({
       data: {
         organizationId,
@@ -185,39 +200,11 @@ export class CostsService {
     currency: string,
     occurredAt: Date,
   ): Promise<{ exchangeRateId: string | null; rate: Prisma.Decimal }> {
-    if (currency === 'DZD') {
-      return { exchangeRateId: null, rate: new Prisma.Decimal(1) };
-    }
-
-    const direct = await tx.exchangeRate.findFirst({
-      where: {
-        organizationId,
-        baseCurrency: currency,
-        quoteCurrency: 'DZD',
-        effectiveAt: { lte: occurredAt },
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    if (direct) return { exchangeRateId: direct.id, rate: direct.rate };
-
-    const inverse = await tx.exchangeRate.findFirst({
-      where: {
-        organizationId,
-        baseCurrency: 'DZD',
-        quoteCurrency: currency,
-        effectiveAt: { lte: occurredAt },
-      },
-      orderBy: { effectiveAt: 'desc' },
-    });
-    if (inverse && !inverse.rate.isZero()) {
-      return {
-        exchangeRateId: inverse.id,
-        rate: new Prisma.Decimal(1).dividedBy(inverse.rate),
-      };
-    }
-
-    throw new BadRequestException(
-      `No ${currency}/DZD exchange rate exists at the purchase date`,
+    return this.exchangeRates.findActiveDzdRateSnapshot(
+      tx,
+      organizationId,
+      currency,
+      occurredAt,
     );
   }
 
@@ -266,10 +253,10 @@ export class CostsService {
     let exchangeRateSnapshot = new Prisma.Decimal(1);
     let exchangeRateId: string | null = null;
     if (currency !== 'DZD') {
-      const selectedRate = await this.exchangeRates.findEffectiveRateSnapshot(
+      const selectedRate = await this.exchangeRates.findActiveDzdRateSnapshot(
+        this.prisma,
         organizationId,
         currency,
-        'DZD',
         occurredAt,
       );
       if (
@@ -288,6 +275,14 @@ export class CostsService {
     }
 
     const costScope = dto.costScope ?? (dto.dossierId ? 'DIRECT' : 'OPERATING');
+    if (
+      !amountInBaseCurrency.isFinite() ||
+      amountInBaseCurrency.gte('10000000000')
+    ) {
+      throw new BadRequestException(
+        'Le montant converti dépasse la limite comptable (10 milliards DZD).',
+      );
+    }
     if (!['DIRECT', 'OPERATING'].includes(costScope)) {
       throw new BadRequestException('costScope must be DIRECT or OPERATING');
     }

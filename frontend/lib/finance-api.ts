@@ -620,6 +620,7 @@ export async function fetchCosts(params: {
 }
 
 export async function createCost(data: {
+  exchangeRateId?: string;
   type: string;
   costScope?: "DIRECT" | "OPERATING";
   amount: number;

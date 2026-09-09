@@ -4,6 +4,7 @@ import {
   IsUUID,
   IsNumber,
   IsInt,
+  IsIn,
   Min,
   Validate,
 } from 'class-validator';
@@ -58,7 +59,7 @@ export class UpdateVehicleRequestDto {
   budgetMax?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

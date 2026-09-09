@@ -4,6 +4,58 @@ import { FinanceProjectionService } from './finance-projection.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('FinanceProjectionService', () => {
+  it.each([
+    ['USD', '10000', '250', '2500000'],
+    ['CNY', '10000', '35', '350000'],
+    ['USD', '0', '250', '0'],
+    ['CNY', '0', '35', '0'],
+    ['CNY', '1234.56', '35.12345678', '43362.01'],
+    ['USD', '39999999.99', '250', '9999999997.5'],
+  ])(
+    'snapshots %s %s using Finance rate %s',
+    async (currency, amount, rate, equivalent) => {
+      const localTx = {
+        exchangeRate: {
+          findFirst: jest
+            .fn()
+            .mockResolvedValue({ id: 'r1', rate: new Prisma.Decimal(rate) }),
+        },
+        financeTransaction: { upsert: jest.fn() },
+      };
+      const projection = new FinanceProjectionService({} as PrismaService);
+      await projection.projectCustomerPayment(
+        localTx as unknown as Prisma.TransactionClient,
+        'org',
+        'user',
+        {
+          id: 'p1',
+          amount: new Prisma.Decimal(amount),
+          currency,
+          clientId: 'c1',
+        },
+      );
+      expect(localTx.financeTransaction.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            originalAmount: new Prisma.Decimal(amount),
+            currency,
+            exchangeRateSnapshot: new Prisma.Decimal(rate),
+            amountDzd: new Prisma.Decimal(equivalent),
+          }),
+          update: {},
+        }),
+      );
+      expect(localTx.exchangeRate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            baseCurrency: currency,
+            quoteCurrency: 'DZD',
+            isActive: true,
+          }),
+        }),
+      );
+    },
+  );
   const organizationId = 'org-1';
   const userId = 'user-1';
   let tx: {

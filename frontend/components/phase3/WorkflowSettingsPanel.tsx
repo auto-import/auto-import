@@ -238,12 +238,9 @@ export default function WorkflowSettingsPanel() {
                 }
               />
               <input
-                disabled={!canManageSettings}
+                readOnly
                 className={inputClass}
                 value={delivery.currency}
-                onChange={(e) =>
-                  setDelivery((v) => ({ ...v, currency: e.target.value }))
-                }
               />
             </div>
             <button

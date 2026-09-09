@@ -2,6 +2,9 @@ import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsIn,
+  IsNumber,
+  Max,
   IsOptional,
   IsPositive,
   IsString,
@@ -12,8 +15,13 @@ import {
 import { DossierStatus } from '@auto-import/contracts';
 
 export class DepositTransitionDataDto {
-  @Type(() => Number) @IsPositive() amount: number;
-  @IsString() currency: string;
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  @Max(9999999999.99)
+  amount: number;
+  @IsIn(['USD', 'CNY']) currency: string;
+  @IsOptional() @IsUUID() exchangeRateId?: string;
   @IsString() paymentMethod: string;
   @IsDateString() receivedAt: string;
   @IsOptional() @IsString() reference?: string;
@@ -28,8 +36,13 @@ export class VehicleBookingTransitionDataDto {
 
 export class PurchaseTransitionDataDto {
   @IsString() invoiceNumber: string;
-  @Type(() => Number) @IsPositive() amount: number;
-  @IsString() currency: string;
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  @Max(9999999999.99)
+  amount: number;
+  @IsIn(['USD', 'CNY']) currency: string;
+  @IsOptional() @IsUUID() exchangeRateId?: string;
   @IsDateString() invoiceDate: string;
   @IsUUID() supplierId: string;
 }
@@ -57,17 +70,29 @@ export class UpdateStatusDto {
   @IsString()
   comment?: string;
 
-  @IsOptional() @ValidateNested() @Type(() => DepositTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DepositTransitionDataDto)
   deposit?: DepositTransitionDataDto;
-  @IsOptional() @ValidateNested() @Type(() => VehicleBookingTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VehicleBookingTransitionDataDto)
   vehicleBooking?: VehicleBookingTransitionDataDto;
-  @IsOptional() @ValidateNested() @Type(() => PurchaseTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PurchaseTransitionDataDto)
   purchase?: PurchaseTransitionDataDto;
-  @IsOptional() @ValidateNested() @Type(() => InspectionTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InspectionTransitionDataDto)
   inspection?: InspectionTransitionDataDto;
-  @IsOptional() @ValidateNested() @Type(() => ShipmentBookingTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ShipmentBookingTransitionDataDto)
   shipmentBooking?: ShipmentBookingTransitionDataDto;
-  @IsOptional() @ValidateNested() @Type(() => BillOfLadingTransitionDataDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BillOfLadingTransitionDataDto)
   billOfLading?: BillOfLadingTransitionDataDto;
 }
 

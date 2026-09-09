@@ -1,4 +1,11 @@
-import { IsOptional, IsUUID, IsNumber, Min, IsString } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsNumber,
+  Min,
+  IsString,
+  IsIn,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ConfirmPurchaseDto {
@@ -21,7 +28,7 @@ export class ConfirmPurchaseDto {
   purchasePrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

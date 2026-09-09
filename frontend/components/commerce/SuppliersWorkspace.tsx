@@ -1528,26 +1528,9 @@ export default function SuppliersWorkspace() {
                     }
                   >
                     <option value="">Sélectionner une devise</option>
-                    {references
-                      .filter((item) => item.kind === "SUPPLIER_CURRENCY")
-                      .map((item) => (
-                        <option key={item.id} value={item.labelFr}>
-                          {item.labelFr}
-                        </option>
-                      ))}
+                    <option value="USD">USD</option>
+                    <option value="CNY">CNY</option>
                   </select>
-                  <button
-                    type="button"
-                    aria-label="Ajouter une devise"
-                    className="rounded-button border px-3 text-sm font-semibold"
-                    onClick={() => {
-                      setReferenceModal("CURRENCY");
-                      setReferenceValue("");
-                      setReferenceError("");
-                    }}
-                  >
-                    + Ajouter
-                  </button>
                 </div>
               </label>
             </div>

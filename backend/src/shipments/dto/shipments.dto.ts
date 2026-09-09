@@ -54,8 +54,13 @@ export class CreateShipmentDto {
   vehicleIds?: string[];
 
   @IsOptional() @IsString() containerPresetId?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() totalFreightCost?: number;
-  @IsOptional() @IsString() freightCurrency?: string;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive()
+  totalFreightCost?: number;
+  @IsOptional() @IsIn(['USD', 'CNY']) freightCurrency?: string;
+  @IsOptional() @IsString() freightExchangeRateId?: string;
 }
 
 export class UpdateShipmentDto {
@@ -104,8 +109,13 @@ export class UpdateShipmentDto {
   notes?: string;
 
   @IsOptional() @IsString() containerPresetId?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() @IsPositive() totalFreightCost?: number;
-  @IsOptional() @IsString() freightCurrency?: string;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive()
+  totalFreightCost?: number;
+  @IsOptional() @IsIn(['USD', 'CNY']) freightCurrency?: string;
+  @IsOptional() @IsString() freightExchangeRateId?: string;
 }
 
 export class AddShipmentVehicleDto {

@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsUUID,
   IsString,
   IsOptional,
@@ -43,6 +44,6 @@ export class CreateOrderDto {
   items: OrderItemDto[];
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 }

@@ -258,6 +258,14 @@ export class ExchangeRatesService {
     }
 
     const targetDate = atDate || new Date();
+    if (quote === 'DZD') {
+      return this.findActiveDzdRateSnapshot(
+        this.prisma,
+        organizationId,
+        base,
+        targetDate,
+      );
+    }
 
     // Direct lookup: base -> quote
     const directRate = await this.prisma.exchangeRate.findFirst({
@@ -265,6 +273,7 @@ export class ExchangeRatesService {
         organizationId,
         baseCurrency: base,
         quoteCurrency: quote,
+        isActive: true,
         effectiveAt: { lte: targetDate },
       },
       orderBy: { effectiveAt: 'desc' },
@@ -280,6 +289,7 @@ export class ExchangeRatesService {
         organizationId,
         baseCurrency: quote,
         quoteCurrency: base,
+        isActive: true,
         effectiveAt: { lte: targetDate },
       },
       orderBy: { effectiveAt: 'desc' },

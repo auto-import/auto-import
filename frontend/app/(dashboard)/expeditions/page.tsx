@@ -1,4 +1,9 @@
 "use client";
+import {
+  amountDzd,
+  fetchShipmentDzdRates,
+  type FinanceDzdRate,
+} from "@/lib/dossier-money";
 
 import { useState, useEffect, useCallback } from "react";
 import { Topbar, StatusBadge, DataTable } from "@/components";
@@ -48,10 +53,45 @@ export default function ExpeditionsPage() {
   const [newArrPort, setNewArrPort] = useState("Djen Djen (DZDJE)");
   const [newEtd, setNewEtd] = useState("");
   const [newEta, setNewEta] = useState("");
-  const [containerPresets, setContainerPresets] = useState<Array<Record<string, string | number>>>([]);
+  const [containerPresets, setContainerPresets] = useState<
+    Array<Record<string, string | number>>
+  >([]);
   const [newContainerPresetId, setNewContainerPresetId] = useState("");
   const [newFreightCost, setNewFreightCost] = useState("");
   const [newFreightCurrency, setNewFreightCurrency] = useState("USD");
+  const [freightRates, setFreightRates] = useState<FinanceDzdRate[]>([]);
+  const [freightRateError, setFreightRateError] = useState("");
+  const freightRate = freightRates.find(
+    (rate) => rate.currency === newFreightCurrency,
+  );
+  const freightEquivalent = amountDzd(
+    newFreightCost,
+    freightRate?.exchangeRateUsed,
+  );
+  useEffect(() => {
+    if (!showShipmentModal) return;
+    let active = true;
+    void fetchShipmentDzdRates()
+      .then((result) => {
+        if (active) {
+          setFreightRates(result.rates);
+          setFreightRateError("");
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setFreightRates([]);
+          setFreightRateError(
+            caught instanceof Error
+              ? caught.message
+              : "Taux Finance indisponibles.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [showShipmentModal]);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -158,6 +198,7 @@ export default function ExpeditionsPage() {
 
   const handleCreateShipment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newFreightCost && freightEquivalent === null) return;
     try {
       await createShipment({
         containerNumber: newContainer || undefined,
@@ -170,6 +211,9 @@ export default function ExpeditionsPage() {
         containerPresetId: newContainerPresetId || undefined,
         totalFreightCost: newFreightCost ? Number(newFreightCost) : undefined,
         freightCurrency: newFreightCost ? newFreightCurrency : undefined,
+        freightExchangeRateId: newFreightCost
+          ? (freightRate?.exchangeRateId ?? undefined)
+          : undefined,
       });
       setShowShipmentModal(false);
       setNewContainer("");
@@ -336,11 +380,21 @@ export default function ExpeditionsPage() {
         const usedKg = row.capacity?.usedWeightKg;
         const totalKg = row.capacity?.totalWeightKg;
         return (
-          <button type="button" onClick={() => setDetailId(row.id)} className="inline-flex flex-col items-start justify-center gap-0.5 px-2.5 py-1.5 rounded bg-surface border text-xs font-semibold">
-            <span>{count} véhicule{count !== 1 ? "s" : ""}</span>
+          <button
+            type="button"
+            onClick={() => setDetailId(row.id)}
+            className="inline-flex flex-col items-start justify-center gap-0.5 px-2.5 py-1.5 rounded bg-surface border text-xs font-semibold"
+          >
+            <span>
+              {count} véhicule{count !== 1 ? "s" : ""}
+            </span>
             <span className="font-normal text-muted">
-              {total != null ? `${(used ?? 0).toFixed(1)} / ${Number(total).toFixed(1)} m³` : `${(used ?? 0).toFixed(1)} m³`}
-              {totalKg != null ? ` · ${Math.round(usedKg ?? 0)} / ${Math.round(Number(totalKg))} kg` : ""}
+              {total != null
+                ? `${(used ?? 0).toFixed(1)} / ${Number(total).toFixed(1)} m³`
+                : `${(used ?? 0).toFixed(1)} m³`}
+              {totalKg != null
+                ? ` · ${Math.round(usedKg ?? 0)} / ${Math.round(Number(totalKg))} kg`
+                : ""}
             </span>
           </button>
         );
@@ -356,7 +410,12 @@ export default function ExpeditionsPage() {
       header: "Actions",
       render: (row) => (
         <div className="flex items-center gap-2">
-          <button onClick={() => setDetailId(row.id)} className="px-2 py-1 text-xs rounded-button border">Détails</button>
+          <button
+            onClick={() => setDetailId(row.id)}
+            className="px-2 py-1 text-xs rounded-button border"
+          >
+            Détails
+          </button>
           {row.status === "pending" && (
             <button
               onClick={() => handleTransitionShipment(row.id, "booked")}
@@ -427,7 +486,11 @@ export default function ExpeditionsPage() {
       header: "VIN / Conteneur",
       render: (row) => (
         <div className="text-xs">
-          <b className="font-mono">{row.vehicles?.length ? `${row.vehicles.length} véhicule(s)` : row.vehicle?.vin || "VIN manquant"}</b>
+          <b className="font-mono">
+            {row.vehicles?.length
+              ? `${row.vehicles.length} véhicule(s)`
+              : row.vehicle?.vin || "VIN manquant"}
+          </b>
           <p>{row.containerSnapshot || row.shipment?.shipmentNumber || "—"}</p>
           <p className="text-muted">
             {row.arrivalPortSnapshot || "Port non renseigné"}
@@ -711,15 +774,72 @@ export default function ExpeditionsPage() {
             <form onSubmit={handleCreateShipment} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Type conteneur</label>
-                  <select required value={newContainerPresetId} onChange={(event) => setNewContainerPresetId(event.target.value)} className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background">
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Type conteneur
+                  </label>
+                  <select
+                    required
+                    value={newContainerPresetId}
+                    onChange={(event) =>
+                      setNewContainerPresetId(event.target.value)
+                    }
+                    className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                  >
                     <option value="">Sélectionner</option>
-                    {containerPresets.map((preset) => <option key={String(preset.id)} value={String(preset.id)}>{String(preset.label)}</option>)}
+                    {containerPresets.map((preset) => (
+                      <option key={String(preset.id)} value={String(preset.id)}>
+                        {String(preset.label)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-muted uppercase mb-1">Fret total</label>
-                  <div className="flex gap-2"><input type="number" min="0.01" step="0.01" value={newFreightCost} onChange={(event) => setNewFreightCost(event.target.value)} className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background" placeholder="Non renseigné" /><input value={newFreightCurrency} onChange={(event) => setNewFreightCurrency(event.target.value)} className="w-20 px-2 py-2 text-sm border border-border rounded-input bg-background" /></div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-1">
+                    Fret total
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={newFreightCost}
+                      onChange={(event) =>
+                        setNewFreightCost(event.target.value)
+                      }
+                      className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                      placeholder="Non renseigné"
+                    />
+                    <select
+                      aria-label="Devise du fret"
+                      value={newFreightCurrency}
+                      onChange={(event) =>
+                        setNewFreightCurrency(event.target.value)
+                      }
+                      className="w-20 px-2 py-2 text-sm border border-border rounded-input bg-background"
+                    >
+                      <option value="USD">USD</option>
+                      <option value="CNY">CNY</option>
+                    </select>
+                  </div>
+                  {newFreightCost && (
+                    <div className="text-sm" aria-live="polite">
+                      <p>
+                        Taux Finance utilisé :{" "}
+                        {freightRate
+                          ? `1 ${newFreightCurrency} = ${freightRate.exchangeRateUsed} DZD`
+                          : `Aucun taux ${newFreightCurrency} → DZD actif n'est configuré dans Finance.`}
+                      </p>
+                      <p>
+                        Équivalent :{" "}
+                        {freightEquivalent === null
+                          ? "—"
+                          : `${freightEquivalent} DZD`}
+                      </p>
+                      {freightRateError && (
+                        <p role="alert">{freightRateError}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
@@ -823,6 +943,9 @@ export default function ExpeditionsPage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={
+                    Boolean(newFreightCost) && freightEquivalent === null
+                  }
                   className="px-4 py-2 text-sm font-medium rounded-button bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   Créer l’expédition

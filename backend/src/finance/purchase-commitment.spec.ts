@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CostsService } from './costs.service';
+import { ExchangeRatesService } from './exchange-rates.service';
 
 describe('CostsService purchase commitments', () => {
   const purchase = {
@@ -22,7 +23,10 @@ describe('CostsService purchase commitments', () => {
       exchangeRate: { findFirst: jest.fn() },
       cost: { create: jest.fn().mockResolvedValue({ id: 'cost-1' }) },
     };
-    const service = new CostsService({} as never, {} as never);
+    const service = new CostsService(
+      {} as never,
+      new ExchangeRatesService({} as never),
+    );
     return { service, tx };
   }
 
@@ -91,7 +95,7 @@ describe('CostsService purchase commitments', () => {
         'user-1',
         purchase,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(tx.cost.create).not.toHaveBeenCalled();
     expect(tx.financeTransaction.create).not.toHaveBeenCalled();
   });

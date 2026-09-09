@@ -1,6 +1,11 @@
 "use client";
 
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
+import {
+  amountDzd,
+  fetchDossierDzdRates,
+  type FinanceDzdRate,
+} from "@/lib/dossier-money";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -43,7 +48,6 @@ import DossierEvidencePanel from "./DossierEvidencePanel";
 import { downloadDocument } from "@/lib/documents-api";
 import {
   createCost,
-  fetchCurrentDzdRates,
   fetchDossierFinancialSummary,
   type DossierFinancialSummary,
 } from "@/lib/finance-api";
@@ -741,31 +745,34 @@ function Finance({
   const [costType, setCostType] = useState("OTHER");
   const [costDescription, setCostDescription] = useState("");
   const [costAmount, setCostAmount] = useState("");
-  const [costCurrency, setCostCurrency] = useState("DZD");
-  const [rates, setRates] = useState<
-    Array<{ currency: string; exchangeRateUsed: string }>
-  >([{ currency: "DZD", exchangeRateUsed: "1" }]);
+  const [costCurrency, setCostCurrency] = useState("USD");
+  const [rates, setRates] = useState<FinanceDzdRate[]>([]);
   const [costError, setCostError] = useState("");
   const [savingCost, setSavingCost] = useState(false);
 
   useEffect(() => {
     if (!canWrite) return;
     let active = true;
-    void fetchCurrentDzdRates()
-      .then((response) => {
-        if (active) setRates(response.rates);
-      })
-      .catch((caught) => {
-        if (active) {
-          setCostError(
-            caught instanceof Error
-              ? caught.message
-              : "Taux de change Finance indisponibles.",
-          );
-        }
-      });
+    const refresh = () => {
+      void fetchDossierDzdRates()
+        .then((response) => {
+          if (active) setRates(response.rates);
+        })
+        .catch((caught) => {
+          if (active) {
+            setCostError(
+              caught instanceof Error
+                ? caught.message
+                : "Taux de change Finance indisponibles.",
+            );
+          }
+        });
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
     return () => {
       active = false;
+      window.removeEventListener("focus", refresh);
     };
   }, [canWrite]);
 
@@ -774,10 +781,7 @@ function Finance({
       rates.find((item) => item.currency === costCurrency)?.exchangeRateUsed,
     [costCurrency, rates],
   );
-  const liveDzdEquivalent =
-    costAmount && selectedRate
-      ? Number(costAmount) * Number(selectedRate)
-      : null;
+  const liveDzdEquivalent = amountDzd(costAmount, selectedRate);
 
   async function submitActualCost(event: React.FormEvent) {
     event.preventDefault();
@@ -798,6 +802,9 @@ function Finance({
         costScope: "DIRECT",
         amount,
         currency: costCurrency,
+        exchangeRateId:
+          rates.find((rate) => rate.currency === costCurrency)
+            ?.exchangeRateId ?? undefined,
         dossierId: dossier.id,
         description: costDescription.trim() || undefined,
       });
@@ -903,7 +910,6 @@ function Finance({
         setCostAmount={setCostAmount}
         costCurrency={costCurrency}
         setCostCurrency={setCostCurrency}
-        rates={rates}
         selectedRate={selectedRate}
         liveDzdEquivalent={liveDzdEquivalent}
         costError={costError}
@@ -925,7 +931,6 @@ function ActualCostsSection({
   setCostAmount,
   costCurrency,
   setCostCurrency,
-  rates,
   selectedRate,
   liveDzdEquivalent,
   costError,
@@ -942,9 +947,8 @@ function ActualCostsSection({
   setCostAmount: (value: string) => void;
   costCurrency: string;
   setCostCurrency: (value: string) => void;
-  rates: Array<{ currency: string; exchangeRateUsed: string }>;
   selectedRate?: string;
-  liveDzdEquivalent: number | null;
+  liveDzdEquivalent: string | null;
   costError: string;
   savingCost: boolean;
   submitActualCost: (event: React.FormEvent) => Promise<void>;
@@ -1006,6 +1010,7 @@ function ActualCostsSection({
                 const type = event.target.value;
                 setCostType(type);
                 if (type === "CUSTOMS") setCostCurrency("DZD");
+                else if (costCurrency === "DZD") setCostCurrency("USD");
               }}
             >
               <option value="SHIPPING">Fret / transport</option>
@@ -1045,25 +1050,28 @@ function ActualCostsSection({
               disabled={costType === "CUSTOMS"}
               onChange={(event) => setCostCurrency(event.target.value)}
             >
-              {rates.map((rate) => (
-                <option key={rate.currency} value={rate.currency}>
-                  {rate.currency}
-                </option>
-              ))}
+              {(costType === "CUSTOMS" ? ["DZD"] : ["USD", "CNY"]).map(
+                (currency) => (
+                  <option key={currency} value={currency}>
+                    {currency}
+                  </option>
+                ),
+              )}
             </select>
           </label>
           <div className="rounded-lg border border-neutral-200 bg-white p-3 text-sm md:col-span-2">
             <p>
-              Taux utilisé : <b>{selectedRate ?? "indisponible"}</b>
+              Taux Finance utilisé :{" "}
+              <b>
+                {selectedRate
+                  ? `1 ${costCurrency} = ${selectedRate} DZD`
+                  : `Aucun taux ${costCurrency} → DZD actif n'est configuré dans Finance.`}
+              </b>
             </p>
             <p className="mt-1">
               Équivalent :{" "}
               <b>
-                {liveDzdEquivalent != null && Number.isFinite(liveDzdEquivalent)
-                  ? `${liveDzdEquivalent.toLocaleString(
-                      getRuntimeLocale(),
-                    )} DZD`
-                  : "—"}
+                {liveDzdEquivalent != null ? `${liveDzdEquivalent} DZD` : "—"}
               </b>
             </p>
           </div>
@@ -1074,7 +1082,7 @@ function ActualCostsSection({
           )}
           <button
             type="submit"
-            disabled={savingCost}
+            disabled={savingCost || !selectedRate || liveDzdEquivalent === null}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 md:col-span-2"
           >
             <Plus className="h-4 w-4" />

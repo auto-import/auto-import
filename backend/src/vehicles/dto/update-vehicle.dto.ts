@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsString,
   IsOptional,
   IsNumber,
@@ -108,7 +109,7 @@ export class UpdateVehicleDto {
   ddpPrice?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['USD', 'CNY', 'DZD'])
   currency?: string;
 
   @IsOptional()

@@ -77,6 +77,19 @@ export class CatalogueService {
     const where: Prisma.CatalogueItemWhereInput = {
       organizationId,
       archivedAt: null,
+      ...(filters.status === 'available'
+        ? {
+            reservedQuantity: {
+              lt: this.prisma.catalogueItem.fields.availableQuantity,
+            },
+          }
+        : filters.status === 'reserved'
+          ? {
+              reservedQuantity: {
+                gte: this.prisma.catalogueItem.fields.availableQuantity,
+              },
+            }
+          : {}),
       AND: [
         publishedPricing,
         {
@@ -156,7 +169,14 @@ export class CatalogueService {
       | CatalogueRecord['activeDdpQuotation'],
   ) {
     const revision = quotation?.currentRevision;
-    if (!quotation || !revision) return null;
+    if (
+      !quotation ||
+      !revision ||
+      !quotation.cataloguePublished ||
+      ['REJECTED', 'EXPIRED'].includes(quotation.status) ||
+      (quotation.expiresAt && quotation.expiresAt < new Date())
+    )
+      return null;
     const operations = item.dossiers
       .filter((dossier) => dossier.commercialQuotationId === quotation.id)
       .map((dossier) => {
@@ -248,6 +268,10 @@ export class CatalogueService {
       availableQuantity: item.availableQuantity,
       reservedQuantity: item.reservedQuantity,
       remainingQuantity,
+      dossierEligibility: {
+        cif: this.dossierEligible(item, item.activeCifQuotation, 'CIF'),
+        ddp: this.dossierEligible(item, item.activeDdpQuotation, 'DDP'),
+      },
       currency: 'DZD' as const,
       cifPrice: cifPricing?.sellingPriceDzd ?? null,
       ddpPrice: ddpPricing?.sellingPriceDzd ?? null,
@@ -259,5 +283,38 @@ export class CatalogueService {
       photos: source.offer.photos,
       publishedAt: item.publishedAt,
     };
+  }
+
+  private dossierEligible(
+    item: CatalogueRecord,
+    quote: CatalogueRecord['activeCifQuotation'],
+    basis: string,
+  ) {
+    const source = item.sourceOfferVehicle;
+    const revision = quote?.currentRevision;
+    return Boolean(
+      item.availableQuantity > item.reservedQuantity &&
+      source.quantity > source.reservedQuantity + source.purchasedQuantity &&
+      source.offer.availableQuantity > source.offer.reservedQuantity &&
+      !source.offer.archivedAt &&
+      !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+        source.status,
+      ) &&
+      !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+        source.offer.offerStatus ?? '',
+      ) &&
+      quote?.cataloguePublished &&
+      revision &&
+      quote.currency === 'DZD' &&
+      quote.priceBasis === basis &&
+      quote.organizationId === item.organizationId &&
+      quote.sourceOfferVehicleId === source.id &&
+      revision.organizationId === item.organizationId &&
+      revision.quotationId === quote.id &&
+      !['REJECTED', 'EXPIRED'].includes(quote.status) &&
+      (!quote.expiresAt || quote.expiresAt >= new Date()) &&
+      revision.finalCustomerPriceDzd.isFinite() &&
+      revision.finalCustomerPriceDzd.gt(0),
+    );
   }
 }

@@ -188,7 +188,8 @@ export class OffersService {
       },
       select: { id: true },
     });
-    if (!supplier) throw new NotFoundException('Fournisseur actif introuvable.');
+    if (!supplier)
+      throw new NotFoundException('Fournisseur actif introuvable.');
   }
 
   private async validateOfferLookups(
@@ -262,13 +263,19 @@ export class OffersService {
       throw new BadRequestException('Les frais locaux sont requis en FCA.');
     }
     const normalizedLocalCost =
-      incoterm === 'FCA' ? new Prisma.Decimal(localCost ?? 0) : new Prisma.Decimal(0);
+      incoterm === 'FCA'
+        ? new Prisma.Decimal(localCost ?? 0)
+        : new Prisma.Decimal(0);
     if (normalizedLocalCost.isNegative()) {
-      throw new BadRequestException('Les frais locaux ne peuvent pas être négatifs.');
+      throw new BadRequestException(
+        'Les frais locaux ne peuvent pas être négatifs.',
+      );
     }
     return {
       localCost: normalizedLocalCost,
-      totalOfferPrice: new Prisma.Decimal(supplierPrice).add(normalizedLocalCost),
+      totalOfferPrice: new Prisma.Decimal(supplierPrice).add(
+        normalizedLocalCost,
+      ),
     };
   }
 
@@ -877,7 +884,9 @@ export class OffersService {
         dto.supplierPrice ?? current.supplierPrice?.toNumber();
       const nextIncoterm = dto.incoterm ?? current.incoterm;
       const nextPricing =
-        supplierPrice != null && nextIncoterm && ['FCA', 'FOB'].includes(nextIncoterm)
+        supplierPrice != null &&
+        nextIncoterm &&
+        ['FCA', 'FOB'].includes(nextIncoterm)
           ? this.offerPricing(
               nextIncoterm,
               supplierPrice,
@@ -886,7 +895,9 @@ export class OffersService {
           : {
               localCost: current.localCost,
               totalOfferPrice:
-                current.totalOfferPrice ?? current.supplierPrice ?? current.purchasePrice,
+                current.totalOfferPrice ??
+                current.supplierPrice ??
+                current.purchasePrice,
             };
       if (commercialChange && userId && !current.currentRevisionId) {
         await this.appendRevision(
@@ -1122,6 +1133,7 @@ export class OffersService {
         const vehicle = await tx.vehicle.create({
           data: {
             organizationId,
+            sourceOfferVehicleId: sourceOfferVehicle?.id,
             vin: dto.vin,
             brand: reservation.offer.brand,
             model: reservation.offer.model,
@@ -1602,6 +1614,7 @@ export class OffersService {
         const vehicle = await tx.vehicle.create({
           data: {
             organizationId,
+            sourceOfferVehicleId: line.id,
             vin,
             brand: line.brand,
             model: line.model,
@@ -1778,7 +1791,8 @@ export class OffersService {
       const line = await tx.chinaOfferVehicle.findFirst({
         where: { id: offerVehicleId, offerId, organizationId },
       });
-      if (!line) throw new NotFoundException("Véhicule de l'offre introuvable.");
+      if (!line)
+        throw new NotFoundException("Véhicule de l'offre introuvable.");
       if (line.purchasedQuantity >= line.quantity) {
         throw new ConflictException(
           'Un véhicule déjà acheté ne peut pas être marqué comme perdu.',

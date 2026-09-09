@@ -15,6 +15,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
 
   const mockPrisma: any = {
     dossier: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn(),
       update: jest.fn(),
     },
@@ -63,6 +64,12 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       undefined,
       costsService as never,
       financeProjection as never,
+      {
+        findActiveDzdRateSnapshot: jest.fn().mockResolvedValue({
+          exchangeRateId: 'rate-1',
+          rate: new Prisma.Decimal(250),
+        }),
+      } as never,
     );
     mockPrisma.partner.findFirst.mockResolvedValue({
       id: 'supplier-1',
@@ -199,6 +206,8 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         'org-1',
         'user-1',
         expect.objectContaining({ id: 'purchase-1' }),
+        expect.any(Date),
+        undefined,
       );
     });
 
@@ -267,6 +276,8 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         'org-1',
         'user-1',
         expect.objectContaining({ id: 'payment-1' }),
+        {},
+        new Prisma.Decimal(250),
       );
       expect(mockPrisma.customerDeposit.create).toHaveBeenCalled();
     });

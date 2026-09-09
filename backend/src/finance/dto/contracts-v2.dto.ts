@@ -22,7 +22,7 @@ export class CreateContractDto {
   @IsUUID() clientId!: string;
   @IsUUID() dossierId!: string;
   @IsNumber() @Min(0.01) totalAmount!: number;
-  @IsString() @MaxLength(8) currency!: string;
+  @IsIn(['USD', 'CNY', 'DZD']) currency!: string;
   @IsOptional() @IsNumber() @Min(0) requiredDeposit?: number;
   @IsOptional() @IsUUID() signedDocumentId?: string;
   @IsOptional() @IsUUID() invoiceId?: string;
@@ -39,7 +39,7 @@ export class SignContractDto {
 
 export class CreateContractCollectionDto {
   @IsNumber() @Min(0.01) amount!: number;
-  @IsString() @MaxLength(8) currency!: string;
+  @IsIn(['USD', 'CNY', 'DZD']) currency!: string;
   @IsOptional() @IsString() @MaxLength(60) paymentMethod?: string;
   @IsOptional() @IsString() @MaxLength(160) reference?: string;
   @IsOptional() @IsString() @MaxLength(160) idempotencyKey?: string;
@@ -50,7 +50,7 @@ export class CreateTreasuryAccountDto {
   @IsString() @MaxLength(40) code!: string;
   @IsString() @MaxLength(120) name!: string;
   @IsIn(['CASH', 'BANK', 'CURRENCY', 'OTHER']) type!: string;
-  @IsString() @MaxLength(8) currency!: string;
+  @IsIn(['USD', 'CNY', 'DZD']) currency!: string;
   @IsOptional() @IsNumber() openingBalance?: number;
 }
 

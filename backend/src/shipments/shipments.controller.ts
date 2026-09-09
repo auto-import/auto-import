@@ -41,6 +41,12 @@ export class ShipmentsController {
     return this.shipments.create(user.organizationId, user.id, dto);
   }
 
+  @Get('finance/dzd-rates')
+  @RequirePermission(Permission.SHIPMENTS_READ)
+  currentDzdRates(@CurrentUser() user: AuthenticatedUser) {
+    return this.shipments.currentDzdRates(user.organizationId);
+  }
+
   @Put(':id')
   @RequirePermission(Permission.SHIPMENTS_WRITE)
   update(
@@ -83,11 +89,6 @@ export class ShipmentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AddShipmentVehicleDto,
   ) {
-    return this.shipments.addVehicle(
-      id,
-      user.organizationId,
-      user.id,
-      dto,
-    );
+    return this.shipments.addVehicle(id, user.organizationId, user.id, dto);
   }
 }

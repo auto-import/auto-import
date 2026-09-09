@@ -222,7 +222,10 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
 
   beforeEach(() => {
     prisma = {
-      dossier: { update: jest.fn() },
+      dossier: {
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       dossierStatusHistory: {
         create: jest.fn().mockResolvedValue({ id: 'h1' }),
       },

@@ -1113,6 +1113,7 @@ model ChinaOfferVehicle {
 
   purchases          Purchase[]
   catalogueItem      CatalogueItem?
+  operationalVehicles Vehicle[]
   customerQuotations CustomerQuotation[]
 
   @@unique([offerId, lineNumber])
@@ -1235,6 +1236,7 @@ model Dossier {
   forwarderSupplierId           String?
   forwarderSupplier             Partner?                   @relation("DossierForwarder", fields: [forwarderSupplierId], references: [id], onDelete: Restrict)
   vehicleBookingVehicleId       String?
+  bookingVehicleLink            DossierVehicle? @relation("DossierBookingVehicle", fields: [id, vehicleBookingVehicleId], references: [dossierId, vehicleId], onDelete: Restrict, onUpdate: Cascade)
   vehicleBookingDate            DateTime?
   vehicleBookingNote            String?
   upgradedFromType              DossierType?
@@ -1303,6 +1305,7 @@ model DossierVehicle {
   vehicleId  String
   vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   assignedAt DateTime @default(now())
+  bookedFor Dossier[] @relation("DossierBookingVehicle")
 
   @@unique([dossierId, vehicleId])
   @@index([vehicleId])
@@ -1327,6 +1330,8 @@ model Vehicle {
   id                     String              @id @default(uuid())
   organizationId         String
   organization           Organization        @relation(fields: [organizationId], references: [id])
+  sourceOfferVehicleId    String?
+  sourceOfferVehicle      ChinaOfferVehicle?  @relation(fields: [sourceOfferVehicleId], references: [id], onDelete: Restrict)
   vin                    String?             @unique
   brand                  String
   model                  String
@@ -1392,6 +1397,7 @@ model Vehicle {
   @@index([organizationId, status, createdAt])
   @@index([supplierId])
   @@index([currentLocationId])
+  @@index([sourceOfferVehicleId])
   @@index([brandLookupId])
   @@index([modelLookupId])
   @@index([versionLookupId])
@@ -1886,6 +1892,10 @@ model Shipment {
   containerPreset     ContainerPreset? @relation(fields: [containerPresetId], references: [id], onDelete: Restrict)
   totalFreightCost    Decimal?         @db.Decimal(12, 2)
   freightCurrency     String?
+  freightExchangeRateId String?
+  freightExchangeRate ExchangeRate? @relation(fields: [freightExchangeRateId], references: [id], onDelete: Restrict)
+  freightExchangeRateSnapshot Decimal? @db.Decimal(18, 8)
+  freightAmountDzd Decimal? @db.Decimal(12, 2)
   capacityVolumeM3    Decimal?         @db.Decimal(12, 3)
   capacityWeightKg    Decimal?         @db.Decimal(12, 2)
   createdAt           DateTime         @default(now())
@@ -2574,6 +2584,7 @@ model ExchangeRate {
   costs              Cost[]
   quotationRevisions CustomerQuotationRevision[]
   quotationCosts     QuotationCost[]
+  shipments          Shipment[]
 
   @@index([organizationId, baseCurrency, quoteCurrency, effectiveAt])
   @@index([organizationId, quoteCurrency, isActive, effectiveAt])

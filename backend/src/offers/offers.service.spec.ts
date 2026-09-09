@@ -64,6 +64,7 @@ describe('OffersService', () => {
           condition: 'new',
           specification: {},
           supplierPrice: 10,
+          incoterm: 'FOB',
           currency: 'USD',
           validFrom: '2026-08-25T00:00:00.000Z',
           validUntil: '2026-08-24T00:00:00.000Z',

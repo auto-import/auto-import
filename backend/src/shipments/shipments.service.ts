@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type CustomsFile } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExchangeRatesService } from '../finance/exchange-rates.service';
 import { paginate } from '../common/helpers/pagination.helper';
 import {
   AddShipmentVehicleDto,
@@ -27,6 +28,46 @@ const SHIPMENT_TRANSITIONS: Record<string, readonly string[]> = {
 @Injectable()
 export class ShipmentsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  currentDzdRates(organizationId: string) {
+    return new ExchangeRatesService(this.prisma).currentDzdRates(
+      organizationId,
+    );
+  }
+
+  private async freightSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    amount: Prisma.Decimal | number | null | undefined,
+    currency?: string | null,
+    expectedRateId?: string,
+  ) {
+    if (amount == null) return {};
+    if (!currency)
+      throw new BadRequestException('La devise du fret est obligatoire.');
+    const snapshot = await new ExchangeRatesService(
+      this.prisma,
+    ).findActiveDzdRateSnapshot(tx, organizationId, currency);
+    if (expectedRateId && snapshot.exchangeRateId !== expectedRateId)
+      throw new ConflictException(
+        'Le taux Finance a changé. Rouvrez le formulaire.',
+      );
+    const original = new Prisma.Decimal(amount);
+    const amountDzd = original.mul(snapshot.rate).toDecimalPlaces(2);
+    if (
+      !amountDzd.isFinite() ||
+      amountDzd.lt(0) ||
+      amountDzd.gte('10000000000')
+    )
+      throw new BadRequestException(
+        'Le montant du fret dépasse la limite comptable.',
+      );
+    return {
+      freightExchangeRateId: snapshot.exchangeRateId,
+      freightExchangeRateSnapshot: snapshot.rate,
+      freightAmountDzd: amountDzd,
+    };
+  }
 
   private async generateShipmentNumber(
     tx: Prisma.TransactionClient,
@@ -59,6 +100,13 @@ export class ShipmentsService {
 
       const shipment = await tx.shipment.create({
         data: {
+          ...(await this.freightSnapshot(
+            tx,
+            organizationId,
+            dto.totalFreightCost,
+            dto.freightCurrency,
+            dto.freightExchangeRateId,
+          )),
           organizationId,
           shipmentNumber,
           carrierPartnerId: dto.carrierPartnerId,
@@ -130,6 +178,21 @@ export class ShipmentsService {
     const updated = await this.prisma.shipment.update({
       where: { id },
       data: {
+        ...((dto.totalFreightCost !== undefined ||
+          dto.freightCurrency !== undefined) &&
+        (!shipment.freightExchangeRateSnapshot ||
+          (dto.totalFreightCost !== undefined &&
+            !shipment.totalFreightCost?.eq(dto.totalFreightCost)) ||
+          (dto.freightCurrency !== undefined &&
+            dto.freightCurrency !== shipment.freightCurrency))
+          ? await this.freightSnapshot(
+              this.prisma,
+              organizationId,
+              dto.totalFreightCost ?? shipment.totalFreightCost,
+              dto.freightCurrency ?? shipment.freightCurrency,
+              dto.freightExchangeRateId,
+            )
+          : {}),
         carrierPartnerId:
           dto.carrierPartnerId !== undefined
             ? dto.carrierPartnerId
@@ -285,7 +348,9 @@ export class ShipmentsService {
     });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     if (shipment.vehicles.some((item) => item.vehicleId === vehicle.id)) {
-      throw new ConflictException('Vehicle is already assigned to this shipment');
+      throw new ConflictException(
+        'Vehicle is already assigned to this shipment',
+      );
     }
     const capacity = this.capacitySummary(shipment);
     const nextVolume = this.vehicleVolume(vehicle);
@@ -304,16 +369,22 @@ export class ShipmentsService {
         nextVolume !== null &&
         capacity.remainingVolumeM3 !== null &&
         nextVolume > capacity.remainingVolumeM3
-      ) warnings.push('VOLUME_CAPACITY_EXCEEDED');
+      )
+        warnings.push('VOLUME_CAPACITY_EXCEEDED');
       if (
         vehicle.weightKg &&
         capacity.remainingWeightKg !== null &&
         Number(vehicle.weightKg) > capacity.remainingWeightKg
-      ) warnings.push('WEIGHT_CAPACITY_EXCEEDED');
+      )
+        warnings.push('WEIGHT_CAPACITY_EXCEEDED');
     }
     if (
-      (!vehicle.lengthCm || !vehicle.widthCm || !vehicle.heightCm || !vehicle.weightKg)
-    ) warnings.push('VEHICLE_CAPACITY_DATA_INCOMPLETE');
+      !vehicle.lengthCm ||
+      !vehicle.widthCm ||
+      !vehicle.heightCm ||
+      !vehicle.weightKg
+    )
+      warnings.push('VEHICLE_CAPACITY_DATA_INCOMPLETE');
     const exceeds = warnings.some((warning) => warning.includes('EXCEED'));
     if (exceeds && !dto.capacityOverride) {
       throw new ConflictException({
@@ -385,7 +456,13 @@ export class ShipmentsService {
     }
     const created: CustomsFile[] = [];
     const ambiguous: Array<{ vehicleId: string; dossierIds: string[] }> = [];
-    const dossierVehicles = new Map<string, { dossier: (typeof shipment.vehicles)[number]['vehicle']['dossierVehicles'][number]['dossier']; vehicleIds: string[] }>();
+    const dossierVehicles = new Map<
+      string,
+      {
+        dossier: (typeof shipment.vehicles)[number]['vehicle']['dossierVehicles'][number]['dossier'];
+        vehicleIds: string[];
+      }
+    >();
     for (const shipmentVehicle of shipment.vehicles) {
       const candidates = shipmentVehicle.vehicle.dossierVehicles
         .map((link) => link.dossier)
@@ -398,7 +475,10 @@ export class ShipmentsService {
         continue;
       }
       const dossier = candidates[0];
-      const group = dossierVehicles.get(dossier.id) ?? { dossier, vehicleIds: [] };
+      const group = dossierVehicles.get(dossier.id) ?? {
+        dossier,
+        vehicleIds: [],
+      };
       group.vehicleIds.push(shipmentVehicle.vehicleId);
       dossierVehicles.set(dossier.id, group);
     }
@@ -653,30 +733,52 @@ export class ShipmentsService {
   }): number | null {
     if (!vehicle.lengthCm || !vehicle.widthCm || !vehicle.heightCm) return null;
     return (
-      (Number(vehicle.lengthCm) * Number(vehicle.widthCm) * Number(vehicle.heightCm)) /
+      (Number(vehicle.lengthCm) *
+        Number(vehicle.widthCm) *
+        Number(vehicle.heightCm)) /
       1_000_000
     );
   }
 
   private physicallyFits(
-    vehicle: { lengthCm: Prisma.Decimal | null; widthCm: Prisma.Decimal | null; heightCm: Prisma.Decimal | null },
-    preset: { internalLengthCm: Prisma.Decimal; internalWidthCm: Prisma.Decimal; internalHeightCm: Prisma.Decimal },
+    vehicle: {
+      lengthCm: Prisma.Decimal | null;
+      widthCm: Prisma.Decimal | null;
+      heightCm: Prisma.Decimal | null;
+    },
+    preset: {
+      internalLengthCm: Prisma.Decimal;
+      internalWidthCm: Prisma.Decimal;
+      internalHeightCm: Prisma.Decimal;
+    },
   ) {
     const length = Number(vehicle.lengthCm);
     const width = Number(vehicle.widthCm);
     const height = Number(vehicle.heightCm);
     return (
       height <= Number(preset.internalHeightCm) &&
-      ((length <= Number(preset.internalLengthCm) && width <= Number(preset.internalWidthCm)) ||
-        (width <= Number(preset.internalLengthCm) && length <= Number(preset.internalWidthCm)))
+      ((length <= Number(preset.internalLengthCm) &&
+        width <= Number(preset.internalWidthCm)) ||
+        (width <= Number(preset.internalLengthCm) &&
+          length <= Number(preset.internalWidthCm)))
     );
   }
 
   private capacitySummary(shipment: {
-    containerPreset?: { maxVolumeM3: Prisma.Decimal; maxPayloadKg: Prisma.Decimal } | null;
+    containerPreset?: {
+      maxVolumeM3: Prisma.Decimal;
+      maxPayloadKg: Prisma.Decimal;
+    } | null;
     capacityVolumeM3?: Prisma.Decimal | null;
     capacityWeightKg?: Prisma.Decimal | null;
-    vehicles: Array<{ vehicle: { lengthCm: Prisma.Decimal | null; widthCm: Prisma.Decimal | null; heightCm: Prisma.Decimal | null; weightKg: Prisma.Decimal | null } }>;
+    vehicles: Array<{
+      vehicle: {
+        lengthCm: Prisma.Decimal | null;
+        widthCm: Prisma.Decimal | null;
+        heightCm: Prisma.Decimal | null;
+        weightKg: Prisma.Decimal | null;
+      };
+    }>;
   }) {
     const totalVolume = shipment.capacityVolumeM3
       ? Number(shipment.capacityVolumeM3)
@@ -698,10 +800,12 @@ export class ShipmentsService {
     );
     return {
       usedVolumeM3,
-      remainingVolumeM3: totalVolume === null ? null : totalVolume - usedVolumeM3,
+      remainingVolumeM3:
+        totalVolume === null ? null : totalVolume - usedVolumeM3,
       totalVolumeM3: totalVolume,
       usedWeightKg,
-      remainingWeightKg: totalWeight === null ? null : totalWeight - usedWeightKg,
+      remainingWeightKg:
+        totalWeight === null ? null : totalWeight - usedWeightKg,
       totalWeightKg: totalWeight,
       vehicleCount: shipment.vehicles.length,
     };
