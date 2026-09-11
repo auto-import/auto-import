@@ -197,9 +197,16 @@ export class ShipmentsService {
   async create(organizationId: string, userId: string, dto: CreateShipmentDto) {
     if (dto.carrierPartnerId) {
       const carrier = await this.prisma.partner.findFirst({
-        where: { id: dto.carrierPartnerId, organizationId },
+        where: {
+          id: dto.carrierPartnerId,
+          organizationId,
+          type: 'supplier',
+          supplierType: 'LOGISTICS_PROVIDER',
+          status: 'active',
+        },
       });
-      if (!carrier) throw new NotFoundException('Carrier partner not found');
+      if (!carrier)
+        throw new NotFoundException('Active logistics supplier not found');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -298,11 +305,18 @@ export class ShipmentsService {
       );
       if (
         dto.carrierPartnerId &&
+        dto.carrierPartnerId !== shipment.carrierPartnerId &&
         !(await tx.partner.findFirst({
-          where: { id: dto.carrierPartnerId, organizationId },
+          where: {
+            id: dto.carrierPartnerId,
+            organizationId,
+            type: 'supplier',
+            supplierType: 'LOGISTICS_PROVIDER',
+            status: 'active',
+          },
         }))
       )
-        throw new NotFoundException('Carrier partner not found');
+        throw new NotFoundException('Active logistics supplier not found');
 
       const updated = await tx.shipment.update({
         where: { id },

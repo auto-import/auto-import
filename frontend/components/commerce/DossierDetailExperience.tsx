@@ -55,70 +55,6 @@ import DossierTransitionDialog, {
   DATA_ENTRY_STATUSES,
 } from "./DossierTransitionDialog";
 
-const workflows: Record<string, ApiDossierStatus[]> = {
-  VEHICLE_SALE_CIF: [
-    "offerSelected",
-    "clientConfirmed",
-    "contractSigned",
-    "depositReceived",
-    "vehicleBooking",
-    "purchaseConfirmed",
-    "supplierPaid",
-    "inspection",
-    "shipmentBooking",
-    "loading",
-    "billOfLadingIssued",
-    "inTransit",
-    "arrivedAtPort",
-    "documentsDelivered",
-    "closed",
-  ],
-  VEHICLE_SALE_DDP: [
-    "offerSelected",
-    "clientConfirmed",
-    "contractSigned",
-    "depositReceived",
-    "vehicleBooking",
-    "purchaseConfirmed",
-    "supplierPaid",
-    "inspection",
-    "shipmentBooking",
-    "loading",
-    "billOfLadingIssued",
-    "inTransit",
-    "arrivedAtPort",
-    "customsClearance",
-    "customsReleased",
-    "portExit",
-    "localTransport",
-    "deliveredToClient",
-    "closed",
-  ],
-  SHIPPING_ONLY: [
-    "clientRegistered",
-    "externalVehicleRecorded",
-    "externalSupplierRecorded",
-    "pickupReceived",
-    "shippingQuoted",
-    "paymentReceived",
-    "booking",
-    "loading",
-    "containerBillOfLading",
-    "inTransit",
-    "arrived",
-    "serviceCompleted",
-  ],
-};
-const legacyWorkflows: Record<string, ApiDossierStatus[]> = {
-  VEHICLE_SALE_CIF: workflows.VEHICLE_SALE_CIF.filter(
-    (status) => status !== "vehicleBooking",
-  ).map((status) => (status === "shipmentBooking" ? "booking" : status)),
-  VEHICLE_SALE_DDP: workflows.VEHICLE_SALE_DDP.filter(
-    (status) => status !== "vehicleBooking",
-  ).map((status) => (status === "shipmentBooking" ? "booking" : status)),
-  SHIPPING_ONLY: workflows.SHIPPING_ONLY,
-};
-
 type Tab = "overview" | "finance" | "shipping" | "documents" | "history";
 
 export default function DossierDetailExperience({
@@ -241,11 +177,7 @@ export default function DossierDetailExperience({
     }
   }
 
-  const workflow = dossier
-    ? ((dossier.workflowVersion >= 2 ? workflows : legacyWorkflows)[
-        dossier.type
-      ] ?? [])
-    : [];
+  const workflow = dossier?.workflowSteps ?? [];
   const currentIndex = dossier ? workflow.indexOf(dossier.status) : -1;
   const salesUser = users.find((user) => user.id === dossier?.salesUserId);
   const opsUser = users.find((user) => user.id === dossier?.opsUserId);
@@ -874,6 +806,17 @@ function Finance({
           }
         />
       </div>
+      {!!dossier.sections?.finance?.deposits?.length && (
+        <div className="mt-7">
+          <h2 className="font-bold">Acomptes reçus</h2>
+          {dossier.sections.finance.deposits.map((deposit) => (
+            <p key={deposit.id} className="mt-2 text-sm">
+              {Number(deposit.amount).toLocaleString(getRuntimeLocale())} {deposit.currency}
+              {" · Bureau : "}{deposit.office?.name ?? "Non renseigné"}
+            </p>
+          ))}
+        </div>
+      )}
       <h2 className="mt-7 font-bold">Échéancier</h2>
       {plan?.installments?.length ? (
         <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200">

@@ -475,6 +475,8 @@ export interface ApiDossier {
   type: ApiDossierType;
   status: ApiDossierStatus;
   workflowVersion: number;
+  hasShipment?: boolean;
+  workflowSteps?: ApiDossierStatus[];
   forwarderSupplierId?: string | null;
   forwarderSupplier?: ApiPartner | null;
   vehicleBookingVehicleId?: string | null;
@@ -538,6 +540,13 @@ export interface ApiDossier {
       invoices: ApiInvoice[];
       paymentPlan?: ApiPaymentPlan | null;
       payments: ApiPayment[];
+      deposits?: Array<{
+        id: string;
+        amount: string | number;
+        currency: string;
+        officeId?: string | null;
+        office?: { id: string; name: string } | null;
+      }>;
     };
     shipping?: ApiShipment | null;
     customs?: ApiCustomsFile[];

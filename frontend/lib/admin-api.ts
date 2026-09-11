@@ -160,6 +160,10 @@ export const adminApi = {
     );
   },
 
+  lookupOffices() {
+    return apiRequest<OfficeSummary[]>("/offices/lookup");
+  },
+
   createOffice(input: OfficeInput) {
     return apiRequest<Office>("/offices", {
       method: "POST",

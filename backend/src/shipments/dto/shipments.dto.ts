@@ -24,7 +24,7 @@ export class CreateShipmentDto {
   @IsOptional() @IsUUID() departurePortId?: string;
   @IsOptional() @IsUUID() arrivalPortId?: string;
   @IsOptional()
-  @IsString()
+  @IsUUID()
   carrierPartnerId?: string;
 
   @IsOptional()
@@ -82,7 +82,7 @@ export class UpdateShipmentDto {
   @IsOptional() @IsUUID() departurePortId?: string;
   @IsOptional() @IsUUID() arrivalPortId?: string;
   @IsOptional()
-  @IsString()
+  @IsUUID()
   carrierPartnerId?: string;
 
   @IsOptional()

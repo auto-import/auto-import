@@ -48,6 +48,7 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
 
   beforeEach(async () => {
     prisma = {
+      shipment: { findFirst: jest.fn().mockResolvedValue(null) },
       dossier: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findFirst: jest.fn(),

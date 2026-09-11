@@ -10,6 +10,8 @@ vi.mock("@/lib/logistics-api", () => ({
     .mockResolvedValue({
       id: "shipment-uuid",
       shipmentNumber: "SHP-1",
+      carrierPartnerId: "supplier-id",
+      carrierPartner: { id: "supplier-id", name: "Saved logistics supplier" },
       containerType: "THREE_VEHICLES",
       capacity: { maxVehicles: 3, vehicleCount: 2 },
       vehicles: [],
@@ -57,6 +59,7 @@ it("surfaces a concurrent count-capacity rejection without offering a forbidden 
     "textContent",
     expect.stringContaining("limité à 3 véhicules"),
   );
+  expect(screen.getByText("Fournisseur : Saved logistics supplier")).toBeTruthy();
   expect(confirm).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Réessayer" })).toBeTruthy();
 });

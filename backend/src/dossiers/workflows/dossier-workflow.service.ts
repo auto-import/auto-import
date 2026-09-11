@@ -41,10 +41,22 @@ export class DossierWorkflowService {
   /**
    * Get all ordered workflow steps for a dossier type
    */
-  getWorkflowSteps(type: DossierType, workflowVersion = 2): DossierStatus[] {
-    return (workflowVersion >= 2
-      ? WORKFLOW_STEPS_BY_TYPE[type]
-      : LEGACY_WORKFLOW_STEPS_BY_TYPE[type]) || [];
+  getWorkflowSteps(
+    type: DossierType,
+    workflowVersion = 2,
+    hasShipment = true,
+  ): DossierStatus[] {
+    const steps =
+      (workflowVersion >= 2
+        ? WORKFLOW_STEPS_BY_TYPE[type]
+        : LEGACY_WORKFLOW_STEPS_BY_TYPE[type]) || [];
+    return hasShipment || type === DossierType.SHIPPING_ONLY
+      ? steps
+      : steps.filter(
+          (status) =>
+            status !== DossierStatus.SHIPMENT_BOOKING &&
+            status !== DossierStatus.BOOKING,
+        );
   }
 
   /**
@@ -54,6 +66,7 @@ export class DossierWorkflowService {
     type: DossierType,
     currentStatus: string,
     workflowVersion = 2,
+    hasShipment = true,
   ): DossierStatus[] {
     const rawStatus = currentStatus || '';
 
@@ -74,7 +87,13 @@ export class DossierWorkflowService {
 
     if (currentIndex !== -1 && currentIndex < steps.length - 1) {
       // Immediate next sequential step
-      allowed.push(steps[currentIndex + 1]);
+      const applicableSteps = this.getWorkflowSteps(
+        type, workflowVersion, hasShipment,
+      );
+      const next = steps
+        .slice(currentIndex + 1)
+        .find((step) => applicableSteps.includes(step));
+      if (next) allowed.push(next);
     }
 
     // Cancellation is always an allowed option from any non-terminal state
@@ -92,21 +111,12 @@ export class DossierWorkflowService {
     type: DossierType,
     currentStatus: string,
     workflowVersion = 2,
+    hasShipment = true,
   ): DossierStatus | null {
-    const rawStatus = currentStatus || '';
-    if (this.isTerminalStatus(rawStatus)) {
-      return null;
-    }
-
-    const steps = this.getWorkflowSteps(type, workflowVersion);
-    const normalized = this.normalizeStatus(rawStatus);
-    const currentIndex = steps.indexOf(normalized as DossierStatus);
-
-    if (currentIndex !== -1 && currentIndex < steps.length - 1) {
-      return steps[currentIndex + 1];
-    }
-
-    return null;
+    return (
+      this.getAllowedTransitions(type, currentStatus, workflowVersion, hasShipment)
+        .find((status) => status !== DossierStatus.CANCELLED) ?? null
+    );
   }
 
   /**
@@ -117,6 +127,7 @@ export class DossierWorkflowService {
     fromStatus: string,
     toStatus: string,
     workflowVersion = 2,
+    hasShipment = true,
   ): void {
     const from = this.normalizeStatus(fromStatus || '');
     const to = this.normalizeStatus(toStatus || '');
@@ -133,7 +144,9 @@ export class DossierWorkflowService {
       );
     }
 
-    const allowed = this.getAllowedTransitions(type, from, workflowVersion);
+    const allowed = this.getAllowedTransitions(
+      type, from, workflowVersion, hasShipment,
+    );
     const normalizedTo = this.normalizeStatus(to);
 
     const isDirectlyAllowed =

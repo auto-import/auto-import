@@ -10,6 +10,7 @@ import {
   type ApiDossier,
   type ApiPartner,
 } from "@/lib/commerce-api";
+import { adminApi, type OfficeSummary } from "@/lib/admin-api";
 import { uploadDocument } from "@/lib/documents-api";
 import { inputClass } from "./common";
 import {
@@ -55,6 +56,24 @@ export default function DossierTransitionDialog({
     invoiceDate: today,
     supplierId,
   });
+  const [offices, setOffices] = useState<OfficeSummary[]>([]);
+  const [officeError, setOfficeError] = useState("");
+  useEffect(() => {
+    if (status !== "depositReceived") return;
+    let active = true;
+    void adminApi.lookupOffices()
+      .then((records) => {
+        if (active) setOffices(records);
+      })
+      .catch((caught) => {
+        if (active) {
+          setOfficeError(
+            caught instanceof Error ? caught.message : "Bureaux indisponibles.",
+          );
+        }
+      });
+    return () => { active = false; };
+  }, [status]);
   const [file, setFile] = useState<File | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -142,6 +161,7 @@ export default function DossierTransitionDialog({
         payload.deposit = {
           amount: Number(form.amount),
           currency: form.currency,
+          officeId: form.officeId || undefined,
           exchangeRateId: rate?.exchangeRateId,
           paymentMethod: form.paymentMethod,
           receivedAt: form.receivedAt,
@@ -226,9 +246,26 @@ export default function DossierTransitionDialog({
                 onChange={(v) => field("amount", v)}
               />
               <CurrencySelect
+                includeDzd
                 value={form.currency}
                 onChange={(v) => field("currency", v)}
               />
+              <label>
+                <span className="field-label">Bureau</span>
+                <select
+                  className={inputClass}
+                  value={form.officeId ?? ""}
+                  onChange={(event) => field("officeId", event.target.value)}
+                >
+                  <option value="">Sélectionner</option>
+                  {offices.map((office) => (
+                    <option key={office.id} value={office.id}>
+                      {office.name}
+                    </option>
+                  ))}
+                </select>
+                {officeError && <span role="alert">{officeError}</span>}
+              </label>
               <label>
                 <span className="field-label">Moyen de paiement *</span>
                 <select
@@ -459,7 +496,9 @@ function RequiredInput(props: Parameters<typeof Input>[0]) {
 function CurrencySelect({
   value,
   onChange,
+  includeDzd = false,
 }: {
+  includeDzd?: boolean;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -474,6 +513,7 @@ function CurrencySelect({
       >
         <option value="USD">USD</option>
         <option value="CNY">CNY</option>
+        {includeDzd && <option value="DZD">DZD</option>}
       </select>
     </label>
   );

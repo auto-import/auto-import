@@ -226,6 +226,9 @@ export default function ShipmentDetailDialog({
           <div>
             <h2 className="text-xl font-bold">{shipment.shipmentNumber}</h2>
             <p className="text-sm text-muted">
+              Fournisseur : {shipment.carrierPartner?.name ?? "Non renseigné"}
+            </p>
+            <p className="text-sm text-muted">
               {maxVehicles
                 ? `${maxVehicles} véhicules`
                 : shipment.containerPreset?.label ||

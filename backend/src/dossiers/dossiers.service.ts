@@ -929,7 +929,7 @@ export class DossiersService {
           where: { status: 'CONFIRMED' },
           include: { financeTransaction: true },
         },
-        customerDeposits: true,
+        customerDeposits: { include: { office: true } },
         documents: {
           include: { file: true },
         },
@@ -974,6 +974,23 @@ export class DossiersService {
         totalInvoiceAmount > 0 && totalPayments >= totalInvoiceAmount,
     };
 
+    const shipment = await this.prisma.shipment.findFirst({
+      where: {
+        organizationId: dossier.organizationId,
+        OR: [
+          {
+            vehicles: {
+              some: {
+                vehicle: { dossierVehicles: { some: { dossierId: id } } },
+              },
+            },
+          },
+          { customsFiles: { some: { dossierId: id } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const hasShipment = Boolean(shipment);
     const mapped = this.mapDossierWithVehicles(dossier);
     const pricing = this.configurationService
       ? await this.configurationService.refreshDossierPricing(
@@ -993,6 +1010,12 @@ export class DossiersService {
         };
     return {
       ...mapped,
+      hasShipment,
+      workflowSteps: this.workflowService.getWorkflowSteps(
+        dossier.type,
+        dossier.workflowVersion ?? 1,
+        hasShipment,
+      ),
       stats,
       pricing,
       sections: {
@@ -1049,6 +1072,7 @@ export class DossiersService {
       currentStatus,
       status,
       dossier.workflowVersion ?? 1,
+      dossier.hasShipment,
     );
 
     if (
@@ -1318,6 +1342,19 @@ export class DossiersService {
             );
         }
         if (updateStatusDto.deposit) {
+          if (
+            updateStatusDto.deposit.officeId &&
+            !(await prisma.office.findFirst({
+              where: {
+                id: updateStatusDto.deposit.officeId,
+                organizationId: dossier.organizationId,
+                status: 'active',
+              },
+              select: { id: true },
+            }))
+          ) {
+            throw new BadRequestException('Bureau introuvable ou inactif.');
+          }
           if (!this.exchangeRates)
             throw new ConflictException('Taux Finance indisponibles.');
           const snapshot = await this.exchangeRates.findActiveDzdRateSnapshot(
@@ -1380,6 +1417,7 @@ export class DossiersService {
               clientId: dossier.clientId,
               dossierId: id,
               paymentId: payment.id,
+              officeId: updateStatusDto.deposit.officeId,
               amount: payment.amount,
               unappliedAmount: payment.amount,
               currency: payment.currency,
@@ -1789,6 +1827,7 @@ export class DossiersService {
       dossier.type,
       dossier.status,
       dossier.workflowVersion ?? 1,
+      dossier.hasShipment,
     );
 
     if (!nextStatus) {
@@ -1814,6 +1853,7 @@ export class DossiersService {
       dossier.type,
       dossier.status,
       dossier.workflowVersion ?? 1,
+      dossier.hasShipment,
     );
 
     return {

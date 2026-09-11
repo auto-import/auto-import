@@ -20,7 +20,8 @@ export class DepositTransitionDataDto {
   @IsPositive()
   @Max(9999999999.99)
   amount: number;
-  @IsIn(['USD', 'CNY']) currency: string;
+  @IsIn(['USD', 'CNY', 'DZD']) currency: string;
+  @IsOptional() @IsUUID() officeId?: string;
   @IsOptional() @IsUUID() exchangeRateId?: string;
   @IsString() paymentMethod: string;
   @IsDateString() receivedAt: string;

@@ -23,6 +23,7 @@ import {
   type ApiContainerType,
   type ShipmentContainerType,
 } from "@/lib/logistics-api";
+import { commerceApi, type ApiPartner } from "@/lib/commerce-api";
 import { formatDate, formatMontant } from "@/lib/constants";
 import type { Column } from "@/types";
 import { Search, Ship, Plus, RefreshCw } from "lucide-react";
@@ -65,6 +66,43 @@ export default function ExpeditionsPage() {
 
   // Create Shipment Modal state
   const [showShipmentModal, setShowShipmentModal] = useState(false);
+  const [newSupplierId, setNewSupplierId] = useState("");
+  const [shippingSuppliers, setShippingSuppliers] = useState<ApiPartner[]>([]);
+  const [suppliersLoading, setSuppliersLoading] = useState(false);
+  const [suppliersError, setSuppliersError] = useState("");
+  useEffect(() => {
+    if (!showShipmentModal) return;
+    let active = true;
+    setSuppliersLoading(true);
+    setSuppliersError("");
+    const loadSuppliers = async () => {
+      const records: ApiPartner[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const result = await commerceApi.partners.list({
+          type: "supplier",
+          supplierType: "LOGISTICS_PROVIDER",
+          status: "active",
+          page,
+          limit: 100,
+        });
+        records.push(...result.items);
+        totalPages = result.pagination.totalPages;
+        page += 1;
+      } while (active && page <= totalPages);
+      if (active) setShippingSuppliers(records);
+    };
+    void loadSuppliers()
+      .catch((caught) => {
+        if (active) {
+          setShippingSuppliers([]);
+          setSuppliersError(caught instanceof Error ? caught.message : "Fournisseurs indisponibles.");
+        }
+      })
+      .finally(() => { if (active) setSuppliersLoading(false); });
+    return () => { active = false; };
+  }, [showShipmentModal]);
   const [newContainer, setNewContainer] = useState("");
   const [newVessel, setNewVessel] = useState("");
   const [newBl, setNewBl] = useState("");
@@ -267,6 +305,7 @@ export default function ExpeditionsPage() {
     setNotice("");
     try {
       await createShipment({
+        carrierPartnerId: newSupplierId || undefined,
         containerNumber: newContainer || undefined,
         vesselName: newVessel || undefined,
         blNumber: newBl || undefined,
@@ -282,6 +321,7 @@ export default function ExpeditionsPage() {
           : undefined,
       });
       setShowShipmentModal(false);
+      setNewSupplierId("");
       setNewContainer("");
       setNewVessel("");
       setNewBl("");
@@ -858,6 +898,23 @@ export default function ExpeditionsPage() {
               Créer une expédition maritime
             </h3>
             <form onSubmit={handleCreateShipment} className="space-y-4">
+              <label className="block">
+                <span className="block text-xs font-semibold text-muted uppercase mb-1">Fournisseur</span>
+                <select
+                  value={newSupplierId}
+                  onChange={(event) => setNewSupplierId(event.target.value)}
+                  disabled={suppliersLoading || Boolean(suppliersError)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
+                >
+                  <option value="">
+                    {suppliersLoading ? "Chargement..." : shippingSuppliers.length ? "Sélectionner" : "Aucun fournisseur logistique disponible"}
+                  </option>
+                  {shippingSuppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                  ))}
+                </select>
+                {suppliersError && <span role="alert" className="text-sm text-red-700">{suppliersError}</span>}
+              </label>
               {formError && (
                 <p role="alert" className="text-sm text-red-700">
                   {formError}
