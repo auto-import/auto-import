@@ -66,7 +66,7 @@ describe('Dossier deposit currency and office', () => {
   it.each([DossierType.VEHICLE_SALE_CIF, DossierType.VEHICLE_SALE_DDP])('uses actual shipment relations in %s detail and transitions', async (type) => {
     const { service, tx, dossier } = setup();
     dossier.type = type;
-    dossier.status = 'inspection';
+    dossier.status = 'supplierPaid';
     let record = await service.findOne('dossier', 'org');
     expect(record.hasShipment).toBe(false);
     expect(record.workflowSteps).not.toContain('shipmentBooking');
