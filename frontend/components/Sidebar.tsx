@@ -20,8 +20,11 @@ import {
   DollarSign,
   PhoneCall,
   PackageCheck,
+  Menu,
+  X,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { SIDEBAR_NAV_ITEMS } from "@/lib/constants";
 import { useAuth } from "@/components/AuthProvider";
 import { Permission } from "@/lib/api-contract";
@@ -97,6 +100,7 @@ export default function Sidebar() {
   const { hasPermission, currentUser } = useAuth();
   const { t } = useI18n();
   const { companyName, logoUrl } = useBranding();
+  const [open, setOpen] = useState(false);
   const initials = currentUser
     ? `${currentUser.firstName[0] ?? ""}${currentUser.lastName[0] ?? ""}`.toUpperCase()
     : "";
@@ -112,8 +116,27 @@ export default function Sidebar() {
     return hasPermission(requiredPermission);
   });
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    if (open) {
+      document.addEventListener("keydown", onKey);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   return (
-    <aside className="hidden w-64 h-screen bg-sidebar-bg border-e border-border md:flex flex-col shrink-0 sticky top-0">
+    <>
+      <aside className="hidden w-64 h-screen bg-sidebar-bg border-e border-border md:flex flex-col shrink-0 sticky top-0">
       <div className="flex items-center gap-3 px-5 py-5 border-b border-border">
         <div className="w-9 h-9 overflow-hidden bg-foreground rounded-lg flex items-center justify-center">
           {logoUrl ? (
@@ -183,5 +206,110 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+
+      {/* Mobile hamburger button - visible only on mobile when closed */}
+      {!open && (
+        <button
+          aria-label="Open navigation menu"
+          onClick={() => setOpen(true)}
+          className="fixed top-3 left-3 z-40 flex md:hidden items-center justify-center w-10 h-10 rounded-xl bg-white border border-border shadow-md hover:bg-surface transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Mobile overlay */}
+      <div
+        aria-hidden={!open}
+        onClick={() => setOpen(false)}
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] md:hidden transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      />
+
+      {/* Mobile sidebar drawer */}
+      <aside
+        aria-hidden={!open}
+        aria-label="Mobile navigation"
+        className={`fixed inset-y-0 left-0 z-50 w-64 h-[100dvh] bg-sidebar-bg border-e border-border flex flex-col md:hidden transform transition-transform duration-300 ease-in-out ${open ? "translate-x-0" : "-translate-x-full"}`}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-5 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 overflow-hidden bg-foreground rounded-lg flex items-center justify-center">
+              {logoUrl ? (
+                <Image
+                  unoptimized
+                  src={logoUrl}
+                  alt={t("companyLogoAlt")}
+                  width={36}
+                  height={36}
+                  className="h-full w-full object-contain bg-white"
+                />
+              ) : (
+                <LayoutDashboard className="w-5 h-5 text-white" />
+              )}
+            </div>
+            <div>
+              <span className="text-base font-bold text-foreground">
+                {companyName}
+              </span>
+              <p className="text-[10px] text-muted">ERP v2.0</p>
+            </div>
+          </div>
+          <button
+            aria-label="Close navigation menu"
+            onClick={() => setOpen(false)}
+            className="p-2 rounded-lg hover:bg-surface"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          <ul className="flex flex-col gap-1">
+            {visibleItems.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className={`
+                    flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+                    ${
+                      active
+                        ? "bg-sidebar-active-bg text-sidebar-active-text"
+                        : "text-foreground hover:bg-sidebar-hover-bg"
+                    }
+                  `}
+                  >
+                    {ICON_MAP[item.icon]}
+                    <span>
+                      {NAV_TRANSLATIONS[item.href]
+                        ? t(NAV_TRANSLATIONS[item.href])
+                        : item.label}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <div className="px-3 py-4 border-t border-border">
+          <div className="flex items-center gap-3 px-3 py-2">
+            <div className="w-8 h-8 rounded-full bg-status-blue-bg flex items-center justify-center text-[10px] font-bold text-status-blue-text">
+              {initials}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">
+                {currentUser?.firstName} {currentUser?.lastName}
+              </p>
+              <p className="text-[11px] text-muted truncate">
+                {currentUser?.roles[0]?.name ?? t("user")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }
