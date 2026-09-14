@@ -126,8 +126,11 @@ export default function CatalogueWorkspace() {
             }
           >
             <option value="">Toutes disponibilités</option>
-            <option value="available">Disponible</option>
-            <option value="reserved">Réservé</option>
+            {Object.entries(VEHICLE_STATUS_LABELS_API).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </section>
         <p className="text-sm text-muted">
