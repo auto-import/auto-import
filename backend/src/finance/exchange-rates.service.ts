@@ -43,6 +43,7 @@ export class ExchangeRatesService {
         organizationId,
         baseCurrency,
         quoteCurrency,
+        rateType: dto.rateType ?? 'COMMERCIAL',
         rate: new Prisma.Decimal(dto.rate),
         isActive: dto.isActive ?? true,
         effectiveAt,
@@ -100,6 +101,7 @@ export class ExchangeRatesService {
     organizationId: string,
     currencyValue: string,
     atDate = new Date(),
+    rateType = 'COMMERCIAL',
   ): Promise<{ exchangeRateId: string | null; rate: Prisma.Decimal }> {
     const currency = currencyValue.trim().toUpperCase();
     if (currency === 'DZD') {
@@ -116,6 +118,7 @@ export class ExchangeRatesService {
         organizationId,
         baseCurrency: currency,
         quoteCurrency: 'DZD',
+        rateType,
         isActive: true,
         effectiveAt: { lte: atDate },
       },
@@ -160,6 +163,7 @@ export class ExchangeRatesService {
       where: {
         organizationId,
         baseCurrency: { in: ['USD', 'CNY'] },
+        rateType: 'COMMERCIAL',
         quoteCurrency: 'DZD',
         isActive: true,
         effectiveAt: { lte: atDate },
@@ -202,6 +206,7 @@ export class ExchangeRatesService {
 
     const where: Prisma.ExchangeRateWhereInput = {
       organizationId,
+      ...(filter.rateType ? { rateType: filter.rateType } : {}),
       ...(filter.baseCurrency
         ? { baseCurrency: filter.baseCurrency.toUpperCase() }
         : {}),

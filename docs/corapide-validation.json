@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-14",
+  "backend": {
+    "suitesPassed": 71,
+    "testsPassed": 431,
+    "failed": 0
+  },
+  "frontend": {
+    "testsPassed": 83,
+    "failed": 0
+  },
+  "integration": {
+    "testsPassed": 30,
+    "failed": 0,
+    "skipped": 0,
+    "postgresql": 17,
+    "chrome": true,
+    "financeTabs": 5,
+    "productionContainerRestart": true,
+    "http500Observed": 0
+  },
+  "migrations": {
+    "totalAppliedOnDisposableDatabase": 40,
+    "newAdditiveMigrations": 2,
+    "productionApplied": false
+  },
+  "frontendLint": {
+    "newErrors": 0,
+    "preExistingErrors": 6,
+    "comparison": "frontend-lint-comparison.json"
+  },
+  "deployment": "not deployed"
+}

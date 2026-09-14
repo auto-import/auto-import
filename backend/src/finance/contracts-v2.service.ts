@@ -1,3 +1,4 @@
+import { ExchangeRatesService } from './exchange-rates.service';
 import {
   BadRequestException,
   ConflictException,
@@ -85,8 +86,13 @@ export class ContractsV2Service {
         });
         if (!document) throw new NotFoundException('Signed document not found');
       }
+      const snapshot = await new ExchangeRatesService(
+        this.prisma,
+      ).findActiveDzdRateSnapshot(tx, organizationId, dto.currency, new Date());
       const contract = await tx.contract.create({
         data: {
+          exchangeRateSnapshot: snapshot.rate,
+          amountDzd: total.mul(snapshot.rate).toDecimalPlaces(2),
           organizationId,
           contractNumber: await this.nextNumber(tx, organizationId),
           clientId: dto.clientId,
@@ -221,7 +227,14 @@ export class ContractsV2Service {
       where: { id, organizationId, archivedAt: null },
       include: {
         client: true,
-        dossier: true,
+        dossier: {
+          include: {
+            payments: {
+              where: { status: 'CONFIRMED' },
+              include: { financeTransaction: true },
+            },
+          },
+        },
         schedule: { orderBy: { sequence: 'asc' } },
         payments: {
           where: { status: 'CONFIRMED' },
@@ -233,10 +246,25 @@ export class ContractsV2Service {
       },
     });
     if (!contract) throw new NotFoundException('Contract not found');
-    const paid = contract.payments.reduce(
-      (sum, payment) => sum.add(payment.amount),
-      new Prisma.Decimal(0),
-    );
+    const receipts = contract.dossier?.payments ?? contract.payments;
+    const paid = receipts
+      .filter((payment) => !payment.contractId || payment.contractId === id)
+      .reduce(
+        (sum, payment) =>
+          sum.add(
+            payment.currency === contract.currency || !payment.currency
+              ? payment.amount
+              : 'financeTransaction' in payment &&
+                  payment.financeTransaction &&
+                  typeof payment.financeTransaction === 'object' &&
+                  'amountDzd' in payment.financeTransaction
+                ? new Prisma.Decimal(
+                    String(payment.financeTransaction.amountDzd),
+                  ).div(contract.exchangeRateSnapshot ?? 1)
+                : 0,
+          ),
+        new Prisma.Decimal(0),
+      );
     const remaining = Prisma.Decimal.max(contract.totalAmount.minus(paid), 0);
     return {
       ...contract,

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import CatalogueWorkspace from "./CatalogueWorkspace";
 const mocks = vi.hoisted(() => ({ list: vi.fn() }));
@@ -7,38 +13,48 @@ vi.mock("@/components/Topbar", () => ({ default: () => null }));
 vi.mock("@/lib/commerce-api", () => ({
   commerceApi: {
     catalogue: {
-      list: vi.fn().mockResolvedValue({
-        items: [],
-        pagination: { page: 1, totalItems: 0, totalPages: 0 },
-      }),
+      list: mocks.list,
+      suppliers: vi
+        .fn()
+        .mockResolvedValue([{ id: "supplier-b", name: "Supplier B" }]),
     },
-    vehicles: { list: mocks.list },
   },
 }));
 afterEach(cleanup);
-it("loads the canonical inventory and displays its reserved status in Catalogue", async () => {
+it("displays stock through the single catalogue endpoint and filters by supplier and source", async () => {
   mocks.list.mockResolvedValue({
     items: [
       {
-        id: "canonical-uuid",
+        id: "catalogue-uuid",
+        sourceId: "vehicle-uuid",
+        sourceType: "VEHICLE",
         brand: "Geely",
         model: "Monjaro",
-        vin: "REAL-VIN",
-        status: "reserved",
+        status: "available",
+        remainingQuantity: 1,
+        cifPrice: 3000000,
+        supplier: { id: "supplier-b", name: "Supplier B" },
       },
     ],
     pagination: { page: 1, totalItems: 1, totalPages: 1 },
   });
   render(<CatalogueWorkspace />);
-  fireEvent.click(screen.getByRole("button", { name: "Véhicules en stock" }));
   expect(await screen.findByText("Geely Monjaro")).toBeTruthy();
-  expect(screen.getByText("Réservé", { selector: "p" })).toBeTruthy();
-  expect(mocks.list).toHaveBeenCalledWith(
-    expect.objectContaining({ inventoryOnly: "true" }),
+  fireEvent.change(screen.getByRole("combobox", { name: "Fournisseur" }), {
+    target: { value: "supplier-b" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Source" }), {
+    target: { value: "VEHICLE" },
+  });
+  await waitFor(() =>
+    expect(mocks.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        supplierId: "supplier-b",
+        sourceType: "VEHICLE",
+      }),
+    ),
   );
-  expect(
-    screen
-      .getByRole("link", { name: "Voir le véhicule et ses dossiers" })
-      .getAttribute("href"),
-  ).toBe("/vehicules?vehicleId=canonical-uuid");
+  expect(screen.getByRole("link").getAttribute("href")).toBe(
+    "/catalogue/catalogue-uuid",
+  );
 });

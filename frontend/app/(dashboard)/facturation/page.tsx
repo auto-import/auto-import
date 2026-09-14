@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import PaymentAccountDialog from "@/components/commerce/PaymentAccountDialog";
 import { Topbar, StatusBadge, DataTable } from "@/components";
 import {
   fetchInvoices,
@@ -42,6 +43,10 @@ import {
 type FacturationTab = "contracts" | "payments" | "invoices";
 
 export default function FacturationPage() {
+  const [confirmingPayment, setConfirmingPayment] = useState<{
+    id: string;
+    currency: string;
+  } | null>(null);
   const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<FacturationTab>("contracts");
   const [overview, setOverview] =
@@ -218,19 +223,8 @@ export default function FacturationPage() {
   };
 
   const handleConfirmPayment = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await confirmPayment(id);
-      await loadPayments();
-      await loadOverview();
-    } catch (err) {
-      alert(
-        (err instanceof Error ? err.message : "") ||
-          "Erreur lors de la confirmation du paiement",
-      );
-    } finally {
-      setActionLoading(null);
-    }
+    const payment = payments.find((p) => p.id === id);
+    if (payment) setConfirmingPayment({ id, currency: payment.currency });
   };
 
   const commercialPrice = (dossier: ApiDossier) =>
@@ -298,15 +292,13 @@ export default function FacturationPage() {
           reference: `Encaissement ${invoice.invoiceNumber}`,
         });
         if (hasPermission(Permission.PAYMENTS_CONFIRM)) {
-          await confirmPayment(created.id);
+          setConfirmingPayment({ id: created.id, currency: created.currency });
         }
         await Promise.all([loadPayments(), loadInvoices(), loadOverview()]);
       }
       closeDialog();
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Création impossible.",
-      );
+      setErrorMsg(err instanceof Error ? err.message : "Création impossible.");
     } finally {
       setFormSaving(false);
     }
@@ -420,7 +412,9 @@ export default function FacturationPage() {
               : "Client"}
           </span>
           {row.dossier && (
-            <p className="text-xs text-muted">Dossier: {row.dossier.reference}</p>
+            <p className="text-xs text-muted">
+              Dossier: {row.dossier.reference}
+            </p>
           )}
         </div>
       ),
@@ -529,7 +523,9 @@ export default function FacturationPage() {
               : "Client"}
           </span>
           {row.dossier && (
-            <p className="text-xs text-muted">Dossier: {row.dossier.reference}</p>
+            <p className="text-xs text-muted">
+              Dossier: {row.dossier.reference}
+            </p>
           )}
         </div>
       ),
@@ -556,7 +552,9 @@ export default function FacturationPage() {
       key: "paymentDate",
       header: "Date de versement",
       render: (row) =>
-        row.paymentDate ? formatDate(row.paymentDate) : formatDate(row.createdAt),
+        row.paymentDate
+          ? formatDate(row.paymentDate)
+          : formatDate(row.createdAt),
     },
     {
       key: "status",
@@ -602,6 +600,24 @@ export default function FacturationPage() {
 
   return (
     <>
+      {confirmingPayment && (
+        <PaymentAccountDialog
+          currency={confirmingPayment.currency}
+          onClose={() => setConfirmingPayment(null)}
+          onConfirm={async (treasuryAccountId, rateType) => {
+            await confirmPayment(confirmingPayment.id, {
+              treasuryAccountId,
+              rateType,
+            });
+            await Promise.all([
+              loadPayments(),
+              loadOverview(),
+              loadInvoices(),
+              loadContracts(),
+            ]);
+          }}
+        />
+      )}
       <Topbar
         title="Contrats & Encaissements Clients"
         subtitle="Engagements contractuels, échéanciers, facturation et règlements clients"
@@ -645,9 +661,7 @@ export default function FacturationPage() {
                 {formatMontant(Number(overview.totalOutstanding))}{" "}
                 {overview.baseCurrency}
               </p>
-              <p className="text-xs text-muted mt-1">
-                En attente de règlement
-              </p>
+              <p className="text-xs text-muted mt-1">En attente de règlement</p>
             </div>
 
             <div className="card p-5 border-l-4 border-l-purple-500">
@@ -783,23 +797,23 @@ export default function FacturationPage() {
                 </select>
               </div>
               <div className="flex gap-2">
-              {hasPermission(Permission.PAYMENTS_WRITE) && (
+                {hasPermission(Permission.PAYMENTS_WRITE) && (
+                  <button
+                    onClick={() => setDialog("payment")}
+                    className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    <Plus className="mr-1 inline h-4 w-4" /> Ajouter un paiement
+                  </button>
+                )}
                 <button
-                  onClick={() => setDialog("payment")}
-                  className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  onClick={() => loadPayments()}
+                  className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                  title="Actualiser"
                 >
-                  <Plus className="mr-1 inline h-4 w-4" /> Ajouter un paiement
+                  <RefreshCw
+                    className={`w-4 h-4 ${paymentLoading ? "animate-spin" : ""}`}
+                  />
                 </button>
-              )}
-              <button
-                onClick={() => loadPayments()}
-                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
-                title="Actualiser"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${paymentLoading ? "animate-spin" : ""}`}
-                />
-              </button>
               </div>
             </div>
 
@@ -843,23 +857,23 @@ export default function FacturationPage() {
                 </select>
               </div>
               <div className="flex gap-2">
-              {hasPermission(Permission.INVOICES_WRITE) && (
+                {hasPermission(Permission.INVOICES_WRITE) && (
+                  <button
+                    onClick={() => setDialog("invoice")}
+                    className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    <Plus className="mr-1 inline h-4 w-4" /> Nouvelle facture
+                  </button>
+                )}
                 <button
-                  onClick={() => setDialog("invoice")}
-                  className="rounded-button bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  onClick={() => loadInvoices()}
+                  className="p-2 border border-border rounded-button text-muted hover:text-foreground"
+                  title="Actualiser"
                 >
-                  <Plus className="mr-1 inline h-4 w-4" /> Nouvelle facture
+                  <RefreshCw
+                    className={`w-4 h-4 ${invoiceLoading ? "animate-spin" : ""}`}
+                  />
                 </button>
-              )}
-              <button
-                onClick={() => loadInvoices()}
-                className="p-2 border border-border rounded-button text-muted hover:text-foreground"
-                title="Actualiser"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${invoiceLoading ? "animate-spin" : ""}`}
-                />
-              </button>
               </div>
             </div>
 
@@ -910,7 +924,9 @@ export default function FacturationPage() {
                     );
                     if (invoice) {
                       setPaymentAmount(
-                        String(Number(invoice.total) - Number(invoice.paidAmount)),
+                        String(
+                          Number(invoice.total) - Number(invoice.paidAmount),
+                        ),
                       );
                     }
                   }
@@ -939,8 +955,8 @@ export default function FacturationPage() {
                     .filter((contract) => !contract.invoiceId)
                     .map((contract) => (
                       <option key={contract.id} value={contract.id}>
-                        {contract.contractNumber} · {contract.dossier.reference} ·{" "}
-                        {formatMontant(Number(contract.totalAmount))}{" "}
+                        {contract.contractNumber} · {contract.dossier.reference}{" "}
+                        · {formatMontant(Number(contract.totalAmount))}{" "}
                         {contract.currency}
                       </option>
                     ))}

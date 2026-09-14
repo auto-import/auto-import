@@ -15,6 +15,18 @@ describe('FinanceProjectionService', () => {
     'snapshots %s %s using Finance rate %s',
     async (currency, amount, rate, equivalent) => {
       const localTx = {
+        treasuryAccount: {
+          findFirst: jest.fn().mockImplementation(({ where }) => ({
+            id: where.id,
+            currency: where.currency,
+            officeId: 'office',
+            office: {
+              id: 'office',
+              organizationId: where.organizationId,
+              status: 'active',
+            },
+          })),
+        },
         exchangeRate: {
           findFirst: jest
             .fn()
@@ -33,6 +45,7 @@ describe('FinanceProjectionService', () => {
           currency,
           clientId: 'c1',
         },
+        { treasuryAccountId: 'account' },
       );
       expect(localTx.financeTransaction.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -59,6 +72,7 @@ describe('FinanceProjectionService', () => {
   const organizationId = 'org-1';
   const userId = 'user-1';
   let tx: {
+    treasuryAccount: { findFirst: jest.Mock };
     exchangeRate: { findFirst: jest.Mock };
     financeTransaction: { upsert: jest.Mock };
   };
@@ -66,6 +80,18 @@ describe('FinanceProjectionService', () => {
 
   beforeEach(() => {
     tx = {
+      treasuryAccount: {
+        findFirst: jest.fn().mockImplementation(({ where }) => ({
+          id: where.id,
+          currency: where.currency,
+          officeId: 'office',
+          office: {
+            id: 'office',
+            organizationId: where.organizationId,
+            status: 'active',
+          },
+        })),
+      },
       exchangeRate: { findFirst: jest.fn() },
       financeTransaction: {
         upsert: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
@@ -86,6 +112,7 @@ describe('FinanceProjectionService', () => {
         clientId: 'client-1',
         dossierId: 'dossier-1',
       },
+      { treasuryAccountId: 'account' },
     );
 
     expect(tx.exchangeRate.findFirst).not.toHaveBeenCalled();
@@ -128,6 +155,7 @@ describe('FinanceProjectionService', () => {
         purchaseId: 'purchase-1',
         purchase: { dossierId: 'dossier-1' },
       },
+      { treasuryAccountId: 'account' },
     );
 
     expect(tx.financeTransaction.upsert).toHaveBeenCalledWith(
@@ -159,6 +187,7 @@ describe('FinanceProjectionService', () => {
           clientId: 'client-1',
           exchangeRateId: 'rate-from-another-tenant',
         },
+        { treasuryAccountId: 'account' },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(tx.financeTransaction.upsert).not.toHaveBeenCalled();

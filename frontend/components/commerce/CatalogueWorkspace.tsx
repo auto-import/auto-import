@@ -5,20 +5,27 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PackageCheck, Search } from "lucide-react";
 import Topbar from "@/components/Topbar";
-import {
-  commerceApi,
-  type ApiCatalogueItem,
-  type ApiVehicle,
-} from "@/lib/commerce-api";
+import { commerceApi, type ApiCatalogueItem } from "@/lib/commerce-api";
 import { VEHICLE_STATUS_LABELS_API } from "@/lib/api-contract";
 import { EmptyState, ErrorState, inputClass, LoadingState } from "./common";
 import { getRuntimeLocale } from "@/lib/i18n/runtime-locale";
 
 export default function CatalogueWorkspace() {
+  const [error, setError] = useState("");
+  const [suppliers, setSuppliers] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  useEffect(() => {
+    commerceApi.catalogue
+      .suppliers()
+      .then(setSuppliers)
+      .catch(() => setError("Chargement des fournisseurs impossible"));
+  }, []);
   const [items, setItems] = useState<ApiCatalogueItem[]>([]);
-  const [source, setSource] = useState<"offers" | "stock">("offers");
-  const [stock, setStock] = useState<ApiVehicle[]>([]);
+
   const [filters, setFilters] = useState({
+    supplierId: "",
+    sourceType: "",
     search: "",
     status: "",
     page: 1,
@@ -29,23 +36,15 @@ export default function CatalogueWorkspace() {
     totalItems: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      let result;
-      if (source === "stock") {
-        result = await commerceApi.vehicles.list({
-          ...filters,
-          inventoryOnly: "true",
-          limit: 12,
-        });
-        setStock(result.items);
-      } else {
-        result = await commerceApi.catalogue.list({ ...filters, limit: 12 });
-        setItems(result.items);
-      }
+      const result = await commerceApi.catalogue.list({
+        ...filters,
+        limit: 12,
+      });
+      setItems(result.items);
       setPagination({
         page: result.pagination.page,
         totalPages: result.pagination.totalPages,
@@ -58,7 +57,7 @@ export default function CatalogueWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [filters, source]);
+  }, [filters]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
@@ -71,34 +70,6 @@ export default function CatalogueWorkspace() {
         subtitle="Stock et offres disposant d’un devis commercial publié"
       />
       <main className="space-y-6 p-4 sm:p-8">
-        <div
-          className="flex gap-3"
-          role="group"
-          aria-label="Source du catalogue"
-        >
-          <button
-            type="button"
-            aria-pressed={source === "offers"}
-            className="rounded-button border px-4 py-2"
-            onClick={() => {
-              setSource("offers");
-              setFilters({ search: "", status: "", page: 1 });
-            }}
-          >
-            Offres commercialisées
-          </button>
-          <button
-            type="button"
-            aria-pressed={source === "stock"}
-            className="rounded-button border px-4 py-2"
-            onClick={() => {
-              setSource("stock");
-              setFilters({ search: "", status: "", page: 1 });
-            }}
-          >
-            Véhicules en stock
-          </button>
-        </div>
         <section className="card flex flex-wrap items-center gap-3">
           <label className="relative min-w-64 flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
@@ -117,6 +88,33 @@ export default function CatalogueWorkspace() {
           </label>
           <select
             className={inputClass}
+            aria-label="Fournisseur"
+            value={filters.supplierId}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, supplierId: e.target.value, page: 1 }))
+            }
+          >
+            <option value="">Tous les fournisseurs</option>
+            {suppliers.map((supplier) => (
+              <option key={supplier.id} value={supplier.id}>
+                {supplier.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className={inputClass}
+            aria-label="Source"
+            value={filters.sourceType}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, sourceType: e.target.value, page: 1 }))
+            }
+          >
+            <option value="">Toutes les sources</option>
+            <option value="VEHICLE">Stock</option>
+            <option value="CHINA_OFFER">Offre Chine</option>
+          </select>
+          <select
+            className={inputClass}
             aria-label="Disponibilité"
             value={filters.status}
             onChange={(event) =>
@@ -130,14 +128,6 @@ export default function CatalogueWorkspace() {
             <option value="">Toutes disponibilités</option>
             <option value="available">Disponible</option>
             <option value="reserved">Réservé</option>
-            {source === "stock" && (
-              <>
-                <option value="inTransit">En transit</option>
-                <option value="inCustoms">En douane</option>
-                <option value="delivered">Livré</option>
-                <option value="sold">Vendu</option>
-              </>
-            )}
           </select>
         </section>
         <p className="text-sm text-muted">
@@ -146,16 +136,6 @@ export default function CatalogueWorkspace() {
         {error && <ErrorState message={error} retry={() => void load()} />}
         {loading ? (
           <LoadingState />
-        ) : source === "stock" ? (
-          stock.length ? (
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {stock.map((vehicle) => (
-                <StockCard key={vehicle.id} vehicle={vehicle} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState label="Aucun véhicule en stock." />
-          )
         ) : items.length === 0 ? (
           <EmptyState label="Aucun véhicule ne dispose encore d’un devis commercial." />
         ) : (
@@ -201,24 +181,6 @@ export default function CatalogueWorkspace() {
   );
 }
 
-function StockCard({ vehicle }: { vehicle: ApiVehicle }) {
-  return (
-    <article className="card space-y-3">
-      <h2 className="text-lg font-bold">
-        {vehicle.brand} {vehicle.model} {vehicle.trim}
-      </h2>
-      <p className="text-sm">{vehicle.vin || "VIN en attente"}</p>
-      <p>{VEHICLE_STATUS_LABELS_API[vehicle.status] ?? vehicle.status}</p>
-      <Link
-        className="inline-block text-sm underline"
-        href={`/vehicules?vehicleId=${encodeURIComponent(vehicle.id)}`}
-      >
-        Voir le véhicule et ses dossiers
-      </Link>
-    </article>
-  );
-}
-
 function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
   const photo =
     item.photos?.find((photoItem) => photoItem.isPrimary) ?? item.photos?.[0];
@@ -228,7 +190,9 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
     if (!photo) return;
     let active = true;
     let objectUrl = "";
-    void commerceApi.offers
+    void (
+      item.sourceType === "VEHICLE" ? commerceApi.vehicles : commerceApi.offers
+    )
       .photoBlob(photo.id)
       .then((blob) => {
         if (!active) return;
@@ -240,7 +204,7 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [photo]);
+  }, [photo, item.sourceType]);
   return (
     <article className="card overflow-hidden p-0">
       <div className="relative aspect-[16/10] bg-neutral-100">
@@ -276,11 +240,14 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
           <Mini label="Prix CIF" value={formatDzd(item.cifPrice)} />
           <Mini label="Prix DDP" value={formatDzd(item.ddpPrice)} />
           <Mini label="Fournisseur" value={item.supplier?.name} />
-          <Mini label="Offre" value={item.offer.reference} />
+          <Mini
+            label="Source"
+            value={item.sourceType === "VEHICLE" ? "Stock" : "Offre Chine"}
+          />
           <Mini
             label="Marge estimée"
             value={
-              activePricing
+              activePricing?.estimatedMarginPercent != null
                 ? `${Number(activePricing.estimatedMarginPercent).toFixed(1)} %`
                 : undefined
             }
@@ -298,7 +265,7 @@ function CatalogueCard({ item }: { item: ApiCatalogueItem }) {
           href={`/catalogue/${item.id}`}
           className="block rounded-button border border-border px-4 py-2 text-center text-sm font-semibold hover:bg-neutral-50"
         >
-          Voir le détail financier
+          Voir le véhicule
         </Link>
         <div className="border-t border-border pt-3 text-xs text-muted">
           <p>Prix commerciaux en DZD — prix fournisseur non exposé</p>

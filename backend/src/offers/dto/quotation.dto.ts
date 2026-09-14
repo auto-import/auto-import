@@ -22,7 +22,7 @@ export class QuotationOtherCostDto {
 
 export class QuotationAmountsDto {
   @Type(() => Number) @IsNumber() @Min(0.01) vehicleAmount: number;
-  @IsString() @IsIn(['USD', 'CNY']) vehicleCurrency: string;
+  @IsString() @IsIn(['USD', 'CNY', 'DZD']) vehicleCurrency: string;
   @Type(() => Number) @IsNumber() @Min(0) containerPrice: number;
   @IsString() @IsIn(['USD', 'CNY']) containerCurrency: string;
   @Type(() => Number) @IsIn([3, 4]) containerAllocation: number;
@@ -47,7 +47,8 @@ export class QuotationAmountsDto {
 }
 
 export class CreateQuotationDto extends QuotationAmountsDto {
-  @IsUUID() sourceOfferId: string;
+  @IsOptional() @IsUUID() sourceOfferId?: string;
+  @IsOptional() @IsUUID() sourceVehicleId?: string;
   @IsOptional() @IsUUID() sourceOfferVehicleId?: string;
   @IsIn(['CIF', 'DDP']) priceBasis: 'CIF' | 'DDP';
   @IsOptional() @IsString() @MaxLength(12) currency?: string;
@@ -65,6 +66,7 @@ export class TransitionQuotationDto {
 }
 
 export class FilterQuotationDto extends PaginationDto {
+  @IsOptional() @IsUUID() sourceVehicleId?: string;
   @IsOptional() @IsUUID() dossierId?: string;
   @IsOptional() @IsUUID() clientId?: string;
   @IsOptional() @IsUUID() sourceOfferId?: string;

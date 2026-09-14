@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 
 const activeUser = {
+  twoFactor: null,
   id: 'user-1',
   organizationId: 'org-1',
   officeId: null,
@@ -73,11 +74,14 @@ describe('AuthService refresh sessions', () => {
     Promise<{ count: number }>,
     []
   >();
-  const transactionSessionCreate = jest.fn<Promise<unknown>, []>();
+  const transactionSessionCreate = jest.fn<Promise<unknown>, [unknown]>();
   const transactionUserUpdate = jest.fn<Promise<unknown>, [unknown]>();
   const transactionAuditCreate = jest.fn<Promise<unknown>, [unknown]>();
   const transactionClient = {
-    user: { update: transactionUserUpdate },
+    user: {
+      update: transactionUserUpdate,
+      findUniqueOrThrow: jest.fn(async () => activeUser),
+    },
     refreshSession: {
       findUnique: transactionSessionFindUnique,
       updateMany: transactionSessionUpdateMany,
@@ -102,7 +106,10 @@ describe('AuthService refresh sessions', () => {
   const config = {
     get: jest.fn((_key: string, fallback: string) => fallback),
   } as unknown as ConfigService;
-  const service = new AuthService(prisma, jwt, config);
+  const service = new AuthService(prisma, jwt, config, {
+    withUserLock: (id, work) => work(transactionClient, activeUser),
+    challenge: async () => null,
+  } as never);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -124,7 +131,11 @@ describe('AuthService refresh sessions', () => {
   it('stores only a hash of the opaque refresh token', async () => {
     sessionCreate.mockResolvedValue({ id: 'session-1' });
     const result = await service.login(activeUser);
-    const created = sessionCreate.mock.calls[0][0];
+    if ('twoFactorRequired' in result)
+      throw new Error('Unexpected 2FA challenge');
+    const created = transactionSessionCreate.mock.calls[0][0] as {
+      data: { tokenHash: string };
+    };
 
     expect(result.refreshToken).toHaveLength(64);
     expect(created.data.tokenHash).toHaveLength(64);

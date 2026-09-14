@@ -1,3 +1,4 @@
+import { DossierStatusPropagationService } from './workflows/dossier-status-propagation.service';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DossierStatus } from '@auto-import/contracts';
@@ -14,6 +15,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
   let financeProjection: { projectCustomerPayment: jest.Mock };
 
   const mockPrisma: any = {
+    shipment: { findFirst: jest.fn().mockResolvedValue(null) },
     dossier: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn(),
@@ -61,6 +63,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       workflowService,
       new VehicleStatusSyncService(),
       documentsService as unknown as DocumentsService,
+      new DossierStatusPropagationService(new VehicleStatusSyncService(), { syncFromDossier: jest.fn() } as never),
       undefined,
       costsService as never,
       financeProjection as never,
@@ -86,7 +89,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         id: 'dos-1',
         organizationId: 'org-1',
         type: DossierType.VEHICLE_SALE_CIF,
-        status: DossierStatus.DEPOSIT_RECEIVED,
+        status: DossierStatus.INSPECTION,
         dossierVehicles: [{ vehicleId: 'vehicle-1' }],
         vehicles: [{ id: 'vehicle-1' }],
         payments: [],
@@ -136,7 +139,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
           id: 'dos-1',
           organizationId: 'org-1',
           type: DossierType.VEHICLE_SALE_CIF,
-          status: DossierStatus.DEPOSIT_RECEIVED,
+          status: DossierStatus.INSPECTION,
           dossierVehicles: [{ vehicleId: 'vehicle-1' }],
           vehicles: [{ id: 'vehicle-1' }],
           payments: [{ amount: new Prisma.Decimal(300000) }],
@@ -242,7 +245,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
       });
       mockPrisma.dossier.update.mockResolvedValue({
         id: 'dos-1',
-        status: DossierStatus.DEPOSIT_RECEIVED,
+        status: DossierStatus.INSPECTION,
         dossierVehicles: [
           {
             vehicle: {
@@ -261,6 +264,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         {
           status: DossierStatus.DEPOSIT_RECEIVED,
           deposit: {
+            treasuryAccountId: 'treasury-test',
             amount: 300_000,
             currency: 'DZD',
             paymentMethod: 'BANK_TRANSFER',
@@ -276,7 +280,7 @@ describe('Phase 2 Dossier Gates Comprehensive Tests', () => {
         'org-1',
         'user-1',
         expect.objectContaining({ id: 'payment-1' }),
-        {},
+        { treasuryAccountId: 'treasury-test', officeId: undefined },
         new Prisma.Decimal(250),
       );
       expect(mockPrisma.customerDeposit.create).toHaveBeenCalled();

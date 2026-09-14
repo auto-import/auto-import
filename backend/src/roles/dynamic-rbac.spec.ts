@@ -90,6 +90,7 @@ describe('Dynamic RBAC & Database-Driven Authorization Audit (Phase 3-5)', () =>
       mockPrisma,
       { sign: jest.fn() } as never,
       mockConfigService as ConfigService,
+      {} as never,
     );
     jwtStrategy = new JwtStrategy(
       mockConfigService as ConfigService,

@@ -1,3 +1,4 @@
+import { reverseFinanceEntry } from './finance-reversal';
 import {
   BadRequestException,
   ConflictException,
@@ -41,7 +42,9 @@ export class PaymentsService {
       where: { id: dto.clientId, organizationId },
     });
     if (!client) {
-      throw new NotFoundException('Client introuvable dans votre organisation.');
+      throw new NotFoundException(
+        'Client introuvable dans votre organisation.',
+      );
     }
 
     const [dossier, invoice, contract] = await Promise.all([
@@ -156,8 +159,7 @@ export class PaymentsService {
         data: {
           organizationId,
           clientId: dto.clientId,
-          dossierId:
-            dto.dossierId ?? invoice?.dossierId ?? contract?.dossierId,
+          dossierId: dto.dossierId ?? invoice?.dossierId ?? contract?.dossierId,
           orderId: dto.orderId,
           invoiceId: dto.invoiceId,
           contractId: dto.contractId,
@@ -253,130 +255,133 @@ export class PaymentsService {
       throw new ConflictException('Cannot confirm a reversed payment');
     }
 
-    const notification = await this.prisma.$transaction(async (tx) => {
-      if (dto.treasuryAccountId) {
-        const account = await tx.treasuryAccount.findFirst({
-          where: {
-            id: dto.treasuryAccountId,
-            organizationId,
-            status: 'ACTIVE',
-            archivedAt: null,
-            currency: payment.currency,
-          },
-          select: { id: true },
-        });
-        if (!account) {
-          throw new NotFoundException(
-            'Active treasury account in the payment currency not found',
-          );
-        }
-      }
-      if (dto.supportingDocumentId) {
-        const document = await tx.gedDocument.findFirst({
-          where: {
-            id: dto.supportingDocumentId,
-            organizationId,
-            archivedAt: null,
-          },
-          select: { id: true },
-        });
-        if (!document)
-          throw new NotFoundException('Supporting document not found');
-      }
-      const confirmed = await tx.payment.update({
-        where: { id },
-        data: {
-          status: 'CONFIRMED',
-          confirmedAt: new Date(),
-          actorUserId: userId,
-        },
-        include: {
-          allocations: true,
-        },
-      });
-
-      await this.financeProjection.projectCustomerPayment(
-        tx,
-        organizationId,
-        userId,
-        confirmed,
-        dto,
-      );
-
-      await this.reconciliation.reconcilePayment(tx, id);
-
-      // If there is an unallocated amount, create / update customer deposit
-      const updatedPayment = await tx.payment.findUnique({
-        where: { id },
-      });
-
-      if (updatedPayment && updatedPayment.unallocatedAmount.greaterThan(0)) {
-        const existingDeposit = await tx.customerDeposit.findUnique({
-          where: { paymentId: id },
-        });
-
-        if (!existingDeposit) {
-          await tx.customerDeposit.create({
-            data: {
+    const notification = await this.prisma.$transaction(
+      async (tx) => {
+        if (dto.treasuryAccountId) {
+          const account = await tx.treasuryAccount.findFirst({
+            where: {
+              id: dto.treasuryAccountId,
               organizationId,
-              clientId: updatedPayment.clientId,
-              dossierId: updatedPayment.dossierId,
-              orderId: updatedPayment.orderId,
-              paymentId: id,
-              amount: updatedPayment.unallocatedAmount,
-              appliedAmount: new Prisma.Decimal(0),
-              unappliedAmount: updatedPayment.unallocatedAmount,
-              currency: updatedPayment.currency,
-              paymentMethod: updatedPayment.paymentMethod,
-              reference: updatedPayment.reference,
-              status: 'CONFIRMED',
-              paymentDate: updatedPayment.paymentDate,
+              status: 'ACTIVE',
+              archivedAt: null,
+              currency: payment.currency,
+            },
+            select: { id: true },
+          });
+          if (!account) {
+            throw new NotFoundException(
+              'Active treasury account in the payment currency not found',
+            );
+          }
+        }
+        if (dto.supportingDocumentId) {
+          const document = await tx.gedDocument.findFirst({
+            where: {
+              id: dto.supportingDocumentId,
+              organizationId,
+              archivedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!document)
+            throw new NotFoundException('Supporting document not found');
+        }
+        const confirmed = await tx.payment.update({
+          where: { id },
+          data: {
+            status: 'CONFIRMED',
+            confirmedAt: new Date(),
+            actorUserId: userId,
+          },
+          include: {
+            allocations: true,
+          },
+        });
+
+        await this.financeProjection.projectCustomerPayment(
+          tx,
+          organizationId,
+          userId,
+          confirmed,
+          dto,
+        );
+
+        await this.reconciliation.reconcilePayment(tx, id);
+
+        // If there is an unallocated amount, create / update customer deposit
+        const updatedPayment = await tx.payment.findUnique({
+          where: { id },
+        });
+
+        if (updatedPayment && updatedPayment.unallocatedAmount.greaterThan(0)) {
+          const existingDeposit = await tx.customerDeposit.findUnique({
+            where: { paymentId: id },
+          });
+
+          if (!existingDeposit) {
+            await tx.customerDeposit.create({
+              data: {
+                organizationId,
+                clientId: updatedPayment.clientId,
+                dossierId: updatedPayment.dossierId,
+                orderId: updatedPayment.orderId,
+                paymentId: id,
+                amount: updatedPayment.unallocatedAmount,
+                appliedAmount: new Prisma.Decimal(0),
+                unappliedAmount: updatedPayment.unallocatedAmount,
+                currency: updatedPayment.currency,
+                paymentMethod: updatedPayment.paymentMethod,
+                reference: updatedPayment.reference,
+                status: 'CONFIRMED',
+                paymentDate: updatedPayment.paymentDate,
+              },
+            });
+          }
+        }
+
+        if (confirmed.dossierId) {
+          const dossier = await tx.dossier.findFirst({
+            where: { id: confirmed.dossierId, organizationId },
+            select: {
+              id: true,
+              reference: true,
+              salesUserId: true,
+              opsUserId: true,
             },
           });
+          const recipients = [dossier?.salesUserId, dossier?.opsUserId].filter(
+            (recipient, index, values): recipient is string =>
+              Boolean(recipient) && values.indexOf(recipient) === index,
+          );
+          if (dossier && recipients.length > 0) {
+            await tx.notification.createMany({
+              data: recipients.map((recipient) => ({
+                organizationId,
+                userId: recipient,
+                type: 'PAYMENT_CONFIRMED',
+                category: 'payment',
+                severity: 'success',
+                title: `Paiement confirmé pour ${dossier.reference}`,
+                content: `${confirmed.amount.toFixed(2)} ${confirmed.currency}`,
+                relatedType: 'payment',
+                relatedId: confirmed.id,
+                entityUrl: `/dossiers/${dossier.id}`,
+                dedupeKey: `payment-confirmed:${confirmed.id}:${recipient}`,
+              })),
+              skipDuplicates: true,
+            });
+            return {
+              recipients,
+              dossierId: dossier.id,
+              paymentId: confirmed.id,
+            };
+          }
         }
-      }
 
-      if (confirmed.dossierId) {
-        const dossier = await tx.dossier.findFirst({
-          where: { id: confirmed.dossierId, organizationId },
-          select: {
-            id: true,
-            reference: true,
-            salesUserId: true,
-            opsUserId: true,
-          },
-        });
-        const recipients = [dossier?.salesUserId, dossier?.opsUserId].filter(
-          (recipient, index, values): recipient is string =>
-            Boolean(recipient) && values.indexOf(recipient) === index,
-        );
-        if (dossier && recipients.length > 0) {
-          await tx.notification.createMany({
-            data: recipients.map((recipient) => ({
-              organizationId,
-              userId: recipient,
-              type: 'PAYMENT_CONFIRMED',
-              category: 'payment',
-              severity: 'success',
-              title: `Paiement confirmé pour ${dossier.reference}`,
-              content: `${confirmed.amount.toFixed(2)} ${confirmed.currency}`,
-              relatedType: 'payment',
-              relatedId: confirmed.id,
-              entityUrl: `/dossiers/${dossier.id}`,
-              dedupeKey: `payment-confirmed:${confirmed.id}:${recipient}`,
-            })),
-            skipDuplicates: true,
-          });
-          return {
-            recipients,
-            dossierId: dossier.id,
-            paymentId: confirmed.id,
-          };
-        }
-      }
-
-      return null;
-    });
+        return null;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     if (notification) {
       for (const recipient of notification.recipients) {
         this.realtime?.emitUser(recipient, {
@@ -431,10 +436,18 @@ export class PaymentsService {
           reversalReason: dto?.reason,
         },
       });
-      await tx.financeTransaction.updateMany({
-        where: { organizationId, customerPaymentId: id, status: 'VALIDATED' },
-        data: { status: 'REVERSED' },
+      const entry = await tx.financeTransaction.findFirst({
+        where: { organizationId, customerPaymentId: id },
       });
+      if (entry)
+        await reverseFinanceEntry(
+          tx,
+          entry.id,
+          organizationId,
+          userId ?? entry.createdBy,
+          dto?.reason ?? '',
+          false,
+        );
 
       // Reconcile affected invoices and installments
       for (const alloc of payment.allocations) {

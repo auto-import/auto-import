@@ -5,12 +5,14 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  ValidateIf,
   Min,
   Max,
   IsObject,
   IsPositive,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { VehicleColor, VehiclePaintCondition } from '@prisma/client';
 import { AcquisitionType } from './create-vehicle.dto';
 import { VehicleStatus } from '@auto-import/contracts';
 
@@ -47,6 +49,14 @@ export class UpdateVehicleDto {
   @IsOptional()
   @IsString()
   condition?: string;
+
+  @IsOptional()
+  @IsEnum(VehicleColor)
+  color?: VehicleColor | null;
+
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsEnum(VehiclePaintCondition)
+  paintCondition?: VehiclePaintCondition;
 
   @IsOptional() @IsString() trim?: string;
   @IsOptional() @IsString() bodyType?: string;

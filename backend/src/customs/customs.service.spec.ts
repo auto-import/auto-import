@@ -1,3 +1,4 @@
+import { ShipmentsService } from '../shipments/shipments.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomsService } from './customs.service';
@@ -25,6 +26,7 @@ describe('CustomsService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: ShipmentsService, useValue: { syncFromDossier: jest.fn() } },
         CustomsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CostsService, useValue: mockCostsService },

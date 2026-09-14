@@ -8,7 +8,12 @@ import {
   Prisma,
   ShipmentContainerType,
   type CustomsFile,
+  type Shipment,
 } from '@prisma/client';
+import {
+  advancesShipment,
+  getTargetShipmentStatus,
+} from '../dossiers/workflows/dossier-shipment-status.map';
 import { containerCapacity } from './container-type';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExchangeRatesService } from '../finance/exchange-rates.service';
@@ -422,77 +427,157 @@ export class ShipmentsService {
         });
       }
 
-      await tx.shipmentStatusHistory.create({
-        data: {
-          shipmentId: id,
-          fromStatus: shipment.status,
-          toStatus: dto.status,
-          changedBy: userId,
-          comment: dto.comment,
-        },
-      });
+      return this.applyTransitionInTransaction(
+        tx,
+        shipment,
+        organizationId,
+        userId,
+        dto,
+      );
+    });
+  }
 
-      // Dossier-linked vehicles retain the authoritative dossier milestone workflow.
-      // Apply inventory departure before reading the response relations.
-      if (dto.status === 'inTransit') {
-        await tx.vehicle.updateMany({
-          where: {
-            organizationId,
-            archivedAt: null,
-            status: { in: ['available', 'reserved'] },
-            shipmentVehicles: { some: { shipmentId: id } },
-            dossierVehicles: {
-              none: {
-                dossier: {
-                  status: {
-                    notIn: ['closed', 'serviceCompleted', 'cancelled'],
-                  },
+  /** Called only after the source dossier transition has passed its own gates. */
+  async syncFromDossier(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      dossierId: string;
+      dossierReference: string;
+      fromStatus: string;
+      toStatus: string;
+      userId: string;
+    },
+  ): Promise<void> {
+    const target = getTargetShipmentStatus(input.toStatus);
+    if (!target) return;
+    const relatedWhere: Prisma.ShipmentWhereInput = {
+      organizationId: input.organizationId,
+      status: { in: ['pending', 'booked', 'loading', 'inTransit'] },
+      OR: [
+        {
+          vehicles: {
+            some: {
+              vehicle: {
+                organizationId: input.organizationId,
+                dossierVehicles: { some: { dossierId: input.dossierId } },
+              },
+            },
+          },
+        },
+        {
+          customsFiles: {
+            some: {
+              organizationId: input.organizationId,
+              dossierId: input.dossierId,
+            },
+          },
+        },
+      ],
+    };
+    const shipments = await tx.shipment.findMany({
+      where: relatedWhere,
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const { id } of shipments) {
+      await this.lockShipment(tx, id, input.organizationId);
+      // Re-read membership and status after locking: loading may have changed.
+      const shipment = await tx.shipment.findFirst({
+        where: { ...relatedWhere, id },
+      });
+      if (!shipment || !advancesShipment(shipment.status, target)) continue;
+      await this.applyTransitionInTransaction(
+        tx,
+        shipment,
+        input.organizationId,
+        input.userId,
+        {
+          status: target,
+          comment: `Dossier ${input.dossierReference} (${input.dossierId}): ${input.fromStatus} -> ${input.toStatus}`,
+        },
+      );
+    }
+  }
+
+  private async applyTransitionInTransaction(
+    tx: Prisma.TransactionClient,
+    shipment: Shipment,
+    organizationId: string,
+    userId: string,
+    dto: TransitionShipmentDto,
+  ) {
+    const id = shipment.id;
+    await tx.shipmentStatusHistory.create({
+      data: {
+        shipmentId: id,
+        fromStatus: shipment.status,
+        toStatus: dto.status,
+        changedBy: userId,
+        comment: dto.comment,
+      },
+    });
+
+    // Dossier-linked vehicles retain the authoritative dossier milestone workflow.
+    // Apply inventory departure before reading the response relations.
+    if (dto.status === 'inTransit') {
+      await tx.vehicle.updateMany({
+        where: {
+          organizationId,
+          archivedAt: null,
+          status: { in: ['available', 'reserved'] },
+          shipmentVehicles: { some: { shipmentId: id } },
+          dossierVehicles: {
+            none: {
+              dossier: {
+                status: {
+                  notIn: ['closed', 'serviceCompleted', 'cancelled'],
                 },
               },
             },
           },
-          data: { status: 'inTransit' },
-        });
-      }
-
-      const updated = await tx.shipment.update({
-        where: { id },
-        data: {
-          status: dto.status,
-          actualDepartureDate:
-            dto.status === 'inTransit' && !shipment.actualDepartureDate
-              ? new Date()
-              : shipment.actualDepartureDate,
-          actualArrivalDate:
-            dto.status === 'arrived' && !shipment.actualArrivalDate
-              ? new Date()
-              : shipment.actualArrivalDate,
         },
-        include: {
-          carrierPartner: true,
-          vehicles: { include: { vehicle: true } },
-          statusHistory: {
-            orderBy: { createdAt: 'desc' },
-            include: {
-              user: {
-                select: { id: true, firstName: true, lastName: true },
-              },
+        data: { status: 'inTransit' },
+      });
+    }
+
+    const updated = await tx.shipment.update({
+      where: { id },
+      data: {
+        status: dto.status,
+        actualDepartureDate:
+          dto.status === 'inTransit' && !shipment.actualDepartureDate
+            ? new Date()
+            : shipment.actualDepartureDate,
+        actualArrivalDate:
+          dto.status === 'arrived' && !shipment.actualArrivalDate
+            ? new Date()
+            : shipment.actualArrivalDate,
+      },
+      include: {
+        carrierPartner: true,
+        vehicles: { include: { vehicle: true } },
+        statusHistory: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true },
             },
           },
         },
-      });
-
-      if (dto.status === 'arrived') {
-        await this.createCustomsFilesInTransaction(
-          tx,
-          id,
-          organizationId,
-          userId,
-        );
-      }
-
-      return updated;
+      },
     });
+
+    if (dto.status === 'arrived') {
+      await this.createCustomsFilesInTransaction(
+        tx,
+        id,
+        organizationId,
+        userId,
+      );
+    }
+
+    return updated;
   }
 
   async createCustomsFromShipment(

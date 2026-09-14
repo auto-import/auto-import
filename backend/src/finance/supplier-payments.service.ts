@@ -1,3 +1,4 @@
+import { reverseFinanceEntry } from './finance-reversal';
 import {
   BadRequestException,
   ConflictException,
@@ -37,109 +38,126 @@ export class SupplierPaymentsService {
       throw new BadRequestException('Supplier payment amount must be positive');
     }
 
-    const purchase = await this.prisma.purchase.findFirst({
-      where: { id: dto.purchaseId, organizationId },
-      include: {
-        payments: { where: { status: { not: 'REVERSED' } } },
-      },
-    });
-    if (!purchase) {
-      throw new NotFoundException('Purchase not found in your organization');
-    }
-
-    const supplier = await this.prisma.partner.findFirst({
-      where: { id: dto.supplierId, organizationId, type: 'supplier' },
-    });
-    if (!supplier) {
-      throw new NotFoundException('Supplier not found in your organization');
-    }
-    if (purchase.supplierId !== supplier.id) {
-      throw new BadRequestException(
-        'Purchase does not belong to the selected supplier',
-      );
-    }
-    if (dto.currency.toUpperCase() !== purchase.currency.toUpperCase()) {
-      throw new BadRequestException(
-        'Supplier payment currency must match the purchase currency',
-      );
-    }
-
-    if (dto.idempotencyKey) {
-      const existing = await this.prisma.supplierPayment.findUnique({
-        where: {
-          organizationId_idempotencyKey: {
-            organizationId,
-            idempotencyKey: dto.idempotencyKey,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const purchase = await tx.purchase.findFirst({
+          where: { id: dto.purchaseId, organizationId },
+          include: {
+            payments: { where: { status: { not: 'REVERSED' } } },
           },
-        },
-      });
-      if (existing) {
-        if (!existing.amount.equals(new Prisma.Decimal(dto.amount))) {
-          throw new ConflictException(
-            'Supplier payment already exists with a different amount for this idempotency key',
+        });
+        if (!purchase) {
+          throw new NotFoundException(
+            'Purchase not found in your organization',
           );
         }
-        return existing;
-      }
-    }
 
-    const amount = new Prisma.Decimal(dto.amount);
-    const alreadyCommitted = purchase.payments.reduce(
-      (sum, item) => sum.add(item.amount),
-      new Prisma.Decimal(0),
-    );
-    const remaining = Prisma.Decimal.max(
-      purchase.purchasePrice.minus(alreadyCommitted),
-      0,
-    );
-    if (amount.greaterThan(remaining)) {
-      throw new ConflictException({
-        code: 'SUPPLIER_PAYMENT_EXCEEDS_REMAINING',
-        message: 'Supplier payment exceeds the remaining purchase amount',
-        remainingAmount: remaining.toFixed(2),
-      });
-    }
-    if (dto.paymentKind === 'BALANCE' && !amount.equals(remaining)) {
-      throw new BadRequestException({
-        code: 'SUPPLIER_BALANCE_AMOUNT_MISMATCH',
-        message: 'A balance payment must equal the remaining purchase amount',
-        remainingAmount: remaining.toFixed(2),
-      });
-    }
-    const paymentDate = dto.paymentDate
-      ? new Date(dto.paymentDate)
-      : new Date();
+        if (purchase.status === 'cancelled')
+          throw new ConflictException('Cet achat est annulé.');
+        const supplier = await tx.partner.findFirst({
+          where: { id: dto.supplierId, organizationId, type: 'supplier' },
+        });
+        if (!supplier) {
+          throw new NotFoundException(
+            'Supplier not found in your organization',
+          );
+        }
+        if (purchase.supplierId !== supplier.id) {
+          throw new BadRequestException(
+            'Purchase does not belong to the selected supplier',
+          );
+        }
+        if (dto.currency.toUpperCase() !== purchase.currency.toUpperCase()) {
+          throw new BadRequestException(
+            'Supplier payment currency must match the purchase currency',
+          );
+        }
 
-    const payment = await this.prisma.supplierPayment.create({
-      data: {
-        organizationId,
-        supplierId: dto.supplierId,
-        purchaseId: dto.purchaseId,
-        amount,
-        paymentKind: dto.paymentKind,
-        currency: dto.currency || 'CNY',
-        paymentMethod: dto.paymentMethod,
-        reference: dto.reference,
-        idempotencyKey: dto.idempotencyKey,
-        status: 'PENDING',
-        paymentDate,
-        exchangeRateId: dto.exchangeRateId,
-        notes: dto.notes,
-      },
-      include: {
-        supplier: true,
-        purchase: {
-          include: {
-            vehicle: true,
+        if (dto.idempotencyKey) {
+          const existing = await tx.supplierPayment.findUnique({
+            where: {
+              organizationId_idempotencyKey: {
+                organizationId,
+                idempotencyKey: dto.idempotencyKey,
+              },
+            },
+          });
+          if (existing) {
+            if (
+              !existing.amount.equals(new Prisma.Decimal(dto.amount)) ||
+              existing.purchaseId !== dto.purchaseId ||
+              existing.supplierId !== dto.supplierId ||
+              existing.currency.toUpperCase() !== dto.currency.toUpperCase()
+            ) {
+              throw new ConflictException(
+                'Supplier payment already exists with a different amount for this idempotency key',
+              );
+            }
+            return existing;
+          }
+        }
+
+        const amount = new Prisma.Decimal(dto.amount);
+        const alreadyCommitted = purchase.payments.reduce(
+          (sum, item) => sum.add(item.amount),
+          new Prisma.Decimal(0),
+        );
+        const remaining = Prisma.Decimal.max(
+          purchase.purchasePrice.minus(alreadyCommitted),
+          0,
+        );
+        if (amount.greaterThan(remaining)) {
+          throw new ConflictException({
+            code: 'SUPPLIER_PAYMENT_EXCEEDS_REMAINING',
+            message: 'Supplier payment exceeds the remaining purchase amount',
+            remainingAmount: remaining.toFixed(2),
+          });
+        }
+        if (dto.paymentKind === 'BALANCE' && !amount.equals(remaining)) {
+          throw new BadRequestException({
+            code: 'SUPPLIER_BALANCE_AMOUNT_MISMATCH',
+            message:
+              'A balance payment must equal the remaining purchase amount',
+            remainingAmount: remaining.toFixed(2),
+          });
+        }
+        const paymentDate = dto.paymentDate
+          ? new Date(dto.paymentDate)
+          : new Date();
+
+        const payment = await tx.supplierPayment.create({
+          data: {
+            organizationId,
+            supplierId: dto.supplierId,
+            purchaseId: dto.purchaseId,
+            amount,
+            paymentKind: dto.paymentKind,
+            currency: dto.currency || 'CNY',
+            paymentMethod: dto.paymentMethod,
+            reference: dto.reference,
+            idempotencyKey: dto.idempotencyKey,
+            status: 'PENDING',
+            paymentDate,
+            exchangeRateId: dto.exchangeRateId,
+            notes: dto.notes,
           },
-        },
-      },
-    });
+          include: {
+            supplier: true,
+            purchase: {
+              include: {
+                vehicle: true,
+              },
+            },
+          },
+        });
 
-    return {
-      ...payment,
-      remainingAmount: remaining.minus(amount).toFixed(2),
-    };
+        return {
+          ...payment,
+          remainingAmount: remaining.minus(amount).toFixed(2),
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async confirm(
@@ -161,58 +179,63 @@ export class SupplierPaymentsService {
       throw new ConflictException('Cannot confirm a reversed supplier payment');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      if (dto.treasuryAccountId) {
-        const account = await tx.treasuryAccount.findFirst({
-          where: {
-            id: dto.treasuryAccountId,
-            organizationId,
-            status: 'ACTIVE',
-            archivedAt: null,
-            currency: payment.currency,
+    return this.prisma.$transaction(
+      async (tx) => {
+        if (dto.treasuryAccountId) {
+          const account = await tx.treasuryAccount.findFirst({
+            where: {
+              id: dto.treasuryAccountId,
+              organizationId,
+              status: 'ACTIVE',
+              archivedAt: null,
+              currency: payment.currency,
+            },
+            select: { id: true },
+          });
+          if (!account)
+            throw new NotFoundException(
+              'Active treasury account in the payment currency not found',
+            );
+        }
+        if (dto.supportingDocumentId) {
+          const document = await tx.gedDocument.findFirst({
+            where: {
+              id: dto.supportingDocumentId,
+              organizationId,
+              archivedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!document)
+            throw new NotFoundException('Supporting document not found');
+        }
+        const confirmed = await tx.supplierPayment.update({
+          where: { id },
+          data: {
+            status: 'CONFIRMED',
+            confirmedAt: new Date(),
+            paidAt: new Date(),
+            actorUserId: userId,
           },
-          select: { id: true },
-        });
-        if (!account)
-          throw new NotFoundException(
-            'Active treasury account in the payment currency not found',
-          );
-      }
-      if (dto.supportingDocumentId) {
-        const document = await tx.gedDocument.findFirst({
-          where: {
-            id: dto.supportingDocumentId,
-            organizationId,
-            archivedAt: null,
+          include: {
+            supplier: true,
+            purchase: true,
+            actorUser: {
+              select: { id: true, firstName: true, lastName: true },
+            },
           },
-          select: { id: true },
         });
-        if (!document)
-          throw new NotFoundException('Supporting document not found');
-      }
-      const confirmed = await tx.supplierPayment.update({
-        where: { id },
-        data: {
-          status: 'CONFIRMED',
-          confirmedAt: new Date(),
-          paidAt: new Date(),
-          actorUserId: userId,
-        },
-        include: {
-          supplier: true,
-          purchase: true,
-          actorUser: { select: { id: true, firstName: true, lastName: true } },
-        },
-      });
-      await this.financeProjection.projectSupplierPayment(
-        tx,
-        organizationId,
-        userId,
-        confirmed,
-        dto,
-      );
-      return confirmed;
-    });
+        await this.financeProjection.projectSupplierPayment(
+          tx,
+          organizationId,
+          userId,
+          confirmed,
+          dto,
+        );
+        return confirmed;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async reverse(
@@ -240,10 +263,18 @@ export class SupplierPaymentsService {
         },
         include: { supplier: true, purchase: true },
       });
-      await tx.financeTransaction.updateMany({
-        where: { organizationId, supplierPaymentId: id, status: 'VALIDATED' },
-        data: { status: 'REVERSED' },
+      const entry = await tx.financeTransaction.findFirst({
+        where: { organizationId, supplierPaymentId: id },
       });
+      if (entry)
+        await reverseFinanceEntry(
+          tx,
+          entry.id,
+          organizationId,
+          userId ?? entry.createdBy,
+          dto?.reason ?? '',
+          false,
+        );
       await tx.auditLog.create({
         data: {
           organizationId,

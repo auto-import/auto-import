@@ -12,16 +12,55 @@ export class CatalogueController {
 
   @Get()
   @RequirePermission(Permission.VEHICLES_READ)
-  findAll(
+  async findAll(
     @Query() filters: FilterCatalogueDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.catalogue.findAll(user.organizationId, filters);
+    const result = await this.catalogue.findAll(user.organizationId, filters);
+    return {
+      ...result,
+      items: result.items.map((item) => this.visible(item, user)),
+    };
+  }
+
+  @Get('suppliers')
+  @RequirePermission(Permission.VEHICLES_READ)
+  suppliers(@CurrentUser() user: AuthenticatedUser) {
+    return this.catalogue.suppliers(user.organizationId);
   }
 
   @Get(':id')
   @RequirePermission(Permission.VEHICLES_READ)
-  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.catalogue.findOne(id, user.organizationId);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.visible(
+      await this.catalogue.findOne(id, user.organizationId),
+      user,
+    );
+  }
+
+  private visible(
+    item: Awaited<ReturnType<CatalogueService['findOne']>>,
+    user: AuthenticatedUser,
+  ) {
+    if (user.permissions.includes(Permission.FINANCE_READ)) return item;
+    const commercial = (price: typeof item.pricing.cif) =>
+      price
+        ? {
+            quotationId: price.quotationId,
+            quotationNumber: price.quotationNumber,
+            priceBasis: price.priceBasis,
+            sellingPriceDzd: price.sellingPriceDzd,
+          }
+        : null;
+    return {
+      ...item,
+      pricing: {
+        cif: commercial(item.pricing.cif),
+        ddp: commercial(item.pricing.ddp),
+      },
+    };
   }
 }

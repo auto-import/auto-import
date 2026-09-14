@@ -1,3 +1,4 @@
+import { TwoFactorService } from './two-factor.service';
 import {
   ConflictException,
   Injectable,
@@ -14,6 +15,7 @@ import type { AuthenticatedUser, SessionMetadata } from './auth.types';
 
 const AUTH_USER_INCLUDE = {
   organization: true,
+  twoFactor: { select: { sessionVersion: true } },
   office: { select: { id: true, name: true } },
   userRoles: {
     include: {
@@ -37,6 +39,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<AuthUserRecord> {
@@ -56,20 +59,56 @@ export class AuthService {
 
     this.assertActiveAccount(user);
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
     return user;
   }
 
   async login(user: AuthUserRecord, metadata: SessionMetadata = {}) {
+    return this.twoFactor.withUserLock(user.id, async (tx, lockedUser) => {
+      if (lockedUser.passwordHash !== user.passwordHash)
+        throw new UnauthorizedException('Invalid credentials');
+      const challenge = await this.twoFactor.challenge(
+        tx,
+        lockedUser,
+        metadata,
+      );
+      if (challenge) return challenge;
+      const fresh = await tx.user.findUniqueOrThrow({
+        where: { id: user.id },
+        include: AUTH_USER_INCLUDE,
+      });
+      return this.issueSession(tx, fresh, metadata);
+    });
+  }
+
+  async completeTwoFactor(
+    challengeToken: string,
+    code: string,
+    metadata: SessionMetadata,
+  ) {
+    return this.twoFactor.completeLogin(
+      challengeToken,
+      code,
+      metadata,
+      async (tx, userId) => {
+        const user = await tx.user.findUniqueOrThrow({
+          where: { id: userId },
+          include: AUTH_USER_INCLUDE,
+        });
+        this.assertActiveAccount(user);
+        return this.issueSession(tx, user, metadata);
+      },
+    );
+  }
+
+  private async issueSession(
+    tx: Prisma.TransactionClient,
+    user: AuthUserRecord,
+    metadata: SessionMetadata,
+  ) {
     const principal = this.toAuthenticatedUser(user);
     const refreshToken = this.createRefreshToken();
     const expiresAt = new Date(Date.now() + this.refreshSessionTtlMs);
-
-    await this.prisma.refreshSession.create({
+    await tx.refreshSession.create({
       data: {
         userId: user.id,
         tokenHash: this.hashRefreshToken(refreshToken),
@@ -78,9 +117,15 @@ export class AuthService {
         userAgent: metadata.userAgent,
       },
     });
-
+    await tx.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
     return {
-      accessToken: this.createAccessToken(principal),
+      accessToken: this.createAccessToken(
+        principal,
+        user.twoFactor?.sessionVersion ?? 0,
+      ),
       refreshToken,
       refreshExpiresAt: expiresAt,
       user: principal,
@@ -136,7 +181,10 @@ export class AuthService {
 
         const user = this.toAuthenticatedUser(session.user);
         return {
-          accessToken: this.createAccessToken(user),
+          accessToken: this.createAccessToken(
+            user,
+            session.user.twoFactor?.sessionVersion ?? 0,
+          ),
           refreshToken: nextRefreshToken,
           refreshExpiresAt,
           user,
@@ -161,12 +209,17 @@ export class AuthService {
     );
   }
 
-  async getCurrentUser(userId: string): Promise<AuthenticatedUser> {
+  async getCurrentUser(
+    userId: string,
+    authVersion = 0,
+  ): Promise<AuthenticatedUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: AUTH_USER_INCLUDE,
     });
     if (!user) throw new UnauthorizedException('Invalid session');
+    if ((user.twoFactor?.sessionVersion ?? 0) !== authVersion)
+      throw new UnauthorizedException('Invalid session');
     this.assertActiveAccount(user);
     return this.toAuthenticatedUser(user);
   }
@@ -259,7 +312,10 @@ export class AuthService {
     this.passwordAttempts.delete(userId);
     const principal = this.toAuthenticatedUser(user);
     return {
-      accessToken: this.createAccessToken(principal),
+      accessToken: this.createAccessToken(
+        principal,
+        user.twoFactor?.sessionVersion ?? 0,
+      ),
       refreshToken: nextRefreshToken,
       refreshExpiresAt,
       user: principal,
@@ -345,7 +401,10 @@ export class AuthService {
       });
       const principal = this.toAuthenticatedUser(updated);
       return {
-        accessToken: this.createAccessToken(principal),
+        accessToken: this.createAccessToken(
+          principal,
+          user.twoFactor?.sessionVersion ?? 0,
+        ),
         refreshToken: nextRefreshToken,
         refreshExpiresAt,
         user: principal,
@@ -370,9 +429,11 @@ export class AuthService {
     return Number(match[1]) * units[match[2] as keyof typeof units];
   }
 
-  private createAccessToken(user: AuthenticatedUser): string {
+  private createAccessToken(user: AuthenticatedUser, authVersion = 0): string {
     return this.jwtService.sign({
       sub: user.id,
+      purpose: 'access',
+      authVersion,
       email: user.email,
       organizationId: user.organizationId,
       locale: user.locale === 'en' ? 'en' : 'fr',

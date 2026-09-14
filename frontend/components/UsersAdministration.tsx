@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit, Plus, RefreshCw, Search, Shield, Trash2, X } from "lucide-react";
 import { Topbar } from "@/components";
 import { useAuth } from "@/components/AuthProvider";
+import TwoFactorResetDialog from "./TwoFactorResetDialog";
 import { ApiError } from "@/lib/api";
 import {
   adminApi,
@@ -516,7 +517,8 @@ function OfficeDialog({
 }
 
 export default function UsersAdministration() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, currentUser } = useAuth();
+  const [resetTwoFactorUser, setResetTwoFactorUser] = useState<User | null>(null);
   const [tab, setTab] = useState<Tab>("users");
   const [users, setUsers] = useState(emptyUsers);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -756,6 +758,7 @@ export default function UsersAdministration() {
                         </td>
                         <td className="p-4">
                           <div className="flex justify-end gap-2">
+                            {canManageUsers && user.id !== currentUser?.id && <button className="rounded-button border border-border px-3 py-2 text-xs" onClick={() => setResetTwoFactorUser(user)}>Réinitialiser 2FA</button>}
                             {canWriteUsers && (
                               <button
                                 className="rounded-button border border-border p-2"
@@ -966,6 +969,7 @@ export default function UsersAdministration() {
         )}
       </main>
 
+      {resetTwoFactorUser && <TwoFactorResetDialog user={resetTwoFactorUser} close={() => setResetTwoFactorUser(null)} />}
       {editingUser !== undefined && (
         <UserDialog
           user={editingUser}

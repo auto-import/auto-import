@@ -1,3 +1,4 @@
+import { ExchangeRatesService } from './exchange-rates.service';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -44,8 +45,18 @@ export class PaymentPlansService {
     const strategy = dto.strategy || 'THIRTY_SEVENTY';
 
     return this.prisma.$transaction(async (tx) => {
+      const snapshot = await new ExchangeRatesService(
+        this.prisma,
+      ).findActiveDzdRateSnapshot(
+        tx,
+        organizationId,
+        dto.currency || 'DZD',
+        new Date(),
+      );
       const plan = await tx.paymentPlan.create({
         data: {
+          exchangeRateSnapshot: snapshot.rate,
+          amountDzd: totalAmount.mul(snapshot.rate).toDecimalPlaces(2),
           organizationId,
           clientId: dto.clientId,
           dossierId: dto.dossierId,

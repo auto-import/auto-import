@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Topbar, StatusBadge, DataTable } from "@/components";
 import { amountDzd, type FinanceDzdRate } from "@/lib/dossier-money";
 import {
+  financeEntryLabel,
+  reverseFinanceTransaction,
   fetchOrganizationFinancialOverview,
   fetchSupplierPayments,
   confirmSupplierPayment,
@@ -25,7 +27,14 @@ import {
   type ApiFinanceTransaction,
   type ApiTreasuryAccount,
 } from "@/lib/finance-api";
-import { formatMontant, formatDate } from "@/lib/constants";
+import { formatDate } from "@/lib/constants";
+import { commerceApi, type ApiDossier } from "@/lib/commerce-api";
+import TreasuryControls from "@/components/commerce/TreasuryControls";
+import PaymentAccountDialog from "@/components/commerce/PaymentAccountDialog";
+import { useAuth } from "@/components/AuthProvider";
+import { Permission } from "@/lib/api-contract";
+const formatMontant = (value: number) =>
+  new Intl.NumberFormat("fr-DZ", { maximumFractionDigits: 2 }).format(value);
 import type { Column } from "@/types";
 import {
   TrendingUp,
@@ -45,6 +54,14 @@ type FinanceTab =
   "overview" | "transactions" | "treasury" | "supplier" | "costs" | "rates";
 
 export default function FinanceDashboardPage() {
+  const { hasPermission } = useAuth();
+  const [loadError, setLoadError] = useState("");
+  const [confirmingPayment, setConfirmingPayment] = useState<{
+    id: string;
+    currency: string;
+  } | null>(null);
+  const [newRateType, setNewRateType] = useState("COMMERCIAL");
+  const [newRateDate, setNewRateDate] = useState("");
   const [activeTab, setActiveTab] = useState<FinanceTab>("overview");
   const [overview, setOverview] =
     useState<OrganizationFinancialOverview | null>(null);
@@ -78,6 +95,18 @@ export default function FinanceDashboardPage() {
 
   // Modals
   const [showCostModal, setShowCostModal] = useState(false);
+  const [costDossiers, setCostDossiers] = useState<ApiDossier[]>([]);
+  const [costDossierId, setCostDossierId] = useState("");
+  const [costScope, setCostScope] = useState<"DIRECT" | "OPERATING">(
+    "OPERATING",
+  );
+  useEffect(() => {
+    if (showCostModal)
+      commerceApi.dossiers
+        .list({ limit: 100 })
+        .then((r) => setCostDossiers(r.items))
+        .catch((e) => setLoadError(e.message));
+  }, [showCostModal]);
   const [newCostType, setNewCostType] = useState("RENT");
   const [newCostAmount, setNewCostAmount] = useState("");
   const [newCostCurrency, setNewCostCurrency] = useState("USD");
@@ -138,7 +167,6 @@ export default function FinanceDashboardPage() {
   const [newRateValue, setNewRateValue] = useState("");
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState("");
 
   const reportLoadError = useCallback((cause: unknown) => {
     setLoadError(
@@ -262,30 +290,8 @@ export default function FinanceDashboardPage() {
   ]);
 
   const handleConfirmSupplier = async (id: string) => {
-    setActionLoading(id);
-    try {
-      const payment = supplierPayments.find((item) => item.id === id);
-      const account = treasuryAccounts.find(
-        (item) =>
-          item.status === "ACTIVE" && item.currency === payment?.currency,
-      );
-      if (!account) {
-        throw new Error(
-          `Créez un compte de trésorerie actif en ${payment?.currency ?? "devise du paiement"} avant confirmation.`,
-        );
-      }
-      await confirmSupplierPayment(id, { treasuryAccountId: account.id });
-      await loadSupplierPayments();
-      await loadOverview();
-      await loadTreasury();
-    } catch (err) {
-      alert(
-        (err instanceof Error ? err.message : "") ||
-          "Erreur lors de la confirmation du paiement fournisseur",
-      );
-    } finally {
-      setActionLoading(null);
-    }
+    const payment = supplierPayments.find((p) => p.id === id);
+    if (payment) setConfirmingPayment({ id, currency: payment.currency });
   };
 
   const handleCreateSupplierPayment = async (event: React.FormEvent) => {
@@ -331,7 +337,8 @@ export default function FinanceDashboardPage() {
     try {
       await createCost({
         type: newCostType,
-        costScope: "OPERATING",
+        costScope,
+        dossierId: costScope === "DIRECT" ? costDossierId : undefined,
         amount: Number(newCostAmount),
         currency: newCostCurrency,
         exchangeRateId: activeCostRate.exchangeRateId ?? undefined,
@@ -342,8 +349,12 @@ export default function FinanceDashboardPage() {
       setNewCostAmount("");
       setNewCostDesc("");
       setNewCostTreasuryId("");
-      await loadCosts();
-      await loadOverview();
+      await Promise.all([
+        loadCosts(),
+        loadOverview(),
+        loadTreasury(),
+        loadTransactions(),
+      ]);
       await loadTreasury();
     } catch (err) {
       alert(
@@ -361,6 +372,10 @@ export default function FinanceDashboardPage() {
         baseCurrency: newRateCurrency,
         quoteCurrency: quotationReferenceCurrency,
         rate: Number(newRateValue),
+        rateType: newRateType,
+        effectiveAt: newRateDate
+          ? new Date(newRateDate).toISOString()
+          : undefined,
       });
       setShowRateModal(false);
       setNewRateValue("");
@@ -400,12 +415,84 @@ export default function FinanceDashboardPage() {
 
   const TRANSACTION_COLUMNS: Column<ApiFinanceTransaction>[] = [
     {
+      key: "origin",
+      header: "Dossier / tiers",
+      render: (row) => (
+        <div>
+          {row.dossier?.reference ?? "Société"}
+          <p className="text-xs">
+            {row.supplier?.name ??
+              (row.client
+                ? `${row.client.firstName} ${row.client.lastName}`
+                : "—")}
+          </p>
+          {row.purchase?.vehicle && (
+            <p>
+              {row.purchase.vehicle.brand} {row.purchase.vehicle.model}
+            </p>
+          )}
+          <p className="text-xs">{row.reference}</p>
+        </div>
+      ),
+    },
+    {
+      key: "treasury",
+      header: "Bureau / compte",
+      render: (row) => (
+        <div>
+          {row.office?.name ?? "Non renseigné"}
+          <p>{row.treasuryAccount?.name ?? "Sans mouvement de trésorerie"}</p>
+        </div>
+      ),
+    },
+    {
+      key: "rate",
+      header: "Taux figé",
+      render: (row) => String(row.exchangeRateSnapshot),
+    },
+    {
+      key: "reversal",
+      header: "Correction",
+      render: (row) =>
+        row.status === "VALIDATED" &&
+        !row.reversalOfId &&
+        hasPermission(Permission.FINANCE_REVERSE) ? (
+          <button
+            className="underline"
+            onClick={async () => {
+              const reason = window.prompt("Motif de l’extourne");
+              if (!reason?.trim()) return;
+              try {
+                await reverseFinanceTransaction(row.id, reason.trim());
+                await Promise.all([
+                  loadTransactions(),
+                  loadOverview(),
+                  loadTreasury(),
+                  loadSupplierPayments(),
+                  loadCosts(),
+                ]);
+              } catch (e) {
+                reportLoadError(e);
+              }
+            }}
+          >
+            Extourner
+          </button>
+        ) : (
+          <span>{row.reversalReason ?? "—"}</span>
+        ),
+    },
+    {
       key: "type",
       header: "Type & Module Source",
       render: (row) => (
         <div>
-          <span className="font-semibold text-foreground">{row.type}</span>
-          <p className="text-xs text-muted">{row.sourceModule}</p>
+          <span className="font-semibold text-foreground">
+            {financeEntryLabel(row.type)}
+          </span>
+          <p className="text-xs text-muted">
+            {financeEntryLabel(row.sourceModule)}
+          </p>
         </div>
       ),
     },
@@ -459,8 +546,17 @@ export default function FinanceDashboardPage() {
       header: "Statut",
       render: (row) => (
         <StatusBadge
-          variant={row.status === "POSTED" ? "green" : "gray"}
-          label={row.status === "POSTED" ? "Comptabilisé" : "Extourné"}
+          variant={row.status === "VALIDATED" ? "green" : "gray"}
+          label={
+            (
+              {
+                VALIDATED: "Validé",
+                REVERSED: "Extourné",
+                PENDING: "En attente",
+                CANCELLED: "Annulé",
+              } as Record<string, string>
+            )[row.status] ?? row.status
+          }
           size="sm"
         />
       ),
@@ -468,6 +564,26 @@ export default function FinanceDashboardPage() {
   ];
 
   const TREASURY_COLUMNS: Column<ApiTreasuryAccount>[] = [
+    {
+      key: "office",
+      header: "Bureau",
+      render: (row) => row.office?.name ?? "À renseigner",
+    },
+    {
+      key: "openingBalance",
+      header: "Solde initial",
+      render: (row) => formatMontant(Number(row.openingBalance ?? 0)),
+    },
+    {
+      key: "inflows",
+      header: "Entrées",
+      render: (row) => formatMontant(Number(row.inflows ?? 0)),
+    },
+    {
+      key: "outflows",
+      header: "Sorties",
+      render: (row) => formatMontant(Number(row.outflows ?? 0)),
+    },
     {
       key: "code",
       header: "Code Compte",
@@ -607,7 +723,9 @@ export default function FinanceDashboardPage() {
       key: "type",
       header: "Nature du coût",
       render: (row) => (
-        <span className="font-semibold uppercase text-xs">{row.type}</span>
+        <span className="font-semibold uppercase text-xs">
+          {financeEntryLabel(row.type)}
+        </span>
       ),
     },
     {
@@ -646,7 +764,16 @@ export default function FinanceDashboardPage() {
       render: (row) => (
         <StatusBadge
           variant={row.status === "POSTED" ? "green" : "gray"}
-          label={row.status === "POSTED" ? "Comptabilisé" : "Extourné"}
+          label={
+            (
+              {
+                VALIDATED: "Validé",
+                REVERSED: "Extourné",
+                PENDING: "En attente",
+                CANCELLED: "Annulé",
+              } as Record<string, string>
+            )[row.status] ?? row.status
+          }
           size="sm"
         />
       ),
@@ -713,6 +840,24 @@ export default function FinanceDashboardPage() {
         subtitle="Journal des écritures, trésorerie, rentabilité, débours et cours de change"
       />
 
+      {confirmingPayment && (
+        <PaymentAccountDialog
+          currency={confirmingPayment.currency}
+          onClose={() => setConfirmingPayment(null)}
+          onConfirm={async (treasuryAccountId, rateType) => {
+            await confirmSupplierPayment(confirmingPayment.id, {
+              treasuryAccountId,
+              rateType,
+            });
+            await Promise.all([
+              loadSupplierPayments(),
+              loadOverview(),
+              loadTreasury(),
+              loadTransactions(),
+            ]);
+          }}
+        />
+      )}
       <div className="p-8 space-y-6">
         {loadError && (
           <div className="rounded-card border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -771,7 +916,7 @@ export default function FinanceDashboardPage() {
                   {overview.baseCurrency}
                 </p>
                 <p className="text-xs text-muted mt-1">
-                  Bénéfice opérationnel brut
+                  Revenus reconnus − coûts directs réels
                 </p>
               </div>
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -789,7 +934,7 @@ export default function FinanceDashboardPage() {
                   {overview.baseCurrency}
                 </p>
                 <p className="text-xs text-muted mt-1">
-                  Factures en attente de solde
+                  Soldes clients des contrats et échéanciers
                 </p>
               </div>
               <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600">
@@ -799,6 +944,20 @@ export default function FinanceDashboardPage() {
           </div>
         )}
 
+        {overview && (
+          <p className="text-sm text-muted">
+            Marge estimée :{" "}
+            {formatMontant(Number(overview.estimatedMargin ?? 0))} DZD · Coûts
+            directs réels : {formatMontant(Number(overview.directCosts ?? 0))}{" "}
+            DZD · Charges générales :{" "}
+            {formatMontant(Number(overview.operatingCosts ?? 0))} DZD
+          </p>
+        )}
+        {overview?.dataQuality?.warnings.map((warning) => (
+          <p key={warning} role="status" className="text-sm text-amber-800">
+            {warning}
+          </p>
+        ))}
         {/* Navigation Tabs (6 tabs) */}
         <div className="flex border-b border-border gap-6 overflow-x-auto">
           <button
@@ -890,7 +1049,7 @@ export default function FinanceDashboardPage() {
                     >
                       <div>
                         <span className="font-semibold">
-                          {transaction.type}
+                          {financeEntryLabel(transaction.type)}
                         </span>
                         <p className="text-xs text-muted">
                           {transaction.sourceModule}
@@ -998,6 +1157,20 @@ export default function FinanceDashboardPage() {
             </div>
 
             <div className="card p-0 overflow-hidden">
+              {hasPermission(Permission.TREASURY_WRITE) && (
+                <div className="p-4">
+                  <TreasuryControls
+                    accounts={treasuryAccounts}
+                    onSaved={async () => {
+                      await Promise.all([
+                        loadTreasury(),
+                        loadTransactions(),
+                        loadOverview(),
+                      ]);
+                    }}
+                  />
+                </div>
+              )}
               <DataTable columns={TREASURY_COLUMNS} data={treasuryAccounts} />
             </div>
           </div>
@@ -1006,6 +1179,71 @@ export default function FinanceDashboardPage() {
         {/* TAB 4: SUPPLIER PAYMENTS */}
         {activeTab === "supplier" && (
           <div className="space-y-4">
+            <div className="card overflow-x-auto p-4">
+              <h3 className="mb-3 font-bold">
+                Situation fournisseur par achat
+              </h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Achat / fournisseur</th>
+                    <th>Total</th>
+                    <th>Payé</th>
+                    <th>Reste</th>
+                    <th>Échéance</th>
+                    <th>Compte</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.map((p) => (
+                    <tr key={p.id} className="border-t">
+                      <td>
+                        {p.purchaseNumber} · {p.supplier?.name}
+                      </td>
+                      <td>
+                        {formatMontant(
+                          Number(p.settlement?.total ?? p.purchasePrice),
+                        )}{" "}
+                        {p.currency}
+                      </td>
+                      <td>
+                        {formatMontant(Number(p.settlement?.paid ?? 0))}{" "}
+                        {p.currency}
+                      </td>
+                      <td>
+                        {formatMontant(
+                          Number(p.settlement?.remaining ?? p.purchasePrice),
+                        )}{" "}
+                        {p.currency}
+                      </td>
+                      <td>
+                        {p.settlement?.dueDate
+                          ? formatDate(p.settlement.dueDate)
+                          : "Non renseignée"}
+                      </td>
+                      <td>
+                        {p.settlement?.accounts.map((a) => a.name).join(", ") ||
+                          "—"}
+                      </td>
+                      <td>
+                        {
+                          (
+                            {
+                              UNPAID: "Non payé",
+                              PARTIALLY_PAID: "Partiellement payé",
+                              PAID: "Payé",
+                              OVERDUE: "En retard",
+                              CANCELLED: "Annulé",
+                            } as Record<string, string>
+                          )[p.settlement?.status ?? "UNPAID"]
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-base text-foreground">
                 Règlements Fournisseurs & Achats Véhicules
@@ -1200,6 +1438,45 @@ export default function FinanceDashboardPage() {
               Enregistrer un coût opérationnel
             </h3>
             <form onSubmit={handleCreateCost} className="space-y-4">
+              <label className="block">
+                Affectation
+                <select
+                  className="w-full rounded border p-2"
+                  value={costScope}
+                  onChange={(e) => {
+                    setCostScope(e.target.value as "DIRECT" | "OPERATING");
+                    setNewCostType(
+                      e.target.value === "DIRECT" ? "SHIPPING" : "RENT",
+                    );
+                  }}
+                >
+                  <option value="OPERATING">Charge générale société</option>
+                  <option value="DIRECT">
+                    Dossier spécifique / véhicule du dossier
+                  </option>
+                </select>
+              </label>
+              {costScope === "DIRECT" && (
+                <label className="block">
+                  Dossier
+                  <select
+                    required
+                    className="w-full rounded border p-2"
+                    value={costDossierId}
+                    onChange={(e) => setCostDossierId(e.target.value)}
+                  >
+                    <option value="">Sélectionner un dossier</option>
+                    {costDossiers.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.reference} ·{" "}
+                        {d.vehicles
+                          ?.map((v) => `${v.brand} ${v.model}`)
+                          .join(", ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-muted uppercase mb-1">
                   Catégorie / Nature
@@ -1209,11 +1486,30 @@ export default function FinanceDashboardPage() {
                   onChange={(e) => setNewCostType(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                 >
-                  <option value="RENT">Loyer</option>
-                  <option value="SALARY">Salaires</option>
-                  <option value="ADVERTISING">Publicité</option>
-                  <option value="GENERAL">Frais généraux</option>
-                  <option value="OTHER">Autre charge d’exploitation</option>
+                  {costScope === "DIRECT" && (
+                    <>
+                      <option value="SHIPPING">Fret maritime</option>
+                      <option value="INSURANCE">Assurance</option>
+                      <option value="CUSTOMS">Douane</option>
+                      <option value="TRANSIT">Transit</option>
+                      <option value="PORT">Port</option>
+                      <option value="LOCAL_TRANSPORT">Transport local</option>
+                      <option value="INSPECTION">Inspection</option>
+                    </>
+                  )}
+                  {costScope === "OPERATING" && (
+                    <>
+                      <option value="RENT">Loyer</option>
+                      <option value="SALARY">Salaires</option>
+                      <option value="ADVERTISING">Publicité</option>
+                      <option value="GENERAL">Frais généraux</option>
+                    </>
+                  )}
+                  <option value="OTHER">
+                    {costScope === "DIRECT"
+                      ? "Autres coûts directs"
+                      : "Autre charge d’exploitation"}
+                  </option>
                 </select>
               </div>
 
@@ -1241,7 +1537,7 @@ export default function FinanceDashboardPage() {
                     onChange={(e) => setNewCostCurrency(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-border rounded-input bg-background"
                   >
-                    {configuredCurrencies.map((currency) => (
+                    {["DZD", ...configuredCurrencies].map((currency) => (
                       <option key={currency} value={currency}>
                         {currency}
                       </option>
@@ -1328,6 +1624,28 @@ export default function FinanceDashboardPage() {
               Ajouter un cours de change
             </h3>
             <form onSubmit={handleCreateRate} className="space-y-4">
+              <label className="block">
+                Type de taux
+                <select
+                  className="w-full rounded border p-2"
+                  value={newRateType}
+                  onChange={(e) => setNewRateType(e.target.value)}
+                >
+                  <option value="COMMERCIAL">Commercial</option>
+                  <option value="BANK">Banque</option>
+                  <option value="INTERNAL">Interne</option>
+                  <option value="MANUAL">Manuel</option>
+                </select>
+              </label>
+              <label className="block">
+                Date d’effet
+                <input
+                  type="datetime-local"
+                  className="w-full rounded border p-2"
+                  value={newRateDate}
+                  onChange={(e) => setNewRateDate(e.target.value)}
+                />
+              </label>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-muted uppercase mb-1">

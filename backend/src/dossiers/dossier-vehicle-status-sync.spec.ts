@@ -1,3 +1,4 @@
+import { DossierStatusPropagationService } from './workflows/dossier-status-propagation.service';
 import { ConflictException } from '@nestjs/common';
 import { DossierStatus, VehicleStatus } from '@auto-import/contracts';
 import { getTargetVehicleStatus } from './workflows/dossier-vehicle-status.map';
@@ -252,6 +253,7 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
       new DossierWorkflowService(),
       new VehicleStatusSyncService(),
       documentsGate as never,
+      new DossierStatusPropagationService(new VehicleStatusSyncService(), { syncFromDossier: jest.fn() } as never),
     );
   });
 

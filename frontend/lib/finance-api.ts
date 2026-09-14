@@ -170,6 +170,15 @@ export interface ApiSupplierPayment {
 }
 
 export interface ApiPurchaseForPayment {
+  settlement?: {
+    total: string;
+    paid: string;
+    remaining: string;
+    currency: string;
+    dueDate?: string | null;
+    status: string;
+    accounts: Array<{ id: string; code: string; name: string }>;
+  };
   id: string;
   purchaseNumber: string;
   supplierId: string;
@@ -203,6 +212,7 @@ export interface ApiCost {
 }
 
 export interface ApiExchangeRate {
+  rateType?: string;
   id: string;
   baseCurrency: string;
   quoteCurrency: string;
@@ -251,6 +261,10 @@ export interface DossierFinancialSummary {
     outstanding: string;
   };
   profitability: {
+    estimatedMarginDzd?: string | null;
+    actualMarginDzd?: string;
+    actualCostsRecorded?: boolean;
+    finalized?: boolean;
     grossMargin: string;
     grossMarginPercentage: string;
   };
@@ -261,6 +275,11 @@ export interface DossierFinancialSummary {
 }
 
 export interface OrganizationFinancialOverview {
+  estimatedMargin?: string;
+  recognizedRevenue?: string;
+  directCosts?: string;
+  operatingCosts?: string;
+  dataQuality?: { complete: boolean; warnings: string[] };
   baseCurrency: string;
   totalInvoiced: string;
   totalCollected: string;
@@ -291,6 +310,19 @@ export interface ApiContract {
 }
 
 export interface ApiFinanceTransaction {
+  office?: { id: string; name: string } | null;
+  treasuryAccount?: { id: string; name: string; code: string } | null;
+  dossier?: { id: string; reference: string } | null;
+  client?: { firstName: string; lastName: string } | null;
+  supplier?: { name: string } | null;
+  reference?: string | null;
+  reversalOfId?: string | null;
+  reversalReason?: string | null;
+  purchase?: {
+    vehicle?: { brand: string; model: string; vin?: string | null };
+  } | null;
+  rateType?: string;
+
   id: string;
   type: string;
   direction: "CREDIT" | "DEBIT";
@@ -305,6 +337,11 @@ export interface ApiFinanceTransaction {
 }
 
 export interface ApiTreasuryAccount {
+  officeId?: string | null;
+  office?: { id: string; name: string } | null;
+  openingBalance?: string;
+  inflows?: string;
+  outflows?: string;
   id: string;
   code: string;
   name: string;
@@ -485,9 +522,13 @@ export async function recordPayment(data: {
   });
 }
 
-export async function confirmPayment(id: string): Promise<ApiPayment> {
+export async function confirmPayment(
+  id: string,
+  links: { treasuryAccountId?: string; rateType?: string } = {},
+): Promise<ApiPayment> {
   return apiRequest<ApiPayment>(`/finance/payments/${id}/confirm`, {
     method: "POST",
+    body: JSON.stringify(links),
   });
 }
 
@@ -572,7 +613,11 @@ export async function createSupplierPayment(data: {
 
 export async function confirmSupplierPayment(
   id: string,
-  data: { treasuryAccountId?: string; supportingDocumentId?: string } = {},
+  data: {
+    treasuryAccountId?: string;
+    supportingDocumentId?: string;
+    rateType?: string;
+  } = {},
 ): Promise<ApiSupplierPayment> {
   return apiRequest<ApiSupplierPayment>(
     `/finance/supplier-payments/${id}/confirm`,
@@ -671,6 +716,7 @@ export async function fetchExchangeRates(params: {
 }
 
 export async function createExchangeRate(data: {
+  rateType?: string;
   baseCurrency: string;
   quoteCurrency: string;
   rate: number;
@@ -705,4 +751,76 @@ export async function fetchDossierFinancialSummary(
 
 export async function fetchOrganizationFinancialOverview(): Promise<OrganizationFinancialOverview> {
   return apiRequest<OrganizationFinancialOverview>("/finance/summary");
+}
+
+export const fetchPaymentAccounts = () =>
+  apiRequest<ApiTreasuryAccount[]>("/finance/treasury/payment-accounts");
+export const createTreasuryAccount = (data: {
+  code: string;
+  name: string;
+  officeId: string;
+  currency: string;
+  type: string;
+  openingBalance: number;
+}) =>
+  apiRequest<ApiTreasuryAccount>("/finance/treasury/accounts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+export const updateTreasuryAccount = (
+  id: string,
+  data: { officeId?: string; name?: string; status?: string },
+) =>
+  apiRequest<ApiTreasuryAccount>(`/finance/treasury/accounts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+export const transferTreasury = (data: {
+  sourceAccountId: string;
+  destinationAccountId: string;
+  amount: number;
+  destinationAmount?: number;
+  reference: string;
+  idempotencyKey: string;
+}) =>
+  apiRequest("/finance/treasury/transfers", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+export const reverseFinanceTransaction = (id: string, reason: string) =>
+  apiRequest(`/finance/transactions/${id}/reverse`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+export function financeEntryLabel(code: string): string {
+  const labels: Record<string, string> = {
+    CUSTOMER_COLLECTION: "Encaissement client",
+    SUPPLIER_PAYMENT: "Paiement fournisseur",
+    PURCHASE_COMMITMENT: "Engagement achat",
+    DIRECT_COST_PURCHASE: "Achat véhicule",
+    DIRECT_COST_SUPPLIER: "Achat véhicule",
+    DIRECT_COST_SHIPPING: "Fret maritime",
+    DIRECT_COST_FREIGHT: "Fret maritime",
+    DIRECT_COST_INSURANCE: "Assurance",
+    DIRECT_COST_CUSTOMS: "Douane",
+    DIRECT_COST_DUTY: "Douane",
+    DIRECT_COST_TAX: "Taxes",
+    DIRECT_COST_TRANSIT: "Transit",
+    DIRECT_COST_PORT: "Port",
+    DIRECT_COST_LOCAL_TRANSPORT: "Transport local",
+    DIRECT_COST_INSPECTION: "Inspection",
+    OPERATING_EXPENSE: "Charge générale",
+    TREASURY_TRANSFER: "Transfert de trésorerie",
+    COST: "Coût enregistré",
+    CUSTOMER_PAYMENT: "Paiement client",
+    CUSTOMS_ACTUAL: "Douane",
+  };
+  if (code.endsWith("_REVERSAL"))
+    return `Extourne — ${financeEntryLabel(code.slice(0, -9))}`;
+  return (
+    labels[code] ??
+    (code.startsWith("DIRECT_COST_")
+      ? "Autres coûts directs"
+      : code.replaceAll("_", " "))
+  );
 }

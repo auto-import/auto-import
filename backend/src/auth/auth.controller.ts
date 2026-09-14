@@ -1,5 +1,9 @@
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { VerifyTwoFactorLoginDto } from './dto/two-factor.dto';
 import {
   Body,
+  Header,
+  UseGuards,
   Controller,
   ForbiddenException,
   Get,
@@ -34,18 +38,52 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() loginDto: LoginDto,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
+    this.assertTrustedOrigin(request);
     const user = await this.authService.validateUser(
       loginDto.email,
       loginDto.password,
     );
     const result = await this.authService.login(
       user,
+      this.sessionMetadata(request),
+    );
+    if ('twoFactorRequired' in result) {
+      await this.authService.logout(this.readRefreshCookie(request));
+      response.clearCookie(REFRESH_COOKIE, this.cookieSecurityOptions);
+      return result;
+    }
+    this.setRefreshCookie(
+      response,
+      result.refreshToken,
+      result.refreshExpiresAt,
+    );
+    return { accessToken: result.accessToken, user: result.user };
+  }
+
+  @Public()
+  @Post('two-factor/verify')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Header('Cache-Control', 'no-store')
+  @HttpCode(HttpStatus.OK)
+  async verifyTwoFactor(
+    @Body() dto: VerifyTwoFactorLoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    this.assertTrustedOrigin(request);
+    const result = await this.authService.completeTwoFactor(
+      dto.challengeToken,
+      dto.code,
       this.sessionMetadata(request),
     );
     this.setRefreshCookie(

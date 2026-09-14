@@ -1,4 +1,8 @@
 import {
+  assertAccessToken,
+  type AccessTokenPayload,
+} from '../auth/access-token';
+import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   WebSocketGateway,
@@ -40,8 +44,12 @@ export class CallCenterGateway
           ? client.handshake.auth.token
           : header?.replace(/^Bearer\s+/i, '');
       if (!token) throw new Error('Missing token');
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token);
-      const user = await this.auth.getCurrentUser(payload.sub);
+      const payload = await this.jwt.verifyAsync<AccessTokenPayload>(token);
+      assertAccessToken(payload);
+      const user = await this.auth.getCurrentUser(
+        payload.sub,
+        payload.authVersion ?? 0,
+      );
       if (!user.permissions.includes(Permission.CALL_CENTER_ACCESS)) {
         throw new Error('Insufficient permission');
       }

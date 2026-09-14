@@ -18,6 +18,8 @@ import {
   type ApiVehicle,
   type ApiVehicleLookup,
 } from "@/lib/commerce-api";
+import { VEHICLE_COLOR_LABELS, VEHICLE_PAINT_CONDITION_LABELS } from "@/lib/vehicle-appearance";
+import QuotationDialog from "./QuotationDialog";
 import VehicleLookupCreateDialog from "./VehicleLookupCreateDialog";
 import {
   buttonClass,
@@ -52,6 +54,7 @@ const empty = {
   fuelType: "",
   transmission: "",
   color: "",
+  paintCondition: "UNKNOWN",
   bodyType: "",
   lengthCm: "",
   widthCm: "",
@@ -81,6 +84,8 @@ function computeVehiclePricing(form: typeof empty) {
 
 export default function VehicleStockPolished() {
   const { hasPermission } = useAuth();
+  const [quoteVehicle, setQuoteVehicle] = useState<ApiVehicle | null>(null);
+  const canQuote = hasPermission(Permission.OFFERS_WRITE);
   const canWrite = hasPermission(Permission.VEHICLES_WRITE);
   const canSeePrices = hasPermission(Permission.FINANCE_READ);
   const [items, setItems] = useState<ApiVehicle[]>([]);
@@ -199,7 +204,8 @@ export default function VehicleStockPolished() {
             engine: vehicle.specs?.engine ?? "",
             fuelType: vehicle.specs?.fuelType ?? "",
             transmission: vehicle.specs?.transmission ?? "",
-            color: vehicle.specs?.color ?? "",
+            color: vehicle.color ?? "",
+            paintCondition: vehicle.paintCondition ?? "UNKNOWN",
             bodyType: vehicle.bodyType ?? "",
             lengthCm: String(vehicle.lengthCm ?? ""),
             widthCm: String(vehicle.widthCm ?? ""),
@@ -266,6 +272,8 @@ export default function VehicleStockPolished() {
       year: form.year || undefined,
       mileage: form.mileage || undefined,
       condition: form.condition,
+      color: editing && form.color === (editing.color ?? "") ? undefined : (form.color || (editing ? null : undefined)),
+      paintCondition: form.paintCondition,
       currency: form.currency,
       fobFcaPrice: form.fobFcaPrice ? Number(form.fobFcaPrice) : undefined,
       shippingPrice: form.shippingPrice
@@ -303,7 +311,6 @@ export default function VehicleStockPolished() {
         engine: form.engine || undefined,
         fuelType: form.fuelType || undefined,
         transmission: form.transmission || undefined,
-        color: form.color || undefined,
         description: form.description || undefined,
       });
       setFormOpen(false);
@@ -319,6 +326,23 @@ export default function VehicleStockPolished() {
   }
   return (
     <>
+      {quoteVehicle && (
+        <QuotationDialog
+          source={{
+            type: "VEHICLE",
+            id: quoteVehicle.id,
+            vehicles: [
+              {
+                ...quoteVehicle,
+                version: quoteVehicle.trim,
+                supplierPrice: quoteVehicle.purchasePrice,
+              },
+            ],
+          }}
+          onClose={() => setQuoteVehicle(null)}
+          onCreated={() => setQuoteVehicle(null)}
+        />
+      )}
       <Topbar title="Véhicules / Stock" subtitle="Gestion du parc automobile" />
       <main className="space-y-6 p-4 sm:p-8">
         <section className="flex flex-wrap gap-3">
@@ -433,7 +457,7 @@ export default function VehicleStockPolished() {
                         </h2>
                         <p className="text-sm text-muted">
                           {vehicle.year ?? "Non renseigné"} ·{" "}
-                          {vehicle.specs?.color ?? "Couleur non renseignée"}
+                          {vehicle.color ? VEHICLE_COLOR_LABELS[vehicle.color] : (vehicle.specs?.color ?? "Couleur non renseignée")}
                         </p>
                       </div>
                       <span className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
@@ -462,6 +486,14 @@ export default function VehicleStockPolished() {
                         Photos incomplètes · compléter à la prochaine
                         modification
                       </p>
+                    )}
+                    {canQuote && vehicle.status === "available" && (
+                      <button
+                        className={buttonClass}
+                        onClick={() => setQuoteVehicle(vehicle)}
+                      >
+                        Créer un devis
+                      </button>
                     )}
                     <div className="flex items-center justify-between border-t border-border pt-4">
                       <strong>
@@ -578,7 +610,8 @@ function VehicleDialog({
     ["Puissance", vehicle.specs?.power],
     ["Portes", vehicle.specs?.doors],
     ["Places", vehicle.specs?.seats],
-    ["Couleur extérieure", vehicle.specs?.color],
+    ["Couleur extérieure", vehicle.color ? VEHICLE_COLOR_LABELS[vehicle.color] : vehicle.specs?.color],
+    ["État de la peinture", VEHICLE_PAINT_CONDITION_LABELS[vehicle.paintCondition ?? "UNKNOWN"]],
     ["Finition", vehicle.trim],
     ["Carrosserie", vehicle.bodyType],
     ["Transmission intégrale", vehicle.drivetrain],
@@ -909,14 +942,21 @@ function VehicleForm({
               setForm((current) => ({ ...current, transmission }))
             }
           />
-          <ManagedLookupSelect
-            kind="COLOR"
-            label="Couleur"
-            value={form.color}
-            lookups={lookups}
-            setLookups={setLookups}
-            onChange={(color) => setForm((current) => ({ ...current, color }))}
-          />
+          <label>
+            <span className="field-label">Couleur extérieure</span>
+            <select className={inputClass} value={form.color}
+              onChange={(event) => setForm((current) => ({ ...current, color: event.target.value }))}>
+              <option value="">Non renseignée</option>
+              {Object.entries(VEHICLE_COLOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="field-label">État de la peinture</span>
+            <select className={inputClass} value={form.paintCondition}
+              onChange={(event) => setForm((current) => ({ ...current, paintCondition: event.target.value }))}>
+              {Object.entries(VEHICLE_PAINT_CONDITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
           <ManagedLookupSelect
             kind="BODY_TYPE"
             label="Carrosserie"

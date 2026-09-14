@@ -16,7 +16,7 @@ export class CreateVehicleSpecDto {
 
   @IsOptional()
   @IsString()
-  color?: string;
+  color?: string | null;
 
   @IsOptional()
   @Type(() => Number)

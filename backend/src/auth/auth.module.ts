@@ -1,3 +1,6 @@
+import { TwoFactorController } from './two-factor.controller';
+import { TwoFactorService } from './two-factor.service';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -9,6 +12,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 @Module({
   imports: [
     PassportModule,
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -18,8 +22,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  controllers: [AuthController, TwoFactorController],
+  providers: [AuthService, JwtStrategy, TwoFactorService],
   exports: [AuthService],
 })
 export class AuthModule {}

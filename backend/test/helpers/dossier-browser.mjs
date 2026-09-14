@@ -55,6 +55,7 @@ try {
   const pending = new Map();
   const requests = new Map();
   const responses = [];
+  const serverErrors = [];
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data));
     if (message.id) {
@@ -63,6 +64,14 @@ try {
       if (message.error) handler?.reject(new Error(message.error.message));
       else handler?.resolve(message.result);
     }
+    if (
+      message.method === 'Network.responseReceived' &&
+      message.params.response.status >= 500
+    )
+      serverErrors.push({
+        url: message.params.response.url,
+        status: message.params.response.status,
+      });
     if (message.method === 'Network.requestWillBeSent') {
       const r = message.params.request;
       if (new URL(r.url).pathname.startsWith('/api/dossiers')) {
@@ -185,10 +194,14 @@ try {
     form.set('dossierId',${JSON.stringify(dossierId)});form.set('kind','CONTRACT');form.set('documentType','SIGNED_CONTRACT');
     return (await fetch(${JSON.stringify(`${api}/documents/upload`)},{method:'POST',credentials:'include',headers:{Authorization:${JSON.stringify(`Bearer ${login.accessToken}`)}},body:form})).status;
   })()`);
-  if (uploadStatus !== 201) throw new Error(`Contract upload returned ${uploadStatus}`);
+  if (uploadStatus !== 201)
+    throw new Error(`Contract upload returned ${uploadStatus}`);
   await click('Contrat signé');
   await click('Acompte reçu');
-  await waitFor("document.querySelector('[role=dialog]')!==null", 'deposit modal');
+  await waitFor(
+    "document.querySelector('[role=dialog]')!==null",
+    'deposit modal',
+  );
   const setField = async (label, value, tag = 'input') => {
     await evaluate(`(()=>{
       const element=[...document.querySelectorAll('[role=dialog] label')].find(l=>l.textContent.includes(${JSON.stringify(label)}))?.querySelector(${JSON.stringify(tag)});
@@ -198,25 +211,79 @@ try {
     })()`);
   };
   await setField('Montant reçu', '10000');
-  await waitFor("document.querySelector('[role=dialog]').innerText.includes('2500000.00 DZD')", 'USD Finance conversion');
+  await waitFor(
+    "document.querySelector('[role=dialog]').innerText.includes('2500000.00 DZD')",
+    'USD Finance conversion',
+  );
   await setField('Devise', 'CNY', 'select');
-  await waitFor("document.querySelector('[role=dialog]').innerText.includes('350000.00 DZD')", 'CNY Finance conversion');
+  await waitFor(
+    "document.querySelector('[role=dialog]').innerText.includes('350000.00 DZD')",
+    'CNY Finance conversion',
+  );
   await setField('Devise', 'USD', 'select');
   await setField('Moyen de paiement', 'BANK_TRANSFER', 'select');
+  await select('Compte de trésorerie', process.env.DOSSIER_BROWSER_TREASURY);
   await click('Valider l’étape');
-  await waitFor("document.querySelector('[role=dialog]')===null", 'deposit saved');
+  await waitFor(
+    "document.querySelector('[role=dialog]')===null",
+    'deposit saved',
+  );
   await click('Vehicle Booking');
-  await waitFor("document.querySelector('[role=dialog] select')?.value.length>0", 'assigned booking vehicle');
-  const vehicleId = await evaluate("document.querySelector('[role=dialog] select').value");
-  const optionCount = await evaluate("document.querySelector('[role=dialog] select').options.length");
-  if (optionCount !== 2) throw new Error('Booking contains unexpected vehicles');
+  await waitFor(
+    "document.querySelector('[role=dialog] select')?.value.length>0",
+    'assigned booking vehicle',
+  );
+  const vehicleId = await evaluate(
+    "document.querySelector('[role=dialog] select').value",
+  );
+  const optionCount = await evaluate(
+    "document.querySelector('[role=dialog] select').options.length",
+  );
+  if (optionCount !== 2)
+    throw new Error('Booking contains unexpected vehicles');
   await click('Valider l’étape');
-  await waitFor("document.querySelector('[role=dialog]')===null", 'booking saved');
+  await waitFor(
+    "document.querySelector('[role=dialog]')===null",
+    'booking saved',
+  );
   await navigate(`/dossiers/${dossierId}`);
   await waitFor("document.body.innerText.includes('CA-')", 'reloaded booking');
-  const saved = await evaluate(`fetch(${JSON.stringify(`${api}/dossiers/${dossierId}`)},{credentials:'include',headers:{Authorization:${JSON.stringify(`Bearer ${login.accessToken}`)}}}).then(r=>r.json()).then(r=>r.data)`);
-  if(saved.vehicleBookingVehicleId!==vehicleId||saved.vehicles[0]?.id!==vehicleId)throw new Error('Booking changed on reload');
-  console.log(JSON.stringify({ dossierId, post, detail }));
+  const saved = await evaluate(
+    `fetch(${JSON.stringify(`${api}/dossiers/${dossierId}`)},{credentials:'include',headers:{Authorization:${JSON.stringify(`Bearer ${login.accessToken}`)}}}).then(r=>r.json()).then(r=>r.data)`,
+  );
+  if (
+    saved.vehicleBookingVehicleId !== vehicleId ||
+    saved.vehicles[0]?.id !== vehicleId
+  )
+    throw new Error('Booking changed on reload');
+  await navigate('/finance');
+  await waitFor(
+    "document.body.innerText.includes('Journal des Écritures')",
+    'Finance dashboard',
+  );
+  for (const tab of [
+    'Journal des Écritures',
+    'Comptes & Trésorerie',
+    'Règlements Fournisseurs',
+    'Charges & Débours',
+    'Cours de Change',
+  ]) {
+    await evaluate(
+      `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith(${JSON.stringify(tab)})).click()`,
+    );
+    await pause(300);
+    const content = await evaluate('document.body.innerText');
+    if (
+      content.includes('Internal server error') ||
+      content.includes('Application error')
+    )
+      throw new Error(`Finance tab failed: ${tab}`);
+  }
+  if (serverErrors.length)
+    throw new Error(
+      `Server errors in browser: ${JSON.stringify(serverErrors)}`,
+    );
+  console.log(JSON.stringify({ dossierId, post, detail, financeTabs: 5 }));
 } finally {
   socket?.close();
   chrome.kill();

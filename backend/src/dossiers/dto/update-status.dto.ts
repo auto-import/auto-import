@@ -15,6 +15,7 @@ import {
 import { DossierStatus } from '@auto-import/contracts';
 
 export class DepositTransitionDataDto {
+  @IsUUID() treasuryAccountId: string;
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
@@ -36,6 +37,7 @@ export class VehicleBookingTransitionDataDto {
 }
 
 export class PurchaseTransitionDataDto {
+  @IsOptional() @IsDateString() dueDate?: string;
   @IsString() invoiceNumber: string;
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

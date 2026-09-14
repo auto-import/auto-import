@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsIn,
   IsNumber,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -47,13 +48,32 @@ export class CreateContractCollectionDto {
 }
 
 export class CreateTreasuryAccountDto {
-  @IsString() @MaxLength(40) code!: string;
-  @IsString() @MaxLength(120) name!: string;
+  @IsUUID() officeId!: string;
+  @IsString() @IsNotEmpty() @MaxLength(40) code!: string;
+  @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
   @IsIn(['CASH', 'BANK', 'CURRENCY', 'OTHER']) type!: string;
   @IsIn(['USD', 'CNY', 'DZD']) currency!: string;
   @IsOptional() @IsNumber() openingBalance?: number;
 }
 
 export class ReverseFinanceTransactionDto {
-  @IsString() @MaxLength(500) reason!: string;
+  @IsString() @IsNotEmpty() @MaxLength(500) reason!: string;
+}
+
+export class TransferTreasuryDto {
+  @IsUUID() sourceAccountId!: string;
+  @IsUUID() destinationAccountId!: string;
+  @IsNumber() @Min(0.01) amount!: number;
+  @IsOptional() @IsNumber() @Min(0.01) destinationAmount?: number;
+  @IsString() @IsNotEmpty() @MaxLength(160) idempotencyKey!: string;
+  @IsString() @IsNotEmpty() @MaxLength(160) reference!: string;
+  @IsOptional() @IsDateString() occurredAt?: string;
+  @IsOptional()
+  @IsIn(['COMMERCIAL', 'BANK', 'INTERNAL', 'MANUAL'])
+  rateType?: string;
+}
+export class UpdateTreasuryAccountDto {
+  @IsOptional() @IsUUID() officeId?: string;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) name?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: string;
 }

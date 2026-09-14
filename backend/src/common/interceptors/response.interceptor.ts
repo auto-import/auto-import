@@ -1,3 +1,5 @@
+import { financialVisibility } from '../security/financial-visibility';
+import type { AuthenticatedUser } from '../../auth/auth.types';
 import {
   Injectable,
   NestInterceptor,
@@ -34,7 +36,10 @@ export class ResponseInterceptor<T> implements NestInterceptor<
     return next.handle().pipe(
       map((data) => ({
         success: true as const,
-        data: makeJsonSafe(data),
+        data: financialVisibility(
+          makeJsonSafe(data),
+          (request as Request & { user?: AuthenticatedUser }).user,
+        ) as T,
         timestamp: new Date().toISOString(),
         path: request.originalUrl ?? request.url,
         statusCode: response.statusCode,

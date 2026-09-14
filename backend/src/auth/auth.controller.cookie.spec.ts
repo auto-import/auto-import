@@ -24,7 +24,12 @@ describe('AuthController refresh cookie deployment policy', () => {
       }),
     };
     const response = { cookie: jest.fn() };
-    const request = { ip: '203.0.113.20', get: jest.fn(() => 'test-agent') };
+    const request = {
+      ip: '203.0.113.20',
+      get: jest.fn((name: string) =>
+        name === 'user-agent' ? 'test-agent' : undefined,
+      ),
+    };
     const controller = new AuthController(
       authService as unknown as AuthService,
       configService as unknown as ConfigService,

@@ -12,7 +12,12 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { Permission } from "@/lib/api-contract";
 import type { ApiPermission } from "@/lib/api-contract";
-import { ApiError, authApi, type AuthenticatedUser } from "@/lib/api";
+import {
+  ApiError,
+  authApi,
+  type AuthenticatedUser,
+  type TwoFactorChallenge,
+} from "@/lib/api";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
@@ -20,7 +25,11 @@ interface AuthContextValue {
   currentUser: AuthenticatedUser | null;
   status: AuthStatus;
   error: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (
+    email: string,
+    password: string,
+  ) => Promise<TwoFactorChallenge | undefined>;
+  completeTwoFactor: (challengeToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   retryRestore: () => Promise<void>;
   hasPermission: (permission: ApiPermission) => boolean;
@@ -79,9 +88,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     setError(null);
     const user = await authApi.login(email, password);
+    if ("twoFactorRequired" in user) {
+      setCurrentUser(null);
+      setStatus("unauthenticated");
+      return user;
+    }
     setCurrentUser(user);
     setStatus("authenticated");
   }, []);
+
+  const completeTwoFactor = useCallback(
+    async (challengeToken: string, code: string) => {
+      const user = await authApi.completeTwoFactor(challengeToken, code);
+      setCurrentUser(user);
+      setStatus("authenticated");
+    },
+    [],
+  );
 
   const logout = useCallback(async () => {
     await authApi.logout();
@@ -107,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       error,
       login,
+      completeTwoFactor,
       logout,
       retryRestore: restore,
       hasPermission,
@@ -118,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       error,
       hasPermission,
       login,
+      completeTwoFactor,
       logout,
       permissions,
       restore,

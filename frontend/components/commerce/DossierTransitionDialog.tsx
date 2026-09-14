@@ -12,6 +12,7 @@ import {
 } from "@/lib/commerce-api";
 import { adminApi, type OfficeSummary } from "@/lib/admin-api";
 import { uploadDocument } from "@/lib/documents-api";
+import TreasuryAccountSelect from "./TreasuryAccountSelect";
 import { inputClass } from "./common";
 import {
   amountDzd,
@@ -61,7 +62,8 @@ export default function DossierTransitionDialog({
   useEffect(() => {
     if (status !== "depositReceived") return;
     let active = true;
-    void adminApi.lookupOffices()
+    void adminApi
+      .lookupOffices()
       .then((records) => {
         if (active) setOffices(records);
       })
@@ -72,7 +74,9 @@ export default function DossierTransitionDialog({
           );
         }
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [status]);
   const [file, setFile] = useState<File | null>(null);
   const [working, setWorking] = useState(false);
@@ -162,6 +166,7 @@ export default function DossierTransitionDialog({
           amount: Number(form.amount),
           currency: form.currency,
           officeId: form.officeId || undefined,
+          treasuryAccountId: form.treasuryAccountId,
           exchangeRateId: rate?.exchangeRateId,
           paymentMethod: form.paymentMethod,
           receivedAt: form.receivedAt,
@@ -181,6 +186,7 @@ export default function DossierTransitionDialog({
           currency: form.currency,
           exchangeRateId: rate?.exchangeRateId,
           invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate || undefined,
           supplierId: form.supplierId,
         };
       } else if (status === "inspection") {
@@ -266,6 +272,12 @@ export default function DossierTransitionDialog({
                 </select>
                 {officeError && <span role="alert">{officeError}</span>}
               </label>
+              <TreasuryAccountSelect
+                currency={form.currency}
+                officeId={form.officeId}
+                value={form.treasuryAccountId ?? ""}
+                onChange={(v) => field("treasuryAccountId", v)}
+              />
               <label>
                 <span className="field-label">Moyen de paiement *</span>
                 <select
@@ -316,8 +328,8 @@ export default function DossierTransitionDialog({
               </label>
               {!dossier.vehicles.length && (
                 <p role="alert" className="sm:col-span-2 text-sm text-red-700">
-                  Aucun véhicule n'est associé à ce dossier. Vérifiez la
-                  relation catalogue du dossier et l'application des migrations.
+                  Aucun véhicule n’est associé à ce dossier. Vérifiez la
+                  relation catalogue du dossier et l’application des migrations.
                 </p>
               )}
               <RequiredInput
@@ -352,6 +364,12 @@ export default function DossierTransitionDialog({
                 type="date"
                 value={form.invoiceDate}
                 onChange={(v) => field("invoiceDate", v)}
+              />
+              <Input
+                label="Échéance fournisseur"
+                type="date"
+                value={form.dueDate}
+                onChange={(v) => field("dueDate", v)}
               />
               <label className="sm:col-span-2">
                 <span className="field-label">Fournisseur véhicule *</span>

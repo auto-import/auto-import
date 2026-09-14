@@ -1,3 +1,4 @@
+import { ShipmentsService } from '../shipments/shipments.service';
 import {
   BadRequestException,
   ConflictException,
@@ -64,6 +65,7 @@ export class CustomsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly costsService: CostsService,
+    private readonly shipments: ShipmentsService,
   ) {}
 
   private async generateCustomsReference(
@@ -536,6 +538,14 @@ export class CustomsService {
             changedBy: userId,
             comment: `Progression pilotée par le dossier douane ${file.reference}${dto.comment ? ` — ${dto.comment}` : ''}`,
           },
+        });
+        await this.shipments.syncFromDossier(tx, {
+          organizationId,
+          dossierId: parentDossier.id,
+          dossierReference: parentDossier.reference,
+          fromStatus,
+          toStatus: dossierStatus,
+          userId,
         });
       }
 

@@ -73,6 +73,7 @@ describe('ExchangeRatesService DZD quotation rates', () => {
           organizationId: 'org-1',
           baseCurrency: 'CNY',
           quoteCurrency: 'DZD',
+          rateType: 'COMMERCIAL',
           isActive: true,
           effectiveAt: { lte: at },
         },

@@ -20,6 +20,18 @@ export class PurchasesService {
       this.prisma.purchase.findMany({
         where,
         include: {
+          payments: {
+            where: { status: 'CONFIRMED' },
+            include: {
+              financeTransaction: {
+                include: {
+                  treasuryAccount: {
+                    select: { id: true, code: true, name: true },
+                  },
+                },
+              },
+            },
+          },
           supplier: true,
           vehicle: { include: { specs: true } },
           vehicleRequest: true,
@@ -32,7 +44,44 @@ export class PurchasesService {
       }),
       this.prisma.purchase.count({ where }),
     ]);
-    return paginate(items, total, page, limit);
+    return paginate(
+      items.map((purchase) => {
+        const paid = purchase.payments.reduce(
+          (sum, payment) => sum.add(payment.amount),
+          new Prisma.Decimal(0),
+        );
+        const remaining = Prisma.Decimal.max(
+          purchase.purchasePrice.sub(paid),
+          0,
+        );
+        return {
+          ...purchase,
+          settlement: {
+            total: purchase.purchasePrice.toString(),
+            paid: paid.toString(),
+            remaining: remaining.toString(),
+            currency: purchase.currency,
+            dueDate: purchase.dueDate,
+            accounts: purchase.payments
+              .map((p) => p.financeTransaction?.treasuryAccount)
+              .filter(Boolean),
+            status:
+              purchase.status === 'cancelled'
+                ? 'CANCELLED'
+                : remaining.isZero()
+                  ? 'PAID'
+                  : purchase.dueDate && purchase.dueDate < new Date()
+                    ? 'OVERDUE'
+                    : paid.gt(0)
+                      ? 'PARTIALLY_PAID'
+                      : 'UNPAID',
+          },
+        };
+      }),
+      total,
+      page,
+      limit,
+    );
   }
 
   async findOne(id: string, organizationId: string) {
@@ -60,6 +109,18 @@ export class PurchasesService {
       );
     }
     return this.prisma.$transaction(async (tx) => {
+      const activeEntries = await tx.financeTransaction.count({
+        where: {
+          organizationId,
+          purchaseId: id,
+          status: 'VALIDATED',
+          reversalOfId: null,
+        },
+      });
+      if (activeEntries)
+        throw new ConflictException(
+          'Extournez les écritures et paiements de cet achat avant son annulation.',
+        );
       const updated = await tx.purchase.update({
         where: { id },
         data: { status: 'cancelled' },

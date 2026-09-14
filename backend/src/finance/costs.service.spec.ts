@@ -11,7 +11,10 @@ describe('CostsService financial snapshots', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(createdTransaction),
       },
-      cost: { create: jest.fn().mockResolvedValue(createdCost) },
+      cost: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(createdCost),
+      },
     } as any;
 
     const result = await service.recordCustomsActual(tx, 'org-1', 'user-1', {
@@ -51,7 +54,7 @@ describe('CostsService financial snapshots', () => {
         findUnique: jest.fn().mockResolvedValue(existing),
         create: jest.fn(),
       },
-      cost: { create: jest.fn() },
+      cost: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
     } as any;
 
     await expect(

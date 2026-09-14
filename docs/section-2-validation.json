@@ -1,0 +1,59 @@
+{
+  "section": 2,
+  "date": "2026-09-14",
+  "deployed": false,
+  "backend": {
+    "test_files": 73,
+    "tests": 468,
+    "failed": 0,
+    "skipped": 0,
+    "process_exit_code": 0
+  },
+  "frontend": {
+    "test_files": 31,
+    "tests": 92,
+    "failed": 0,
+    "skipped": 0,
+    "process_exit_code": 0,
+    "unhandled_errors": 0
+  },
+  "e2e": {
+    "test_files": 1,
+    "tests": 13,
+    "failed": 0,
+    "skipped": 0,
+    "process_exit_code": 0,
+    "database": "local disposable PostgreSQL 17",
+    "browser": "Chrome headless against built Next frontend and real Nest API",
+    "observed_http_500": 0,
+    "scenarios": [
+      "preserves password-only login, refresh cookies, and legacy version-zero access tokens",
+      "activates only after verification, encrypts the pending and active secret, hashes codes and revokes old sessions",
+      "refuses pre-2FA tokens on HTTP, WebSocket and refresh; does not record a completed login prematurely",
+      "consumes a recovery code and challenge exactly once under concurrent submissions",
+      "accepts the standard next-step tolerance but rejects expired and replayed authenticator codes",
+      "persists the five-attempt user lock across new challenges and different IP addresses",
+      "requires both the password and factor to disable, then restores password-only login and revokes sessions",
+      "restricts administrative reset to authorized users in the same organization and audits the actor and reason",
+      "invalidates a pending challenge after the password changes",
+      "rolls back factor consumption when session issuance fails, so retrying cannot lose the recovery code",
+      "rejects an expired setup and reports encrypted-secret corruption as unavailable instead of an internal error",
+      "enforces the IP limit even for invalid or forged challenge tokens",
+      "verifies setup, TOTP, recovery and disabling through the real browser UI"
+    ]
+  },
+  "total_tests": 573,
+  "typescript_backend": "passed",
+  "typescript_frontend": "passed",
+  "nest_build": "passed",
+  "next_build": "passed",
+  "docker_runtime_build": "passed",
+  "docker_runtime_totp_qr": "passed",
+  "frontend_targeted_lint": {
+    "errors": 0,
+    "warnings_in_image_test_mock": 3
+  },
+  "diff_check": "passed",
+  "new_migration": "20260914150000_user_two_factor",
+  "applied_migrations_in_test_database": 41
+}

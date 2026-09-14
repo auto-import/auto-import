@@ -1,3 +1,5 @@
+import { DossierStatusPropagationService } from './workflows/dossier-status-propagation.service';
+import { ShipmentsService } from '../shipments/shipments.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -119,6 +121,8 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        DossierStatusPropagationService,
+        { provide: ShipmentsService, useValue: { syncFromDossier: jest.fn() } },
         DossiersService,
         DossierWorkflowService,
         VehicleStatusSyncService,
@@ -239,21 +243,18 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
     });
 
     it('does not apply DDP checkpoint categories to shipping-only arrival', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({
-        id: 'dos-shipping',
-        organizationId: mockOrgId,
-        type: DossierType.SHIPPING_ONLY,
-        status: 'inTransit',
-      } as Awaited<ReturnType<DossiersService['findOne']>>);
-
-      await service
-        .updateStatus(
-          'dos-shipping',
-          { status: 'arrived' },
-          'user-1',
-          mockOrgId,
-        )
-        .catch(() => undefined);
+      const dossier = {
+        id: 'dos-shipping', organizationId: mockOrgId,
+        reference: 'CA-SHIPPING', salesUserId: 'user-1',
+        type: DossierType.SHIPPING_ONLY, status: 'inTransit',
+        dossierVehicles: [],
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(dossier as never);
+      prisma.dossier.update.mockResolvedValue({ ...dossier, status: 'arrived' });
+      prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'history' });
+      await expect(service.updateStatus(
+        'dos-shipping', { status: 'arrived' }, 'user-1', mockOrgId,
+      )).resolves.toBeDefined();
       expect(documentsGate.verifyCheckpoint).not.toHaveBeenCalled();
     });
   });

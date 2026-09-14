@@ -1,4 +1,8 @@
 import {
+  assertAccessToken,
+  type AccessTokenPayload,
+} from '../auth/access-token';
+import {
   OnGatewayConnection,
   WebSocketGateway,
   WebSocketServer,
@@ -30,8 +34,12 @@ export class NotificationsGateway implements OnGatewayConnection {
           ? client.handshake.auth.token
           : client.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
       if (!token) throw new Error('Missing token');
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token);
-      const user = await this.auth.getCurrentUser(payload.sub);
+      const payload = await this.jwt.verifyAsync<AccessTokenPayload>(token);
+      assertAccessToken(payload);
+      const user = await this.auth.getCurrentUser(
+        payload.sub,
+        payload.authVersion ?? 0,
+      );
       if (!user.permissions.includes(Permission.NOTIFICATIONS_READ))
         throw new Error('Forbidden');
       await client.join(`user:${user.id}`);

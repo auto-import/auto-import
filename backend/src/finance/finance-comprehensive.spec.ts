@@ -27,6 +27,18 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
   let createdInstallments: any[] = [];
 
   const mockPrisma: any = {
+    treasuryAccount: {
+      findFirst: jest.fn().mockImplementation(({ where }) => ({
+        id: where.id,
+        currency: where.currency,
+        officeId: 'office',
+        office: {
+          id: 'office',
+          organizationId: where.organizationId,
+          status: 'active',
+        },
+      })),
+    },
     paymentPlan: {
       findFirst: jest.fn(),
       findUnique: jest.fn().mockImplementation((args: any) => ({
@@ -275,7 +287,9 @@ describe('Phase 2 Finance Comprehensive Tests', () => {
         unallocatedAmount: new Prisma.Decimal(200000),
       });
 
-      const result = await paymentsService.confirm('pay-1', 'org-1', 'user-1');
+      const result = await paymentsService.confirm('pay-1', 'org-1', 'user-1', {
+        treasuryAccountId: 'account',
+      });
 
       // CustomerDeposit created for 200,000 excess
       expect(mockPrisma.customerDeposit.create).toHaveBeenCalledWith(

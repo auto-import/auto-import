@@ -18,6 +18,12 @@ export interface AuthenticatedUser {
   avatarUrl?: string | null;
 }
 
+export interface TwoFactorChallenge {
+  twoFactorRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
 interface AuthResult {
   accessToken: string;
   user: AuthenticatedUser;
@@ -166,10 +172,33 @@ export async function apiUpload<T>(
 }
 
 export const authApi = {
-  async login(email: string, password: string): Promise<AuthenticatedUser> {
-    const result = await apiRequest<AuthResult>(
+  async login(
+    email: string,
+    password: string,
+  ): Promise<AuthenticatedUser | TwoFactorChallenge> {
+    const result = await apiRequest<AuthResult | TwoFactorChallenge>(
       "/auth/login",
       { method: "POST", body: JSON.stringify({ email, password }) },
+      { authenticated: false, retryAfterRefresh: false },
+    );
+    if ("twoFactorRequired" in result) {
+      accessToken = null;
+      return result;
+    }
+    accessToken = result.accessToken;
+    return result.user;
+  },
+
+  async completeTwoFactor(
+    challengeToken: string,
+    code: string,
+  ): Promise<AuthenticatedUser> {
+    const result = await apiRequest<AuthResult>(
+      "/auth/two-factor/verify",
+      {
+        method: "POST",
+        body: JSON.stringify({ challengeToken, code }),
+      },
       { authenticated: false, retryAfterRefresh: false },
     );
     accessToken = result.accessToken;

@@ -1,3 +1,5 @@
+import { requireTreasuryAccount } from './treasury-account';
+import { reverseFinanceEntry } from './finance-reversal';
 import {
   BadRequestException,
   Injectable,
@@ -151,6 +153,31 @@ export class CostsService {
     });
     if (existing) return existing;
 
+    const recordedCost = await tx.cost.findFirst({
+      where: {
+        organizationId,
+        customsFileId: customsFile.id,
+        type: 'CUSTOMS',
+        status: 'POSTED',
+      },
+    });
+    if (recordedCost) {
+      if (
+        !recordedCost.amount.equals(amount) ||
+        recordedCost.currency !== 'DZD'
+      )
+        throw new BadRequestException(
+          'Le coût douanier enregistré diffère du montant de libération. Extournez-le avant correction.',
+        );
+      const recordedEntry = await tx.financeTransaction.findUnique({
+        where: { costId: recordedCost.id },
+      });
+      if (!recordedEntry)
+        throw new BadRequestException(
+          'Rapprochez le coût douanier historique avant la libération.',
+        );
+      return recordedEntry;
+    }
     const occurredAt = customsFile.releasedAt ?? new Date();
     const cost = await tx.cost.create({
       data: {
@@ -225,13 +252,61 @@ export class CostsService {
         where: { id: dto.purchaseId, organizationId },
       });
       if (!purchase) throw new NotFoundException('Purchase not found');
+      if (dto.dossierId && purchase.dossierId !== dto.dossierId)
+        throw new BadRequestException('L’achat ne correspond pas au dossier.');
+      dto = {
+        ...dto,
+        dossierId: dto.dossierId ?? purchase.dossierId ?? undefined,
+      };
+      if (
+        ['PURCHASE', 'SUPPLIER'].includes(dto.type.toUpperCase()) &&
+        (await this.prisma.cost.findFirst({
+          where: {
+            organizationId,
+            purchaseId: purchase.id,
+            status: 'POSTED',
+            type: { in: ['PURCHASE', 'SUPPLIER'] },
+          },
+        }))
+      )
+        throw new BadRequestException(
+          'Le coût de cet achat est déjà comptabilisé. Extournez-le avant correction.',
+        );
     }
 
     if (dto.shipmentId) {
       const shipment = await this.prisma.shipment.findFirst({
         where: { id: dto.shipmentId, organizationId },
+        include: {
+          vehicles: {
+            include: {
+              vehicle: {
+                include: {
+                  dossierVehicles: {
+                    where: {
+                      dossier: { organizationId, status: { not: 'cancelled' } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
       if (!shipment) throw new NotFoundException('Shipment not found');
+      const dossierIds = [
+        ...new Set(
+          shipment.vehicles.flatMap((link) =>
+            link.vehicle.dossierVehicles.map((row) => row.dossierId),
+          ),
+        ),
+      ];
+      if (!dto.dossierId && dossierIds.length === 1)
+        dto = { ...dto, dossierId: dossierIds[0] };
+      if (!dto.dossierId || !dossierIds.includes(dto.dossierId))
+        throw new BadRequestException(
+          'Affectez explicitement la part de ce coût à un dossier de cette expédition.',
+        );
     }
 
     if (dto.customsFileId) {
@@ -239,6 +314,14 @@ export class CostsService {
         where: { id: dto.customsFileId, organizationId },
       });
       if (!customs) throw new NotFoundException('Customs file not found');
+      if (dto.dossierId && customs.dossierId !== dto.dossierId)
+        throw new BadRequestException(
+          'Le dédouanement ne correspond pas au dossier.',
+        );
+      dto = {
+        ...dto,
+        dossierId: dto.dossierId ?? customs.dossierId ?? undefined,
+      };
     }
 
     const amount = new Prisma.Decimal(dto.amount);
@@ -258,6 +341,7 @@ export class CostsService {
         organizationId,
         currency,
         occurredAt,
+        dto.rateType,
       );
       if (
         dto.exchangeRateId &&
@@ -286,12 +370,20 @@ export class CostsService {
     if (!['DIRECT', 'OPERATING'].includes(costScope)) {
       throw new BadRequestException('costScope must be DIRECT or OPERATING');
     }
-    if (costScope === 'OPERATING' && dto.dossierId) {
+    if (
+      costScope === 'OPERATING' &&
+      (dto.dossierId || dto.purchaseId || dto.shipmentId || dto.customsFileId)
+    ) {
       throw new BadRequestException(
         'Operating expenses cannot be dossier costs',
       );
     }
-    if (costScope === 'DIRECT' && !dto.dossierId && !dto.purchaseId) {
+    if (
+      costScope === 'DIRECT' &&
+      !dto.dossierId &&
+      !dto.purchaseId &&
+      !dto.shipmentId
+    ) {
       throw new BadRequestException(
         'Direct costs must be linked to a dossier or purchase',
       );
@@ -324,72 +416,115 @@ export class CostsService {
       if (!document)
         throw new NotFoundException('Supporting document not found');
     }
-    const cost = await this.prisma.$transaction(async (tx) => {
-      const { treasuryAccountId, supportingDocumentId, ...costInput } = dto;
-      const created = await tx.cost.create({
-        data: {
-          organizationId,
-          type: costInput.type,
-          costScope,
-          amount,
-          currency,
-          exchangeRateId,
-          exchangeRateSnapshot,
-          amountInBaseCurrency,
-          dossierId: dto.dossierId,
-          orderId: dto.orderId,
-          purchaseId: dto.purchaseId,
-          shipmentId: dto.shipmentId,
-          customsFileId: dto.customsFileId,
-          occurredAt,
-          description: costInput.description,
-          actorUserId: userId,
-          status: 'POSTED',
-        },
-        include: {
-          dossier: { select: { id: true, reference: true } },
-          purchase: { select: { id: true, purchaseNumber: true } },
-          shipment: { select: { id: true, shipmentNumber: true } },
-          customsFile: { select: { id: true, reference: true } },
-        },
-      });
-      await tx.financeTransaction.upsert({
-        where: {
-          organizationId_sourceModule_sourceRecordId: {
+    const cost = await this.prisma.$transaction(
+      async (tx) => {
+        if (
+          dto.purchaseId &&
+          ['PURCHASE', 'SUPPLIER'].includes(dto.type.toUpperCase()) &&
+          (await tx.cost.findFirst({
+            where: {
+              organizationId,
+              purchaseId: dto.purchaseId,
+              status: 'POSTED',
+              type: { in: ['PURCHASE', 'SUPPLIER'] },
+            },
+          }))
+        )
+          throw new BadRequestException(
+            'Le coût de cet achat est déjà comptabilisé.',
+          );
+        if (
+          dto.customsFileId &&
+          dto.type.toUpperCase() === 'CUSTOMS' &&
+          (await tx.cost.findFirst({
+            where: {
+              organizationId,
+              customsFileId: dto.customsFileId,
+              type: 'CUSTOMS',
+              status: 'POSTED',
+            },
+          }))
+        )
+          throw new BadRequestException(
+            'Le coût de ce dédouanement est déjà comptabilisé.',
+          );
+        const { treasuryAccountId, supportingDocumentId, ...costInput } = dto;
+        const account = treasuryAccountId
+          ? await requireTreasuryAccount(
+              tx,
+              organizationId,
+              currency,
+              treasuryAccountId,
+            )
+          : null;
+        const created = await tx.cost.create({
+          data: {
             organizationId,
+            type: costInput.type,
+            costScope,
+            amount,
+            currency,
+            exchangeRateId,
+            exchangeRateSnapshot,
+            amountInBaseCurrency,
+            dossierId: dto.dossierId,
+            orderId: dto.orderId,
+            purchaseId: dto.purchaseId,
+            shipmentId: dto.shipmentId,
+            customsFileId: dto.customsFileId,
+            occurredAt,
+            description: costInput.description,
+            actorUserId: userId,
+            status: 'POSTED',
+          },
+          include: {
+            dossier: { select: { id: true, reference: true } },
+            purchase: { select: { id: true, purchaseNumber: true } },
+            shipment: { select: { id: true, shipmentNumber: true } },
+            customsFile: { select: { id: true, reference: true } },
+          },
+        });
+        await tx.financeTransaction.upsert({
+          where: {
+            organizationId_sourceModule_sourceRecordId: {
+              organizationId,
+              sourceModule: 'COST',
+              sourceRecordId: created.id,
+            },
+          },
+          create: {
+            organizationId,
+            type:
+              costScope === 'OPERATING'
+                ? 'OPERATING_EXPENSE'
+                : `DIRECT_COST_${dto.type}`,
+            direction: 'DEBIT',
             sourceModule: 'COST',
             sourceRecordId: created.id,
+            idempotencyKey: `cost:${created.id}`,
+            originalAmount: amount,
+            currency,
+            exchangeRateSnapshot,
+            amountDzd: amountInBaseCurrency,
+            dossierId: dto.dossierId,
+            purchaseId: dto.purchaseId,
+            costId: created.id,
+            treasuryAccountId,
+            officeId: account?.officeId,
+            rateType: dto.rateType ?? 'COMMERCIAL',
+            supportingDocumentId,
+            status: 'VALIDATED',
+            createdBy: userId,
+            validatedBy: userId,
+            validatedAt: new Date(),
+            occurredAt,
           },
-        },
-        create: {
-          organizationId,
-          type:
-            costScope === 'OPERATING'
-              ? 'OPERATING_EXPENSE'
-              : `DIRECT_COST_${dto.type}`,
-          direction: 'DEBIT',
-          sourceModule: 'COST',
-          sourceRecordId: created.id,
-          idempotencyKey: `cost:${created.id}`,
-          originalAmount: amount,
-          currency,
-          exchangeRateSnapshot,
-          amountDzd: amountInBaseCurrency,
-          dossierId: dto.dossierId,
-          purchaseId: dto.purchaseId,
-          costId: created.id,
-          treasuryAccountId,
-          supportingDocumentId,
-          status: 'VALIDATED',
-          createdBy: userId,
-          validatedBy: userId,
-          validatedAt: new Date(),
-          occurredAt,
-        },
-        update: {},
-      });
-      return created;
-    });
+          update: {},
+        });
+        return created;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return cost;
   }
@@ -418,10 +553,18 @@ export class CostsService {
           reversalReason: dto.reason,
         },
       });
-      await tx.financeTransaction.updateMany({
-        where: { organizationId, costId: id, status: 'VALIDATED' },
-        data: { status: 'REVERSED' },
+      const entry = await tx.financeTransaction.findFirst({
+        where: { organizationId, costId: id },
       });
+      if (entry)
+        await reverseFinanceEntry(
+          tx,
+          entry.id,
+          organizationId,
+          userId ?? entry.createdBy,
+          dto?.reason ?? '',
+          false,
+        );
       await tx.auditLog.create({
         data: {
           organizationId,

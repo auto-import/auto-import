@@ -1,9 +1,26 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  }
+    "^.+\\.ts$": "ts-jest",
+    "^.+\\.js$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true,
+          "module": "CommonJS",
+          "moduleResolution": "Node10"
+        }
+      }
+    ]
+  },
+  "transformIgnorePatterns": [
+    "node_modules[\\\\/](?!(@scure[\\\\/]base|@noble[\\\\/]hashes|@otplib[\\\\/][^\\\\/]+)[\\\\/])"
+  ]
 }

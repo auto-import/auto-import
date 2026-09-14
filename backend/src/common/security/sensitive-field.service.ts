@@ -21,13 +21,22 @@ export class SensitiveFieldService {
     return createHash('sha256').update(value, 'utf8').digest();
   }
 
-  encrypt(value: string, purpose: 'pii' | 'integration'): string {
+  encrypt(
+    value: string,
+    purpose: 'pii' | 'integration' | 'totp',
+    context?: string,
+  ): string {
     const keyName =
       purpose === 'pii'
         ? 'PII_ENCRYPTION_KEY'
         : 'INTEGRATION_SECRETS_ENCRYPTION_KEY';
     const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', this.key(keyName), iv);
+    const key = this.purposeKey(keyName, purpose);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    if (purpose === 'totp') {
+      if (!context) throw new Error('TOTP encryption requires a user context');
+      cipher.setAAD(Buffer.from(context, 'utf8'));
+    }
     const ciphertext = Buffer.concat([
       cipher.update(value, 'utf8'),
       cipher.final(),
@@ -40,7 +49,11 @@ export class SensitiveFieldService {
     ].join('.');
   }
 
-  decrypt(payload: string, purpose: 'pii' | 'integration'): string {
+  decrypt(
+    payload: string,
+    purpose: 'pii' | 'integration' | 'totp',
+    context?: string,
+  ): string {
     const [version, iv, tag, ciphertext] = payload.split('.');
     if (version !== 'v1' || !iv || !tag || !ciphertext)
       throw new Error('Invalid encrypted payload');
@@ -50,14 +63,28 @@ export class SensitiveFieldService {
         : 'INTEGRATION_SECRETS_ENCRYPTION_KEY';
     const decipher = createDecipheriv(
       'aes-256-gcm',
-      this.key(keyName),
+      this.purposeKey(keyName, purpose),
       Buffer.from(iv, 'base64url'),
     );
+    if (purpose === 'totp') {
+      if (!context) throw new Error('TOTP decryption requires a user context');
+      decipher.setAAD(Buffer.from(context, 'utf8'));
+    }
     decipher.setAuthTag(Buffer.from(tag, 'base64url'));
     return Buffer.concat([
       decipher.update(Buffer.from(ciphertext, 'base64url')),
       decipher.final(),
     ]).toString('utf8');
+  }
+
+  private purposeKey(
+    name: 'PII_ENCRYPTION_KEY' | 'INTEGRATION_SECRETS_ENCRYPTION_KEY',
+    purpose: string,
+  ) {
+    const key = this.key(name);
+    return purpose === 'totp'
+      ? createHmac('sha256', key).update('corapide:totp:v1').digest()
+      : key;
   }
 
   blindHash(organizationId: string, normalized: string): string {

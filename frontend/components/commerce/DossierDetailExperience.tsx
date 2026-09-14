@@ -123,7 +123,10 @@ export default function DossierDetailExperience({
   }, [load]);
 
   async function transition(status: ApiDossierStatus) {
-    if (DATA_ENTRY_STATUSES.has(status)) {
+    if (
+      DATA_ENTRY_STATUSES.has(status) &&
+      !(status === "purchaseConfirmed" && dossier?.existingStockPurchaseId)
+    ) {
       setPendingStatus(status);
       return;
     }
@@ -811,11 +814,72 @@ function Finance({
           <h2 className="font-bold">Acomptes reçus</h2>
           {dossier.sections.finance.deposits.map((deposit) => (
             <p key={deposit.id} className="mt-2 text-sm">
-              {Number(deposit.amount).toLocaleString(getRuntimeLocale())} {deposit.currency}
-              {" · Bureau : "}{deposit.office?.name ?? "Non renseigné"}
+              {Number(deposit.amount).toLocaleString(getRuntimeLocale())}{" "}
+              {deposit.currency}
+              {" · Bureau : "}
+              {deposit.office?.name ?? "Non renseigné"}
             </p>
           ))}
         </div>
+      )}
+      {summary && (
+        <section className="mt-6 space-y-3 rounded-xl border p-4">
+          <h2 className="font-bold">Rentabilité du Dossier</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <p>
+              Coût achat véhicule :{" "}
+              {Number(summary.costs.purchaseCost).toLocaleString(
+                getRuntimeLocale(),
+              )}{" "}
+              DZD
+            </p>
+            <p>
+              Fret :{" "}
+              {Number(summary.costs.shippingCost).toLocaleString(
+                getRuntimeLocale(),
+              )}{" "}
+              DZD
+            </p>
+            <p>
+              Douane :{" "}
+              {Number(summary.costs.customsCost).toLocaleString(
+                getRuntimeLocale(),
+              )}{" "}
+              DZD
+            </p>
+            <p>
+              Autres coûts directs :{" "}
+              {Number(summary.costs.otherCost).toLocaleString(
+                getRuntimeLocale(),
+              )}{" "}
+              DZD
+            </p>
+            <p>
+              Coût total réel :{" "}
+              {Number(summary.costs.totalInBaseCurrency).toLocaleString(
+                getRuntimeLocale(),
+              )}{" "}
+              DZD
+            </p>
+            <p>
+              Marge estimée :{" "}
+              {summary.profitability.estimatedMarginDzd != null
+                ? `${Number(summary.profitability.estimatedMarginDzd).toLocaleString(getRuntimeLocale())} DZD`
+                : "Non disponible"}
+            </p>
+            <p>
+              Marge réelle :{" "}
+              {summary.profitability.actualCostsRecorded
+                ? `${Number(summary.profitability.grossMargin).toLocaleString(getRuntimeLocale())} DZD (${summary.profitability.grossMarginPercentage} %)`
+                : "Aucun coût réel enregistré"}
+            </p>
+          </div>
+          <p className="text-xs text-muted">
+            {summary.profitability.finalized
+              ? "Dossier clôturé"
+              : "Situation à date — coûts susceptibles d’être complétés"}
+          </p>
+        </section>
       )}
       <h2 className="mt-7 font-bold">Échéancier</h2>
       {plan?.installments?.length ? (

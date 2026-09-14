@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { normalizeVehicleColor } from '../vehicles/vehicle-appearance';
 
 type Source = Prisma.ChinaOfferVehicleGetPayload<{
   include: { offer: true };
@@ -72,6 +73,7 @@ export async function reserveCatalogueVehicle(
       year: source.year,
       mileage: source.mileage,
       condition: source.condition,
+      color: normalizeVehicleColor(string('color')),
       brandLookupId: source.brandLookupId,
       modelLookupId: source.modelLookupId,
       versionLookupId: source.versionLookupId,

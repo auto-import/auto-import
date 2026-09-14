@@ -4,7 +4,11 @@ const REFRESH_COOKIE = "auto_import_refresh";
 
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (path === "/connexion") return NextResponse.next();
+  // API authentication is enforced by Nest. Login, refresh and pre-2FA
+  // verification must reach it before a refresh cookie exists.
+  if (path === "/connexion" || path === "/api" || path.startsWith("/api/")) {
+    return NextResponse.next();
+  }
 
   if (!request.cookies.has(REFRESH_COOKIE)) {
     const loginUrl = new URL("/connexion", request.url);

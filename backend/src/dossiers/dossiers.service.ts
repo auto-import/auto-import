@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DossierWorkflowService } from './workflows/dossier-workflow.service';
+import { DossierStatusPropagationService } from './workflows/dossier-status-propagation.service';
 import { VehicleStatusSyncService } from './workflows/vehicle-status-sync.service';
 import { CreateDossierDto } from './dto/create-dossier.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -37,6 +38,7 @@ export class DossiersService {
     private workflowService: DossierWorkflowService,
     private vehicleStatusSync: VehicleStatusSyncService,
     private documentsService: DocumentsService,
+    private statusPropagation: DossierStatusPropagationService,
     @Optional() private configurationService?: ConfigurationService,
     @Optional() private costs?: CostsService,
     @Optional() private financeProjection?: FinanceProjectionService,
@@ -224,6 +226,16 @@ export class DossiersService {
     const dossierType = type || DossierType.VEHICLE_SALE_CIF;
     const initialStatus = this.workflowService.getInitialStatus(dossierType);
 
+    if (
+      dossierType !== DossierType.SHIPPING_ONLY &&
+      !catalogueItemId &&
+      !offerReservationId &&
+      (uniqueVehicleIds.length || createDossierDto.vehicleRequestId)
+    ) {
+      throw new ConflictException(
+        'Sélectionnez un véhicule publié dans le Catalogue pour ce dossier commercial.',
+      );
+    }
     if (offerReservationId && catalogueItemId) {
       throw new ConflictException(
         'Sélectionnez soit un article catalogue, soit une réservation historique, pas les deux.',
@@ -278,6 +290,7 @@ export class DossiersService {
           const catalogueItem = await prisma.catalogueItem.findFirst({
             where: { id: catalogueItemId, organizationId, archivedAt: null },
             include: {
+              sourceVehicle: true,
               sourceOfferVehicle: { include: { offer: true } },
               activeCifQuotation: { include: { currentRevision: true } },
               activeDdpQuotation: { include: { currentRevision: true } },
@@ -287,16 +300,27 @@ export class DossiersService {
             throw new NotFoundException('Véhicule catalogue introuvable.');
           }
           const source = catalogueItem.sourceOfferVehicle;
+          const stockSource = catalogueItem.sourceVehicle;
+          if (!source && !stockSource)
+            throw new ConflictException('Source catalogue introuvable.');
           if (
-            source.organizationId !== organizationId ||
-            source.offer.organizationId !== organizationId ||
-            source.offer.archivedAt ||
-            ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
-              source.status,
-            ) ||
-            ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
-              source.offer.offerStatus ?? '',
-            )
+            stockSource &&
+            (stockSource.organizationId !== organizationId ||
+              stockSource.archivedAt ||
+              stockSource.status !== 'available')
+          )
+            throw new ConflictException('Véhicule indisponible.');
+          if (
+            source &&
+            (source.organizationId !== organizationId ||
+              source.offer.organizationId !== organizationId ||
+              source.offer.archivedAt ||
+              ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+                source.status,
+              ) ||
+              ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+                source.offer.offerStatus ?? '',
+              ))
           ) {
             throw new ConflictException(
               "Ce véhicule fournisseur n'est plus disponible pour un dossier.",
@@ -318,7 +342,9 @@ export class DossiersService {
           }
           if (
             quotation.organizationId !== organizationId ||
-            quotation.sourceOfferVehicleId !== source.id ||
+            (stockSource
+              ? quotation.sourceVehicleId !== stockSource.id
+              : quotation.sourceOfferVehicleId !== source?.id) ||
             quotation.priceBasis !==
               (dossierType === DossierType.VEHICLE_SALE_DDP ? 'DDP' : 'CIF') ||
             quotation.currentRevision.organizationId !== organizationId ||
@@ -346,35 +372,39 @@ export class DossiersService {
               'Ce véhicule catalogue vient d’être réservé par un autre dossier.',
             );
           }
-          operation = 'reserve-offer-vehicle';
-          const reservedOfferVehicle = await prisma.$executeRaw`
+          if (source) {
+            operation = 'reserve-offer-vehicle';
+            const reservedOfferVehicle = await prisma.$executeRaw`
           UPDATE "ChinaOfferVehicle"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${catalogueItem.sourceOfferVehicleId}
             AND "organizationId" = ${organizationId}
             AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
-          if (reservedOfferVehicle !== 1) {
-            throw new ConflictException(
-              "La quantité disponible de l'offre a changé. Rechargez le catalogue.",
-            );
-          }
-          operation = 'reserve-source-offer';
-          const reservedOffer = await prisma.$executeRaw`
+            if (reservedOfferVehicle !== 1) {
+              throw new ConflictException(
+                "La quantité disponible de l'offre a changé. Rechargez le catalogue.",
+              );
+            }
+            operation = 'reserve-source-offer';
+            const reservedOffer = await prisma.$executeRaw`
           UPDATE "ChinaOffer"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${source.offerId}
             AND "organizationId" = ${organizationId}
             AND "archivedAt" IS NULL
             AND "reservedQuantity" + 1 <= "availableQuantity"`;
-          if (reservedOffer !== 1) {
-            throw new ConflictException(
-              "La disponibilité de l'offre fournisseur a changé. Rechargez le catalogue.",
-            );
+            if (reservedOffer !== 1) {
+              throw new ConflictException(
+                "La disponibilité de l'offre fournisseur a changé. Rechargez le catalogue.",
+              );
+            }
           }
           commercialQuotationId = quotation.id;
           operation = 'link-catalogue-vehicle';
           uniqueVehicleIds.push(
-            await reserveCatalogueVehicle(prisma, organizationId, source),
+            stockSource
+              ? stockSource.id
+              : await reserveCatalogueVehicle(prisma, organizationId, source!),
           );
           commercialQuotationRevisionId = quotation.currentRevision.id;
           cataloguePricing =
@@ -686,7 +716,7 @@ export class DossiersService {
 
     if (
       dossier.vehicleBookingVehicleId === vehicleId ||
-      (dossier.catalogueItemId && vehicle?.sourceOfferVehicleId) ||
+      dossier.catalogueItemId ||
       this.workflowService.isTerminalStatus(dossier.status)
     ) {
       throw new ConflictException(
@@ -954,6 +984,28 @@ export class DossiersService {
       throw new NotFoundException(`Dossier with ID ${id} not found`);
     }
 
+    const stockPurchase = dossier.catalogueItem?.sourceVehicleId
+      ? await this.prisma.purchase.findFirst({
+          where: {
+            organizationId: dossier.organizationId,
+            vehicleId: dossier.catalogueItem.sourceVehicleId,
+            status: 'confirmed',
+            OR: [{ dossierId: null }, { dossierId: id }],
+          },
+          include: {
+            supplier: true,
+            vehicle: { include: { specs: true } },
+            payments: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+    if (
+      stockPurchase &&
+      !dossier.purchases.some((purchase) => purchase.id === stockPurchase.id)
+    )
+      dossier.purchases.push(stockPurchase);
+
     // Calculate additional stats
     const totalPayments = (dossier.payments || []).reduce(
       (sum, p) => sum + Number(p.amount),
@@ -1010,6 +1062,21 @@ export class DossiersService {
         };
     return {
       ...mapped,
+      existingStockPurchaseId: stockPurchase?.id ?? null,
+      commercialSource: dossier.catalogueItem
+        ? {
+            catalogueItemId: dossier.catalogueItem.id,
+            sourceType: dossier.catalogueItem.sourceVehicleId
+              ? 'VEHICLE'
+              : 'CHINA_OFFER',
+            sourceId:
+              dossier.catalogueItem.sourceVehicleId ??
+              dossier.catalogueItem.sourceOfferVehicle?.offerId,
+            supplierId:
+              dossier.catalogueItem.sourceOfferVehicle?.offer.supplierId ??
+              dossier.dossierVehicles[0]?.vehicle.supplierId,
+          }
+        : null,
       hasShipment,
       workflowSteps: this.workflowService.getWorkflowSteps(
         dossier.type,
@@ -1103,6 +1170,7 @@ export class DossiersService {
     }
     if (
       status === DossierStatus.PURCHASE_CONFIRMED &&
+      !dossier.existingStockPurchaseId &&
       !updateStatusDto.purchase
     ) {
       throw new BadRequestException({
@@ -1140,6 +1208,14 @@ export class DossiersService {
       });
     }
 
+    if (
+      status === DossierStatus.PURCHASE_CONFIRMED &&
+      dossier.existingStockPurchaseId &&
+      updateStatusDto.purchase
+    )
+      throw new ConflictException(
+        'Ce véhicule possède déjà un achat confirmé. Réutilisez cet achat sans saisir une nouvelle facture.',
+      );
     const dossierVehicles = dossier.vehicles ?? [];
     const bookedVehicle = updateStatusDto.vehicleBooking
       ? dossierVehicles.find(
@@ -1408,7 +1484,10 @@ export class DossiersService {
             dossier.organizationId,
             userId,
             payment,
-            {},
+            {
+              treasuryAccountId: updateStatusDto.deposit.treasuryAccountId,
+              officeId: updateStatusDto.deposit.officeId,
+            },
             snapshot.rate,
           );
           await prisma.customerDeposit.create({
@@ -1428,11 +1507,41 @@ export class DossiersService {
             },
           });
         }
+        if (
+          status === DossierStatus.PURCHASE_CONFIRMED &&
+          dossier.existingStockPurchaseId
+        ) {
+          const existing = await prisma.purchase.findFirst({
+            where: {
+              id: dossier.existingStockPurchaseId,
+              organizationId: dossier.organizationId,
+              vehicleId: dossier.catalogueItem!.sourceVehicleId!,
+              status: 'confirmed',
+            },
+          });
+          if (!existing)
+            throw new ConflictException(
+              'L’achat de ce véhicule a changé. Rechargez le dossier.',
+            );
+          await prisma.auditLog.create({
+            data: {
+              organizationId: dossier.organizationId,
+              userId,
+              action: 'STOCK_PURCHASE_REUSED',
+              entityType: 'Dossier',
+              entityId: id,
+              newValues: { purchaseId: existing.id },
+            },
+          });
+        }
         if (updateStatusDto.purchase && purchaseVehicle) {
           const purchase = await prisma.purchase.create({
             data: {
               organizationId: dossier.organizationId,
               purchaseNumber: updateStatusDto.purchase.invoiceNumber,
+              dueDate: updateStatusDto.purchase.dueDate
+                ? new Date(updateStatusDto.purchase.dueDate)
+                : undefined,
               supplierId: updateStatusDto.purchase.supplierId,
               vehicleId: purchaseVehicle.id,
               dossierId: id,
@@ -1440,7 +1549,7 @@ export class DossiersService {
                 updateStatusDto.purchase.amount,
               ),
               sourceOfferVehicleId: dossier.catalogueItem?.sourceOfferVehicleId,
-              sourceOfferId: dossier.catalogueItem?.sourceOfferVehicle.offerId,
+              sourceOfferId: dossier.catalogueItem?.sourceOfferVehicle?.offerId,
               currency: updateStatusDto.purchase.currency,
               purchaseDate: new Date(updateStatusDto.purchase.invoiceDate),
               status: 'confirmed',
@@ -1657,31 +1766,33 @@ export class DossiersService {
                 'La réservation catalogue de ce dossier est incohérente.',
               );
             }
-            const releasedOfferVehicle = await prisma.$executeRaw`
+            if (updated.catalogueItem.sourceOfferVehicle) {
+              const releasedOfferVehicle = await prisma.$executeRaw`
             UPDATE "ChinaOfferVehicle"
             SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
             WHERE "id" = ${updated.catalogueItem.sourceOfferVehicleId}
               AND "organizationId" = ${updated.organizationId}
               AND "reservedQuantity" > 0`;
-            if (releasedOfferVehicle !== 1) {
-              throw new ConflictException(
-                "La réservation du véhicule de l'offre est incohérente.",
-              );
-            }
-            const releasedOffer = await prisma.$executeRaw`
+              if (releasedOfferVehicle !== 1) {
+                throw new ConflictException(
+                  "La réservation du véhicule de l'offre est incohérente.",
+                );
+              }
+              const releasedOffer = await prisma.$executeRaw`
             UPDATE "ChinaOffer"
             SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
             WHERE "id" = ${updated.catalogueItem.sourceOfferVehicle.offerId}
               AND "organizationId" = ${updated.organizationId}
               AND "reservedQuantity" > 0`;
-            if (releasedOffer !== 1) {
-              throw new ConflictException(
-                "La quantité réservée de l'offre est incohérente.",
-              );
+              if (releasedOffer !== 1) {
+                throw new ConflictException(
+                  "La quantité réservée de l'offre est incohérente.",
+                );
+              }
             }
           }
         } else {
-          await this.vehicleStatusSync.syncForTransition(prisma, {
+          await this.statusPropagation.syncForTransition(prisma, {
             organizationId: updated.organizationId,
             dossierId: id,
             dossierReference: updated.reference,
@@ -2072,21 +2183,23 @@ export class DossiersService {
               "Ce dossier ne peut pas être restauré car le véhicule catalogue n'est plus disponible.",
             );
           }
-          const reservedOfferVehicle = await tx.$executeRaw`
+          if (dossier.catalogueItem.sourceOfferVehicle) {
+            const reservedOfferVehicle = await tx.$executeRaw`
           UPDATE "ChinaOfferVehicle"
           SET "reservedQuantity" = "reservedQuantity" + 1, "updatedAt" = NOW()
           WHERE "id" = ${dossier.catalogueItem.sourceOfferVehicleId}
             AND "organizationId" = ${organizationId}
             AND "reservedQuantity" + "purchasedQuantity" + 1 <= "quantity"`;
-          if (reservedOfferVehicle !== 1) {
-            throw new ConflictException(
-              "Ce dossier ne peut pas être restauré car la quantité de l'offre n'est plus disponible.",
-            );
+            if (reservedOfferVehicle !== 1) {
+              throw new ConflictException(
+                "Ce dossier ne peut pas être restauré car la quantité de l'offre n'est plus disponible.",
+              );
+            }
+            await tx.chinaOffer.update({
+              where: { id: dossier.catalogueItem.sourceOfferVehicle.offerId },
+              data: { reservedQuantity: { increment: 1 } },
+            });
           }
-          await tx.chinaOffer.update({
-            where: { id: dossier.catalogueItem.sourceOfferVehicle.offerId },
-            data: { reservedQuantity: { increment: 1 } },
-          });
         }
         await tx.dossier.update({
           where: { id },

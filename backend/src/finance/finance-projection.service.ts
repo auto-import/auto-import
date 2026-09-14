@@ -1,3 +1,4 @@
+import { requireTreasuryAccount } from './treasury-account';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,12 +47,21 @@ export class FinanceProjectionService {
     payment: ConfirmedCustomerPaymentProjection,
     links: {
       treasuryAccountId?: string;
+      officeId?: string;
+      rateType?: string;
       supportingDocumentId?: string;
     } = {},
     savedRate?: Prisma.Decimal,
   ) {
     const currency = payment.currency.toUpperCase();
     const occurredAt = payment.paymentDate ?? new Date();
+    const account = await requireTreasuryAccount(
+      tx,
+      organizationId,
+      currency,
+      links.treasuryAccountId,
+      links.officeId,
+    );
     const rate =
       savedRate ??
       (await this.resolveDzdRate(
@@ -60,6 +70,7 @@ export class FinanceProjectionService {
         currency,
         occurredAt,
         payment.exchangeRateId,
+        links.rateType,
       ));
     return tx.financeTransaction.upsert({
       where: {
@@ -87,7 +98,9 @@ export class FinanceProjectionService {
         paymentMode: payment.paymentMethod,
         reference: payment.reference,
         customerPaymentId: payment.id,
-        treasuryAccountId: links.treasuryAccountId,
+        treasuryAccountId: account.id,
+        officeId: account.officeId,
+        rateType: links.rateType ?? 'COMMERCIAL',
         supportingDocumentId: links.supportingDocumentId,
         status: 'VALIDATED',
         createdBy: userId,
@@ -106,17 +119,27 @@ export class FinanceProjectionService {
     payment: ConfirmedSupplierPaymentProjection,
     links: {
       treasuryAccountId?: string;
+      officeId?: string;
+      rateType?: string;
       supportingDocumentId?: string;
     } = {},
   ) {
     const currency = payment.currency.toUpperCase();
     const occurredAt = payment.paymentDate ?? new Date();
+    const account = await requireTreasuryAccount(
+      tx,
+      organizationId,
+      currency,
+      links.treasuryAccountId,
+      links.officeId,
+    );
     const rate = await this.resolveDzdRate(
       tx,
       organizationId,
       currency,
       occurredAt,
       payment.exchangeRateId,
+      links.rateType,
     );
     return tx.financeTransaction.upsert({
       where: {
@@ -145,7 +168,9 @@ export class FinanceProjectionService {
         reference: payment.reference,
         supplierPaymentId: payment.id,
         purchaseId: payment.purchaseId,
-        treasuryAccountId: links.treasuryAccountId,
+        treasuryAccountId: account.id,
+        officeId: account.officeId,
+        rateType: links.rateType ?? 'COMMERCIAL',
         supportingDocumentId: links.supportingDocumentId,
         status: 'VALIDATED',
         createdBy: userId,
@@ -163,10 +188,17 @@ export class FinanceProjectionService {
     currency: string,
     occurredAt: Date,
     exchangeRateId?: string | null,
+    rateType = 'COMMERCIAL',
   ): Promise<Prisma.Decimal> {
     const selected = await new ExchangeRatesService(
       this.prisma,
-    ).findActiveDzdRateSnapshot(tx, organizationId, currency, occurredAt);
+    ).findActiveDzdRateSnapshot(
+      tx,
+      organizationId,
+      currency,
+      occurredAt,
+      rateType,
+    );
     if (exchangeRateId && selected.exchangeRateId !== exchangeRateId) {
       throw new ConflictException(
         'Le taux Finance sélectionné ne correspond plus au taux actif.',

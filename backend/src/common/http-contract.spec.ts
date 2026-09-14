@@ -162,4 +162,26 @@ describe('HTTP envelopes', () => {
     );
     expect(JSON.stringify(json.mock.calls)).not.toContain('must-not-leak');
   });
+  it('returns 409 for PostgreSQL adapter serialization conflicts without exposing driver details', () => {
+    const json = jest.fn();
+    const status = jest.fn(() => ({ json }));
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status }),
+        getRequest: () => ({
+          method: 'POST',
+          url: '/api/finance/supplier-payments',
+        }),
+      }),
+    } as ArgumentsHost;
+    const error = new Error('TransactionWriteConflict');
+    error.name = 'DriverAdapterError';
+    error.cause = {
+      kind: 'TransactionWriteConflict',
+      originalMessage: 'private SQL',
+    };
+    new HttpExceptionFilter().catch(error, host);
+    expect(status).toHaveBeenCalledWith(409);
+    expect(JSON.stringify(json.mock.calls)).not.toContain('private SQL');
+  });
 });

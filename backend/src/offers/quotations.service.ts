@@ -95,8 +95,28 @@ export class QuotationsService {
   private async findSourceVehicle(
     tx: Prisma.TransactionClient,
     organizationId: string,
-    dto: Pick<CreateQuotationDto, 'sourceOfferId' | 'sourceOfferVehicleId'>,
+    dto: Pick<
+      CreateQuotationDto,
+      'sourceOfferId' | 'sourceOfferVehicleId' | 'sourceVehicleId'
+    >,
   ) {
+    if (
+      Boolean(dto.sourceVehicleId) === Boolean(dto.sourceOfferId) ||
+      (dto.sourceVehicleId && dto.sourceOfferVehicleId)
+    ) {
+      throw new BadRequestException(
+        'Sélectionnez une seule source : véhicule ou offre Chine.',
+      );
+    }
+    if (dto.sourceVehicleId) {
+      const vehicle = await tx.vehicle.findFirst({
+        where: { id: dto.sourceVehicleId, organizationId, archivedAt: null },
+      });
+      if (!vehicle) throw new NotFoundException('Véhicule introuvable.');
+      if (vehicle.status !== 'available')
+        throw new ConflictException('Ce véhicule est indisponible.');
+      return vehicle;
+    }
     const sourceVehicle = await tx.chinaOfferVehicle.findFirst({
       where: {
         organizationId,
@@ -172,6 +192,128 @@ export class QuotationsService {
     };
   }
 
+  private async resolveCreationSource(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    userId: string,
+    dto: CreateQuotationDto,
+  ) {
+    if (
+      Boolean(dto.sourceVehicleId) === Boolean(dto.sourceOfferId) ||
+      (dto.sourceVehicleId && dto.sourceOfferVehicleId)
+    )
+      throw new BadRequestException('Une seule source est requise.');
+    if (dto.sourceVehicleId)
+      await this.findSourceVehicle(tx, organizationId, dto);
+    if (dto.sourceVehicleId)
+      return {
+        sourceVehicleId: dto.sourceVehicleId,
+        sourceOfferId: null,
+        sourceOfferVehicleId: null,
+        sourceOfferRevisionId: null,
+        quantity: 1,
+      };
+    const now = new Date();
+    const offer = await tx.chinaOffer.findFirst({
+      where: {
+        id: dto.sourceOfferId,
+        organizationId,
+        archivedAt: null,
+      },
+      include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
+    });
+    if (!offer) throw new NotFoundException('Offre Chine introuvable.');
+    if (offer.validUntil < now) {
+      throw new ConflictException(
+        "L'offre Chine a expiré. Renouvelez sa validité avant de créer un devis.",
+      );
+    }
+    const sourceVehicle = dto.sourceOfferVehicleId
+      ? offer.vehicles.find(
+          (vehicle) => vehicle.id === dto.sourceOfferVehicleId,
+        )
+      : offer.vehicles[0];
+    if (!sourceVehicle) {
+      throw new NotFoundException("Véhicule de l'offre introuvable.");
+    }
+    if (
+      ['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(sourceVehicle.status) ||
+      sourceVehicle.purchasedQuantity >= sourceVehicle.quantity
+    ) {
+      throw new ConflictException(
+        "Ce véhicule de l'offre n'est plus commercialisable.",
+      );
+    }
+    let sourceOfferRevisionId = offer.currentRevisionId;
+    if (sourceOfferRevisionId) {
+      const sourceRevision = await tx.chinaOfferRevision.findFirst({
+        where: {
+          id: sourceOfferRevisionId,
+          offerId: offer.id,
+          organizationId,
+        },
+        select: { id: true },
+      });
+      if (!sourceRevision) {
+        throw new ConflictException(
+          "La révision tarifaire active de l'offre est invalide. Révisez l'offre avant de créer le devis.",
+        );
+      }
+    }
+    if (!sourceOfferRevisionId) {
+      const latest = await tx.chinaOfferRevision.aggregate({
+        where: { offerId: offer.id },
+        _max: { revisionNumber: true },
+      });
+      const revision = await tx.chinaOfferRevision.create({
+        data: {
+          organizationId,
+          offerId: offer.id,
+          revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
+          supplierPrice:
+            offer.supplierPrice ??
+            offer.purchasePrice ??
+            sourceVehicle.supplierPrice,
+          currency: offer.currency,
+          incoterm: offer.incoterm,
+          localCost: offer.localCost,
+          totalOfferPrice:
+            offer.totalOfferPrice ?? offer.supplierPrice ?? offer.purchasePrice,
+          location: offer.location,
+          quantity: offer.availableQuantity,
+          leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
+          validFrom: offer.validFrom,
+          validUntil: offer.validUntil,
+          paymentConditions: offer.paymentConditions,
+          snapshot: {
+            brand: offer.brand,
+            model: offer.model,
+            version: offer.version,
+            year: offer.year,
+            condition: offer.condition,
+            mileage: offer.mileage,
+            specification: offer.specification,
+          },
+          reason: 'Base historique créée lors du premier devis',
+          createdBy: userId,
+        },
+      });
+      sourceOfferRevisionId = revision.id;
+      await tx.chinaOffer.update({
+        where: { id: offer.id },
+        data: { currentRevisionId: sourceOfferRevisionId },
+      });
+    }
+
+    return {
+      sourceVehicleId: null,
+      sourceOfferId: offer.id,
+      sourceOfferVehicleId: sourceVehicle.id,
+      sourceOfferRevisionId,
+      quantity: sourceVehicle.quantity - sourceVehicle.purchasedQuantity,
+    };
+  }
+
   async create(
     organizationId: string,
     userId: string,
@@ -182,101 +324,13 @@ export class QuotationsService {
       return await this.prisma.$transaction(
         async (tx) => {
           const now = new Date();
-          const offer = await tx.chinaOffer.findFirst({
-            where: {
-              id: dto.sourceOfferId,
-              organizationId,
-              archivedAt: null,
-            },
-            include: { vehicles: { orderBy: { lineNumber: 'asc' } } },
-          });
-          if (!offer) throw new NotFoundException('Offre Chine introuvable.');
-          if (offer.validUntil < now) {
-            throw new ConflictException(
-              "L'offre Chine a expiré. Renouvelez sa validité avant de créer un devis.",
-            );
-          }
-          const sourceVehicle = dto.sourceOfferVehicleId
-            ? offer.vehicles.find(
-                (vehicle) => vehicle.id === dto.sourceOfferVehicleId,
-              )
-            : offer.vehicles[0];
-          if (!sourceVehicle) {
-            throw new NotFoundException("Véhicule de l'offre introuvable.");
-          }
-          if (
-            ['PURCHASED', 'LOST_DEAL', 'EXPIRED'].includes(
-              sourceVehicle.status,
-            ) ||
-            sourceVehicle.purchasedQuantity >= sourceVehicle.quantity
-          ) {
-            throw new ConflictException(
-              "Ce véhicule de l'offre n'est plus commercialisable.",
-            );
-          }
+          const source = await this.resolveCreationSource(
+            tx,
+            organizationId,
+            userId,
+            dto,
+          );
           const normalized = this.normalizeCurrencies(dto);
-          let sourceOfferRevisionId = offer.currentRevisionId;
-          if (sourceOfferRevisionId) {
-            const sourceRevision = await tx.chinaOfferRevision.findFirst({
-              where: {
-                id: sourceOfferRevisionId,
-                offerId: offer.id,
-                organizationId,
-              },
-              select: { id: true },
-            });
-            if (!sourceRevision) {
-              throw new ConflictException(
-                "La révision tarifaire active de l'offre est invalide. Révisez l'offre avant de créer le devis.",
-              );
-            }
-          }
-          if (!sourceOfferRevisionId) {
-            const latest = await tx.chinaOfferRevision.aggregate({
-              where: { offerId: offer.id },
-              _max: { revisionNumber: true },
-            });
-            const revision = await tx.chinaOfferRevision.create({
-              data: {
-                organizationId,
-                offerId: offer.id,
-                revisionNumber: (latest._max.revisionNumber ?? 0) + 1,
-                supplierPrice:
-                  offer.supplierPrice ??
-                  offer.purchasePrice ??
-                  sourceVehicle.supplierPrice,
-                currency: offer.currency,
-                incoterm: offer.incoterm,
-                localCost: offer.localCost,
-                totalOfferPrice:
-                  offer.totalOfferPrice ??
-                  offer.supplierPrice ??
-                  offer.purchasePrice,
-                location: offer.location,
-                quantity: offer.availableQuantity,
-                leadTimeDays: offer.leadTimeDays ?? offer.estimatedDelayDays,
-                validFrom: offer.validFrom,
-                validUntil: offer.validUntil,
-                paymentConditions: offer.paymentConditions,
-                snapshot: {
-                  brand: offer.brand,
-                  model: offer.model,
-                  version: offer.version,
-                  year: offer.year,
-                  condition: offer.condition,
-                  mileage: offer.mileage,
-                  specification: offer.specification,
-                },
-                reason: 'Base historique créée lors du premier devis',
-                createdBy: userId,
-              },
-            });
-            sourceOfferRevisionId = revision.id;
-            await tx.chinaOffer.update({
-              where: { id: offer.id },
-              data: { currentRevisionId: sourceOfferRevisionId },
-            });
-          }
           const rates = await this.pricing.resolveRequiredRates(
             tx,
             organizationId,
@@ -293,9 +347,10 @@ export class QuotationsService {
             data: {
               organizationId,
               quotationNumber: await this.nextNumber(tx, organizationId),
-              sourceOfferId: offer.id,
-              sourceOfferRevisionId,
-              sourceOfferVehicleId: sourceVehicle.id,
+              sourceVehicleId: source.sourceVehicleId,
+              sourceOfferId: source.sourceOfferId,
+              sourceOfferRevisionId: source.sourceOfferRevisionId,
+              sourceOfferVehicleId: source.sourceOfferVehicleId,
               priceBasis: dto.priceBasis,
               currency: 'DZD',
               cataloguePublished: true,
@@ -338,8 +393,6 @@ export class QuotationsService {
               snapshot: {
                 ...this.snapshot(dto, calculated),
                 customsIncluded: dto.priceBasis === 'DDP',
-                sourceOfferPrice: String(sourceVehicle.supplierPrice),
-                sourceOfferCurrency: sourceVehicle.currency,
               },
               createdBy: userId,
               costItems: {
@@ -363,18 +416,21 @@ export class QuotationsService {
             data: { currentRevisionId: revision.id },
             include: { currentRevision: { include: { costItems: true } } },
           });
+          const sourceKey = source.sourceVehicleId
+            ? { sourceVehicleId: source.sourceVehicleId }
+            : { sourceOfferVehicleId: source.sourceOfferVehicleId! };
           const existingCatalogueItem = await tx.catalogueItem.findUnique({
-            where: { sourceOfferVehicleId: sourceVehicle.id },
+            where: sourceKey,
           });
           const availableQuantity = Math.max(
             existingCatalogueItem?.reservedQuantity ?? 0,
-            sourceVehicle.quantity - sourceVehicle.purchasedQuantity,
+            source.quantity,
           );
           await tx.catalogueItem.upsert({
-            where: { sourceOfferVehicleId: sourceVehicle.id },
+            where: sourceKey,
             create: {
               organizationId,
-              sourceOfferVehicleId: sourceVehicle.id,
+              ...sourceKey,
               availableQuantity,
               publishedAt: now,
               ...(dto.priceBasis === 'CIF'
@@ -398,8 +454,9 @@ export class QuotationsService {
               entityType: 'CustomerQuotation',
               entityId: updated.id,
               newValues: {
-                sourceOfferId: offer.id,
-                sourceOfferVehicleId: sourceVehicle.id,
+                sourceVehicleId: source.sourceVehicleId,
+                sourceOfferId: source.sourceOfferId,
+                sourceOfferVehicleId: source.sourceOfferVehicleId,
                 priceBasis: dto.priceBasis,
                 sellingPriceDzd: calculated.sellingPriceDzd.toString(),
                 estimatedTotalCostDzd:
@@ -600,20 +657,22 @@ export class QuotationsService {
         },
       });
       if (['REJECTED', 'EXPIRED'].includes(dto.status)) {
-        const fallback = quotation.sourceOfferVehicleId
-          ? await tx.customerQuotation.findFirst({
-              where: {
-                organizationId,
-                id: { not: id },
-                sourceOfferVehicleId: quotation.sourceOfferVehicleId,
-                priceBasis: quotation.priceBasis,
-                cataloguePublished: true,
-                status: { notIn: ['REJECTED', 'EXPIRED'] },
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true },
-            })
-          : null;
+        const fallback =
+          quotation.sourceVehicleId || quotation.sourceOfferVehicleId
+            ? await tx.customerQuotation.findFirst({
+                where: {
+                  organizationId,
+                  id: { not: id },
+                  sourceVehicleId: quotation.sourceVehicleId,
+                  sourceOfferVehicleId: quotation.sourceOfferVehicleId,
+                  priceBasis: quotation.priceBasis,
+                  cataloguePublished: true,
+                  status: { notIn: ['REJECTED', 'EXPIRED'] },
+                },
+                orderBy: { createdAt: 'desc' },
+                select: { id: true },
+              })
+            : null;
         await tx.catalogueItem.updateMany({
           where: { activeCifQuotationId: id },
           data: { activeCifQuotationId: fallback?.id ?? null },
@@ -643,6 +702,9 @@ export class QuotationsService {
     const limit = filter.limit ?? 20;
     const where: Prisma.CustomerQuotationWhereInput = {
       organizationId,
+      ...(filter.sourceVehicleId
+        ? { sourceVehicleId: filter.sourceVehicleId }
+        : {}),
       ...(filter.dossierId ? { dossierId: filter.dossierId } : {}),
       ...(filter.clientId ? { clientId: filter.clientId } : {}),
       ...(filter.sourceOfferId ? { sourceOfferId: filter.sourceOfferId } : {}),

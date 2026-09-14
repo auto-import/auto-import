@@ -1,3 +1,4 @@
+import { normalizeVehicleColor } from '../vehicles/vehicle-appearance';
 import {
   BadRequestException,
   ConflictException,
@@ -1140,6 +1141,7 @@ export class OffersService {
             year: reservation.offer.year,
             mileage: reservation.offer.mileage,
             condition: reservation.offer.condition,
+            color: normalizeVehicleColor(specification.color),
             purchasePrice,
             currency: reservation.offer.currency,
             acquisitionType: 'chinaOffer',
@@ -1621,6 +1623,7 @@ export class OffersService {
             year: line.year,
             mileage: line.mileage,
             condition: line.condition,
+            color: normalizeVehicleColor(specification.color),
             trim: line.version,
             purchasePrice,
             currency: line.currency,

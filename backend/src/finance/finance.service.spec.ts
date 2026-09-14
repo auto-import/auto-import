@@ -8,17 +8,20 @@ describe('FinanceService', () => {
   let service: FinanceService;
 
   const mockPrisma = {
+    customerDeposit: { findMany: jest.fn().mockResolvedValue([]) },
     dossier: {
+      findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
     },
     invoice: {
       findMany: jest.fn(),
     },
+    paymentPlan: { findMany: jest.fn().mockResolvedValue([]) },
     payment: {
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     cost: {
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     contract: {
       findMany: jest.fn(),
@@ -105,6 +108,16 @@ describe('FinanceService', () => {
         },
       ],
       costs: [
+        {
+          id: 'actual-purchase',
+          type: 'PURCHASE',
+          costScope: 'DIRECT',
+          purchaseId: 'pur-1',
+          amount: new Prisma.Decimal(600000),
+          currency: 'DZD',
+          amountInBaseCurrency: new Prisma.Decimal(600000),
+          status: 'POSTED',
+        },
         {
           id: 'cost-1',
           type: 'SHIPPING',
@@ -200,6 +213,8 @@ describe('FinanceService', () => {
     mockPrisma.contract.findMany.mockResolvedValue([]);
     mockPrisma.invoice.findMany.mockResolvedValue([
       {
+        id: 'invoice-1',
+        dossierId: 'dossier-1',
         total: new Prisma.Decimal(1_000),
         currency: 'DZD',
         issueDate: new Date('2026-09-01T00:00:00Z'),
@@ -217,6 +232,15 @@ describe('FinanceService', () => {
       },
     ]);
 
+    mockPrisma.payment.findMany.mockResolvedValue([
+      {
+        id: 'payment-1',
+        dossierId: 'dossier-1',
+        amount: new Prisma.Decimal(400),
+        currency: 'DZD',
+        financeTransaction: { amountDzd: new Prisma.Decimal(400) },
+      },
+    ]);
     const overview = await service.getOrganizationFinancialOverview('org-1');
 
     expect(overview.totalInvoiced).toBe('1000');

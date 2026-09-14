@@ -27,7 +27,9 @@ export default function CatalogueDetailWorkspace({
     try {
       setItem(await commerceApi.catalogue.get(id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Chargement impossible");
+      setError(
+        cause instanceof Error ? cause.message : "Chargement impossible",
+      );
     } finally {
       setLoading(false);
     }
@@ -41,7 +43,10 @@ export default function CatalogueDetailWorkspace({
         subtitle="Véhicule, tarification publiée et rentabilité"
       />
       <main className="space-y-5 p-4 sm:p-8">
-        <Link href="/catalogue" className="inline-flex items-center gap-2 text-sm">
+        <Link
+          href="/catalogue"
+          className="inline-flex items-center gap-2 text-sm"
+        >
           <ArrowLeft className="h-4 w-4" /> Retour au catalogue
         </Link>
         {loading ? (
@@ -55,7 +60,7 @@ export default function CatalogueDetailWorkspace({
                 {item.brand} {item.model} {item.version}
               </h1>
               <p className="mt-1 text-sm text-muted">
-                Offre Chine {item.offer.reference}
+                Offre Chine {item.offer?.reference}
               </p>
               <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Detail label="Marque" value={item.brand} />
@@ -75,10 +80,16 @@ export default function CatalogueDetailWorkspace({
             </section>
             <div className="grid gap-5 xl:grid-cols-2">
               {item.pricing.cif && (
-                <PricingPanel title="Tarification CIF" pricing={item.pricing.cif} />
+                <PricingPanel
+                  title="Tarification CIF"
+                  pricing={item.pricing.cif}
+                />
               )}
               {item.pricing.ddp && (
-                <PricingPanel title="Tarification DDP" pricing={item.pricing.ddp} />
+                <PricingPanel
+                  title="Tarification DDP"
+                  pricing={item.pricing.ddp}
+                />
               )}
             </div>
           </>
@@ -95,6 +106,17 @@ function PricingPanel({
   title: string;
   pricing: ApiCataloguePricing;
 }) {
+  if (!pricing.estimatedCosts)
+    return (
+      <section className="card space-y-4 p-5">
+        <h2 className="text-lg font-bold">{title}</h2>
+        <p>{pricing.quotationNumber}</p>
+        <Detail
+          label="Prix de vente"
+          value={formatMoney(pricing.sellingPriceDzd, "DZD")}
+        />
+      </section>
+    );
   return (
     <section className="card space-y-4 p-5">
       <div>
@@ -127,7 +149,8 @@ function PricingPanel({
             <span>{cost.description}</span>
             <span className="text-right">
               <span className="block text-xs text-muted">
-                {formatMoney(cost.originalAmount, cost.currency)} · taux {String(cost.exchangeRateUsed)}
+                {formatMoney(cost.originalAmount, cost.currency)} · taux{" "}
+                {String(cost.exchangeRateUsed)}
               </span>
               <b>{formatMoney(cost.amountDzd, "DZD")}</b>
             </span>

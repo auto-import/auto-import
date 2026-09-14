@@ -10,6 +10,7 @@ import {
   Mail,
   Trash2,
 } from "lucide-react";
+import TwoFactorSettings from "./TwoFactorSettings";
 import Topbar from "@/components/Topbar";
 import { authApi, profileApi, type ApiProfile } from "@/lib/api";
 import {
@@ -500,6 +501,7 @@ export default function ProfileWorkspace() {
                 </form>
               </section>
             )}
+            <TwoFactorSettings />
             <section className="card">
               <div className="flex items-center gap-3">
                 <KeyRound className="h-5 w-5" />

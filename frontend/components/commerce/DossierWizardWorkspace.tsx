@@ -618,95 +618,9 @@ export default function DossierWizardWorkspace() {
               <div className="mx-auto max-w-2xl">
                 <h2 className="text-xl font-bold">Véhicule et source</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Sélectionnez un véhicule en stock ou une offre du catalogue.
+                  Sélectionnez un véhicule commercialisé du Catalogue.
                 </p>
                 <div className="mt-6 space-y-5">
-                  <label className="block">
-                    <span className="field-label">Véhicule disponible</span>
-                    <input
-                      aria-label="Rechercher un véhicule disponible"
-                      className={inputClass}
-                      placeholder="Marque, modèle ou VIN"
-                      value={vehicleSearch}
-                      onChange={(event) => {
-                        setVehicleSearch(event.target.value);
-                        setVehiclePage(1);
-                        setVehicleId("");
-                      }}
-                    />
-                    <select
-                      aria-label="Véhicule disponible"
-                      className={inputClass}
-                      value={vehicleId}
-                      disabled={vehiclesLoading || Boolean(vehiclesError)}
-                      onChange={(event) => {
-                        setVehicleId(event.target.value);
-                        if (event.target.value) setCatalogueItemId("");
-                      }}
-                    >
-                      <option value="">
-                        {vehiclesLoading
-                          ? "Chargement..."
-                          : vehiclesError
-                            ? "Chargement impossible"
-                            : vehicles.length
-                              ? "Sélectionner un véhicule"
-                              : "Aucun véhicule disponible"}
-                      </option>
-                      {vehicles.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.brand} {item.model} ·{" "}
-                          {item.vin || "VIN en attente"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {vehiclesError && (
-                    <ErrorState
-                      message={vehiclesError}
-                      retry={() => setVehicleReload((value) => value + 1)}
-                    />
-                  )}
-                  {vehicleId && (
-                    <p role="status" className="text-sm text-green-700">
-                      Véhicule sélectionné. Il sera réservé à l’enregistrement
-                      du dossier.
-                    </p>
-                  )}
-                  {vehiclePages > 1 && (
-                    <div className="flex gap-3 text-sm">
-                      <button
-                        type="button"
-                        disabled={vehiclePage <= 1 || vehiclesLoading}
-                        onClick={() => {
-                          setVehiclePage((page) => page - 1);
-                          setVehicleId("");
-                        }}
-                      >
-                        Précédent
-                      </button>
-                      <span>
-                        {vehiclePage} / {vehiclePages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={
-                          vehiclePage >= vehiclePages || vehiclesLoading
-                        }
-                        onClick={() => {
-                          setVehiclePage((page) => page + 1);
-                          setVehicleId("");
-                        }}
-                      >
-                        Suivant
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted">
-                    <span className="h-px flex-1 bg-neutral-200" />
-                    ou
-                    <span className="h-px flex-1 bg-neutral-200" />
-                  </div>
                   <label className="block">
                     <span className="field-label">Demande de sourcing</span>
                     <select
@@ -729,6 +643,11 @@ export default function DossierWizardWorkspace() {
                       {eligibleCatalogueItems.map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.brand} {item.model} {item.version || ""} ·{" "}
+                          {item.supplier?.name ?? "Fournisseur non renseigné"} ·{" "}
+                          {item.sourceType === "VEHICLE"
+                            ? "Stock"
+                            : "Offre Chine"}{" "}
+                          ·{" "}
                           {type === DossierType.VEHICLE_SALE_DDP
                             ? `${Number(item.ddpPrice).toLocaleString()} DZD DDP`
                             : `${Number(item.cifPrice).toLocaleString()} DZD CIF`}
@@ -773,9 +692,9 @@ export default function DossierWizardWorkspace() {
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-muted">Offre Chine</dt>
+                        <dt className="text-muted">Source</dt>
                         <dd className="font-semibold">
-                          {selectedCatalogueItem.offer.reference}
+                          {selectedCatalogueItem.offer?.reference ?? "Stock"}
                         </dd>
                       </div>
                       <div>

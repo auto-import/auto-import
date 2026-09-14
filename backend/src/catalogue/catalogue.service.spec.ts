@@ -134,7 +134,7 @@ describe('CatalogueService quotation projection', () => {
       }),
     );
     const sourceOfferFilter =
-      findMany.mock.calls[0][0].where.AND[1].sourceOfferVehicle.offer;
+      findMany.mock.calls[0][0].where.AND[1].OR[1].sourceOfferVehicle.offer;
     expect(sourceOfferFilter).not.toHaveProperty('validUntil');
     expect(
       findMany.mock.calls[0][0].where.AND[0].OR[0].activeCifQuotation.is.OR,

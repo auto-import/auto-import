@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DossierWizardWorkspace from "./DossierWizardWorkspace";
 const mocks = vi.hoisted(() => ({
   eligible: vi.fn(),
+  catalogue: vi.fn(),
   create: vi.fn(),
   push: vi.fn(),
 }));
@@ -29,26 +30,30 @@ vi.mock("@/lib/crm-api", () => ({
 vi.mock("@/lib/commerce-api", () => ({
   commerceApi: {
     vehicles: { eligible: mocks.eligible },
-    catalogue: {
-      list: vi
-        .fn()
-        .mockResolvedValue({ items: [], pagination: { totalPages: 0 } }),
-    },
+    catalogue: { list: mocks.catalogue },
     dossiers: { create: mocks.create },
   },
 }));
 
-describe("Dossier inventory selection", () => {
+describe("Dossier unified catalogue selection", () => {
   afterEach(cleanup);
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.eligible.mockResolvedValue({
+      items: [],
+      pagination: { ...pagination, totalPages: 0 },
+    });
+    mocks.catalogue.mockResolvedValue({
       items: [
         {
           id: "real-vehicle-uuid",
           brand: "Geely",
           model: "Monjaro",
-          vin: "REAL-VIN",
+          sourceType: "VEHICLE",
+          supplier: { name: "Supplier B" },
+          dossierEligibility: { cif: true, ddp: false },
+          cifPrice: 3000000,
+          pricing: { cif: { quotationNumber: "Q-1" } },
         },
       ],
       pagination,
@@ -63,17 +68,17 @@ describe("Dossier inventory selection", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Continuer/ }));
   }
-  it("uses the typed eligibility endpoint and sends the persisted vehicle UUID to the dossier API", async () => {
+  it("selects stock through the catalogue and sends its catalogue ID", async () => {
     mocks.create.mockResolvedValue({ id: "dossier-uuid" });
     await vehicleStep();
     expect(
-      await screen.findByRole("option", { name: /Geely Monjaro.*REAL-VIN/ }),
+      await screen.findByRole("option", { name: /Geely Monjaro.*Stock/ }),
     ).toBeTruthy();
-    expect(mocks.eligible).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "VEHICLE_SALE_CIF", page: 1, limit: 50 }),
+    expect(mocks.catalogue).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "available", page: 1 }),
     );
     fireEvent.change(
-      screen.getByRole("combobox", { name: "Véhicule disponible" }),
+      screen.getByRole("combobox", { name: "Demande de sourcing" }),
       { target: { value: "real-vehicle-uuid" } },
     );
     fireEvent.click(screen.getByRole("button", { name: /Continuer/ }));
@@ -83,24 +88,26 @@ describe("Dossier inventory selection", () => {
       expect(mocks.create).toHaveBeenCalledWith(
         expect.objectContaining({
           clientId: "client-uuid",
-          vehicleIds: ["real-vehicle-uuid"],
+          catalogueItemId: "real-vehicle-uuid",
         }),
       ),
     );
     expect(mocks.push).toHaveBeenCalledWith("/dossiers/dossier-uuid");
   });
   it("renders a real empty result explicitly", async () => {
-    mocks.eligible.mockResolvedValue({
+    mocks.catalogue.mockResolvedValue({
       items: [],
       pagination: { ...pagination, totalPages: 0 },
     });
     await vehicleStep();
     expect(
-      await screen.findByRole("option", { name: "Aucun véhicule disponible" }),
+      await screen.findByText(
+        /Aucun véhicule catalogue disponible avec un devis/,
+      ),
     ).toBeTruthy();
   });
   it("shows and retries backend errors instead of an empty dropdown", async () => {
-    mocks.eligible.mockRejectedValueOnce(
+    mocks.catalogue.mockRejectedValueOnce(
       new Error("Impossible de charger les véhicules"),
     );
     await vehicleStep();

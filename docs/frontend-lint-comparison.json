@@ -1,0 +1,60 @@
+[
+  {
+    "file": "app/(dashboard)/finance/page.tsx",
+    "currentErrors": 0,
+    "baselineErrors": 0,
+    "errors": []
+  },
+  {
+    "file": "components/commerce/CatalogueWorkspace.tsx",
+    "currentErrors": 0,
+    "baselineErrors": 0,
+    "errors": []
+  },
+  {
+    "file": "components/commerce/CatalogueDetailWorkspace.tsx",
+    "currentErrors": 1,
+    "baselineErrors": 1,
+    "errors": [
+      "react-hooks/set-state-in-effect"
+    ]
+  },
+  {
+    "file": "components/commerce/DossierDetailExperience.tsx",
+    "currentErrors": 2,
+    "baselineErrors": 2,
+    "errors": [
+      "react/no-unescaped-entities",
+      "react-hooks/set-state-in-effect"
+    ]
+  },
+  {
+    "file": "components/commerce/DossierWizardWorkspace.tsx",
+    "currentErrors": 2,
+    "baselineErrors": 2,
+    "errors": [
+      "react-hooks/set-state-in-effect",
+      "react-hooks/set-state-in-effect"
+    ]
+  },
+  {
+    "file": "components/commerce/VehicleStockPolished.tsx",
+    "currentErrors": 1,
+    "baselineErrors": 1,
+    "errors": [
+      "react-hooks/set-state-in-effect"
+    ]
+  },
+  {
+    "file": "components/commerce/QuotationDialog.tsx",
+    "currentErrors": 0,
+    "baselineErrors": 0,
+    "errors": []
+  },
+  {
+    "file": "components/commerce/DossierTransitionDialog.tsx",
+    "currentErrors": 0,
+    "baselineErrors": 2,
+    "errors": []
+  }
+]

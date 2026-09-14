@@ -10,7 +10,7 @@ describe('Catalogue vehicle identity', () => {
     brand: 'Geely',
     model: 'Coolray',
     currency: 'CNY',
-    specification: {},
+    specification: { color: 'ARGENTÉ' },
   } as never;
   function setup(existing: object | null = null) {
     const tx = {
@@ -35,6 +35,8 @@ describe('Catalogue vehicle identity', () => {
           sourceOfferVehicleId: 'source-1',
           brand: 'Geely',
           currency: 'CNY',
+          color: 'SILVER',
+          specs: { create: expect.objectContaining({ color: 'ARGENTÉ' }) },
         }),
       }),
     );

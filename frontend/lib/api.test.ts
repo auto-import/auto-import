@@ -49,6 +49,32 @@ describe("frontend API authentication foundation", () => {
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("refreshToken");
   });
 
+  it("keeps the pre-2FA challenge out of access-token storage until verification", async () => {
+    const challenge = {
+      twoFactorRequired: true,
+      challengeToken: "temporary-only",
+      expiresAt: "2026-09-14",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(envelope(challenge))
+      .mockResolvedValueOnce(
+        envelope({ accessToken: "verified-access", user }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { authApi } = await import("./api");
+    await expect(authApi.login(user.email, "secret")).resolves.toEqual(
+      challenge,
+    );
+    expect(authApi.accessToken()).toBeNull();
+    await expect(
+      authApi.completeTwoFactor(challenge.challengeToken, "123456"),
+    ).resolves.toEqual(user);
+    expect(authApi.accessToken()).toBe("verified-access");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/two-factor/verify");
+    expect(fetchMock.mock.calls[1][1].headers.has("Authorization")).toBe(false);
+  });
+
   it("restores a session through refresh and then loads GET /auth/me", async () => {
     const fetchMock = vi
       .fn()

@@ -53,11 +53,13 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "helmet": "^8.3.0",
+    "otplib": "13.5.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
     "pdfkit": "^0.17.2",
     "pg": "^8.23.0",
+    "qrcode": "1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3"
@@ -78,6 +80,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.17.4",
     "@types/pg": "^8.21.0",
+    "@types/qrcode": "1.5.6",
     "@types/supertest": "^7.0.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
@@ -104,12 +107,25 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.ts$": "ts-jest",
+      "^.+\\.js$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true,
+            "module": "CommonJS",
+            "moduleResolution": "Node10"
+          }
+        }
+      ]
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "node_modules[\\\\/](?!(@scure[\\\\/]base|@noble[\\\\/]hashes|@otplib[\\\\/][^\\\\/]+)[\\\\/])"
+    ]
   }
 }

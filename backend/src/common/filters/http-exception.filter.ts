@@ -78,15 +78,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
     } else if (
       exception instanceof Prisma.PrismaClientKnownRequestError &&
-      ['P2002', 'P2003', 'P2025', 'P2034', 'P2020'].includes(exception.code)
+      ['P2002', 'P2003', 'P2004', 'P2025', 'P2034', 'P2020'].includes(
+        exception.code,
+      )
     ) {
       status =
         exception.code === 'P2025'
           ? HttpStatus.NOT_FOUND
-          : exception.code === 'P2020'
+          : ['P2020', 'P2004'].includes(exception.code)
             ? HttpStatus.BAD_REQUEST
             : HttpStatus.CONFLICT;
       const messages: Record<string, string> = {
+        P2004:
+          'Cette opération ne respecte pas les contraintes métier ou l’historique comptable validé.',
         P2002: 'Cette référence existe déjà. Vérifiez les données saisies.',
         P2003:
           'Cette opération est incompatible avec les enregistrements liés.',
@@ -98,6 +102,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
       errorBody = {
         code: this.codeForStatus(status),
         message: messages[exception.code],
+      };
+    } else if (
+      exception instanceof Error &&
+      exception.name === 'DriverAdapterError' &&
+      exception.cause &&
+      typeof exception.cause === 'object' &&
+      'kind' in exception.cause &&
+      exception.cause.kind === 'TransactionWriteConflict'
+    ) {
+      status = HttpStatus.CONFLICT;
+      errorBody = {
+        code: 'CONFLICT',
+        message:
+          'Les données ont été modifiées simultanément. Rechargez puis réessayez.',
       };
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;

@@ -1,19 +1,29 @@
-import { describe, expect, it } from 'vitest';
-import { NextRequest } from 'next/server';
-import { proxy } from './proxy';
+import { describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { proxy } from "./proxy";
 
-describe('route protection proxy', () => {
-  it('redirects direct unauthenticated dashboard navigation to login', () => {
-    const response = proxy(new NextRequest('http://localhost:3001/dossiers'));
-    expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toContain('/connexion');
-  });
-
-  it('allows protected navigation when the HttpOnly session cookie is present', () => {
-    const request = new NextRequest('http://localhost:3001/dossiers', {
-      headers: { cookie: 'auto_import_refresh=opaque-session' },
+describe("Frontend authentication proxy", () => {
+  it("allows protected navigation when the session cookie is present", () => {
+    const request = new NextRequest("http://localhost:3001/dossiers", {
+      headers: { cookie: "auto_import_refresh=opaque-session" },
     });
-    const response = proxy(request);
-    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(proxy(request).headers.get("x-middleware-next")).toBe("1");
+  });
+  it.each([
+    "/api/auth/login",
+    "/api/auth/refresh",
+    "/api/auth/two-factor/verify",
+    "/api/dossiers",
+  ])("lets %s reach backend authorization without a cookie", (path) => {
+    const result = proxy(new NextRequest(`http://localhost:3001${path}`));
+    expect(result.headers.get("location")).toBeNull();
+    expect(result.headers.get("x-middleware-next")).toBe("1");
+  });
+  it("continues redirecting protected pages without a session cookie", () => {
+    const result = proxy(new NextRequest("http://localhost:3001/dossiers"));
+    expect(result.status).toBe(307);
+    expect(result.headers.get("location")).toContain(
+      "/connexion?retour=%2Fdossiers",
+    );
   });
 });

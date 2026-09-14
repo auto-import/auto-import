@@ -19,7 +19,7 @@ export class ReconciliationService {
       where: { id: invoiceId },
       include: {
         allocations: {
-          where: { status: 'ACTIVE' },
+          where: { status: 'ACTIVE', payment: { status: 'CONFIRMED' } },
         },
       },
     });
@@ -66,7 +66,7 @@ export class ReconciliationService {
       where: { id: installmentId },
       include: {
         allocations: {
-          where: { status: 'ACTIVE' },
+          where: { status: 'ACTIVE', payment: { status: 'CONFIRMED' } },
         },
         paymentPlan: {
           include: {

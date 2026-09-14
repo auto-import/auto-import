@@ -1,3 +1,5 @@
+import { DossierStatusPropagationService } from '../dossiers/workflows/dossier-status-propagation.service';
+import { ShipmentsService } from '../shipments/shipments.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -35,6 +37,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
       syncForTransition: jest.fn().mockResolvedValue([]),
     };
     prisma = {
+      shipment: { findFirst: jest.fn().mockResolvedValue(null) },
       vehicleRequest: {
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
@@ -110,6 +113,8 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        DossierStatusPropagationService,
+        { provide: ShipmentsService, useValue: { syncFromDossier: jest.fn() } },
         VehicleRequestsService,
         DossiersService,
         PartnersService,
@@ -386,7 +391,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         dossier: {
           id: 'dossier-1',
           type: DossierType.VEHICLE_SALE_CIF,
-          status: 'depositReceived',
+          status: 'inspection',
         },
       });
 
@@ -468,7 +473,7 @@ describe('Phase 6 — Import Operations & Vehicle Procurement Comprehensive Audi
         expect.objectContaining({
           organizationId: ORG_A,
           dossierId: 'dossier-1',
-          fromStatus: 'depositReceived',
+          fromStatus: 'inspection',
           toStatus: 'purchaseConfirmed',
           userId: 'user-procurement-1',
         }),

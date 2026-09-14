@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Permission } from '@auto-import/contracts';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -43,7 +51,11 @@ export class CustomerDepositsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateCustomerDepositDto,
   ) {
-    return this.deposits.create(user.organizationId, dto);
+    if (!user.permissions.includes(Permission.PAYMENTS_CONFIRM))
+      throw new ForbiddenException(
+        'La validation de cet encaissement requiert le droit de confirmation des paiements.',
+      );
+    return this.deposits.create(user.organizationId, dto, user.id);
   }
 
   @Post(':id/apply')
@@ -53,6 +65,13 @@ export class CustomerDepositsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyCustomerDepositDto,
   ) {
-    return this.deposits.apply(id, user.organizationId, dto);
+    if (
+      dto.treasuryAccountId &&
+      !user.permissions.includes(Permission.PAYMENTS_CONFIRM)
+    )
+      throw new ForbiddenException(
+        'Le rapprochement historique requiert le droit de confirmation des paiements.',
+      );
+    return this.deposits.apply(id, user.organizationId, dto, user.id);
   }
 }

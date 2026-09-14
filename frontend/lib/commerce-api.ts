@@ -146,6 +146,8 @@ export interface ApiVehicleSpec {
 }
 
 export interface ApiVehicle {
+  color?: import("./vehicle-appearance").VehicleColor | null;
+  paintCondition?: import("./vehicle-appearance").VehiclePaintCondition;
   dossiers?: Array<{ id: string; reference: string; status: string }>;
   id: string;
   vin?: string | null;
@@ -384,6 +386,9 @@ export interface ApiCustomerQuotation {
 }
 
 export interface ApiCatalogueItem {
+  sourceType?: "VEHICLE" | "CHINA_OFFER";
+  sourceId?: string;
+  sourceVehicleId?: string | null;
   dossierEligibility?: { cif: boolean; ddp: boolean };
   id: string;
   catalogueItemId: string;
@@ -409,7 +414,7 @@ export interface ApiCatalogueItem {
   ddpPrice?: string | number | null;
   activeCifQuotationId?: string | null;
   activeDdpQuotationId?: string | null;
-  offer: { id: string; reference: string };
+  offer: { id: string; reference: string } | null;
   supplier?: { id: string; name: string } | null;
   photos?: ApiVehicle["photos"];
   pricing: {
@@ -470,6 +475,7 @@ export interface ApiDossierEvidence {
 }
 
 export interface ApiDossier {
+  existingStockPurchaseId?: string | null;
   id: string;
   reference: string;
   type: ApiDossierType;
@@ -814,6 +820,8 @@ export const commerceApi = {
       }>("/offers/statistics"),
   },
   catalogue: {
+    suppliers: () =>
+      apiRequest<Array<{ id: string; name: string }>>("/catalogue/suppliers"),
     list: (filters: Record<string, string | number | undefined> = {}) =>
       apiRequest<PaginatedData<ApiCatalogueItem>>(
         `/catalogue${queryString(filters)}`,

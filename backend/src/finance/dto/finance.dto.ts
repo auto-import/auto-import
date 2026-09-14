@@ -1,4 +1,5 @@
 import {
+  IsUUID,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -162,6 +163,8 @@ export class FilterPaymentsDto extends PaginationDto {
 }
 
 export class CreateCustomerDepositDto {
+  @IsString() treasuryAccountId: string;
+  @IsOptional() @IsString() officeId?: string;
   @IsOptional()
   @IsString()
   clientId?: string;
@@ -203,6 +206,9 @@ export class CreateCustomerDepositDto {
 }
 
 export class ApplyCustomerDepositDto {
+  @IsOptional() @IsUUID() treasuryAccountId?: string;
+  @IsOptional() @IsNumber() @IsPositive() historicalRate?: number;
+  @IsOptional() @IsString() reason?: string;
   @IsNumber()
   @IsPositive()
   amount: number;
@@ -286,6 +292,9 @@ export class FilterSupplierPaymentsDto extends PaginationDto {
 }
 
 export class CreateCostDto {
+  @IsOptional()
+  @IsIn(['COMMERCIAL', 'BANK', 'INTERNAL', 'MANUAL'])
+  rateType?: string;
   @IsString()
   type: string; // 'PURCHASE' | 'SUPPLIER' | 'SHIPPING' | 'CUSTOMS' | 'DUTY' | 'TAX' | 'INSURANCE' | 'STORAGE' | 'OTHER'
 
@@ -343,6 +352,9 @@ export class CreateCostDto {
 
 export class ConfirmFinanceEntryDto {
   @IsOptional()
+  @IsIn(['COMMERCIAL', 'BANK', 'INTERNAL', 'MANUAL'])
+  rateType?: string;
+  @IsOptional()
   @IsString()
   treasuryAccountId?: string;
 
@@ -387,6 +399,9 @@ export class FilterCostsDto extends PaginationDto {
 }
 
 export class CreateExchangeRateDto {
+  @IsOptional()
+  @IsIn(['COMMERCIAL', 'BANK', 'INTERNAL', 'MANUAL'])
+  rateType?: string;
   @IsString()
   @IsIn(['USD', 'CNY'])
   baseCurrency: string;
@@ -422,6 +437,9 @@ export class UpdateExchangeRateStatusDto {
 }
 
 export class FilterExchangeRatesDto extends PaginationDto {
+  @IsOptional()
+  @IsIn(['COMMERCIAL', 'BANK', 'INTERNAL', 'MANUAL'])
+  rateType?: string;
   @IsOptional()
   @IsString()
   baseCurrency?: string;

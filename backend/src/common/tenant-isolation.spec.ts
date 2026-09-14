@@ -1,3 +1,5 @@
+import { DossierStatusPropagationService } from '../dossiers/workflows/dossier-status-propagation.service';
+import { ShipmentsService } from '../shipments/shipments.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -83,6 +85,8 @@ describe('Multi-Tenant Isolation & Cross-Tenant Security (Phase 3-5)', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        DossierStatusPropagationService,
+        { provide: ShipmentsService, useValue: { syncFromDossier: jest.fn() } },
         DossiersService,
         ClientsService,
         VehiclesService,

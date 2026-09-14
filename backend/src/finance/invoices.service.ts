@@ -1,3 +1,4 @@
+import { ExchangeRatesService } from './exchange-rates.service';
 import {
   ConflictException,
   Injectable,
@@ -125,8 +126,18 @@ export class InvoicesService {
         tx,
         organizationId,
       );
+      const snapshot = await new ExchangeRatesService(
+        this.prisma,
+      ).findActiveDzdRateSnapshot(
+        tx,
+        organizationId,
+        invoiceCurrency,
+        new Date(),
+      );
       const invoice = await tx.invoice.create({
         data: {
+          exchangeRateSnapshot: snapshot.rate,
+          amountDzd: total.mul(snapshot.rate).toDecimalPlaces(2),
           organizationId,
           invoiceNumber,
           clientId: dto.clientId,
@@ -294,6 +305,11 @@ export class InvoicesService {
           subtotal,
           tax: totalTax,
           total,
+          amountDzd: invoice.exchangeRateSnapshot
+            ? total.mul(invoice.exchangeRateSnapshot).toDecimalPlaces(2)
+            : invoice.currency === 'DZD'
+              ? total
+              : undefined,
           version: { increment: 1 },
         },
         include: {
@@ -331,6 +347,11 @@ export class InvoicesService {
           subtotal,
           tax,
           total,
+          amountDzd: invoice.exchangeRateSnapshot
+            ? total.mul(invoice.exchangeRateSnapshot).toDecimalPlaces(2)
+            : invoice.currency === 'DZD'
+              ? total
+              : undefined,
           issueDate: new Date(),
           status: 'ISSUED',
         },

@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import * as bcrypt from 'bcrypt';
 import request, { Response } from 'supertest';
 import { App } from 'supertest/types';
-import { ALL_PERMISSIONS } from '@auto-import/contracts';
+import { ALL_PERMISSIONS, Permission } from '@auto-import/contracts';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DossiersService } from '../src/dossiers/dossiers.service';
@@ -33,6 +33,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
   let clientId: string;
   let userId: string;
   let supplierId: string;
+  const treasuryAccounts: Record<string, string> = {};
   let storageRoot: string;
   let browserEmail: string;
   let browserPassword: string;
@@ -149,6 +150,27 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
         },
       });
     }
+    const office = await prisma.office.create({
+      data: {
+        organizationId,
+        name: 'Bureau test',
+        country: 'DZ',
+        status: 'active',
+      },
+    });
+    for (const currency of ['DZD', 'USD', 'CNY'])
+      treasuryAccounts[currency] = (
+        await prisma.treasuryAccount.create({
+          data: {
+            organizationId,
+            officeId: office.id,
+            code: `TEST-${currency}`,
+            name: `Compte ${currency}`,
+            currency,
+            type: 'BANK',
+          },
+        })
+      ).id;
   }, 60_000);
 
   afterAll(async () => {
@@ -229,6 +251,692 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
       });
   }
 
+  it('publishes stock through the shared quotation engine, filters supplier and reserves the same vehicle once', async () => {
+    const vehicle = await prisma.vehicle.create({
+      data: {
+        organizationId,
+        brand: 'Toyota',
+        model: 'Corolla',
+        acquisitionType: 'stock',
+        supplierId,
+        status: 'available',
+      },
+    });
+    const payload = {
+      sourceVehicleId: vehicle.id,
+      priceBasis: 'CIF',
+      vehicleAmount: 1800000,
+      vehicleCurrency: 'DZD',
+      containerPrice: 0,
+      containerCurrency: 'USD',
+      containerAllocation: 3,
+      insuranceAmount: 0,
+      insuranceCurrency: 'USD',
+      transitAmount: 0,
+      transitCurrency: 'DZD',
+      sellingPriceDzd: 3000000,
+    };
+    const before = await prisma.vehicle.count({ where: { organizationId } });
+    const quoteResponse = await request(app.getHttpServer())
+      .post('/api/quotations')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+    expect(quoteResponse.status).toBe(201);
+    const quotation = dataOf<{ id: string; sourceVehicleId: string }>(
+      quoteResponse,
+    );
+    expect(quotation.sourceVehicleId).toBe(vehicle.id);
+    const list = await request(app.getHttpServer())
+      .get(`/api/catalogue?sourceType=VEHICLE&supplierId=${supplierId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(list.status).toBe(200);
+    const item = dataOf<{
+      items: Array<{
+        id: string;
+        sourceId: string;
+        sourceType: string;
+        supplier: { id: string };
+      }>;
+    }>(list).items.find((row) => row.sourceId === vehicle.id)!;
+    expect(item.sourceType).toBe('VEHICLE');
+    expect(item.supplier.id).toBe(supplierId);
+    const attempts = await Promise.all([
+      createDossier(item.id),
+      createDossier(item.id),
+    ]);
+    expect(attempts.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
+    const created = dataOf<{ id: string }>(
+      attempts.find((response) => response.status === 201)!,
+    );
+    const dossier = await prisma.dossier.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { dossierVehicles: true },
+    });
+    expect(dossier.catalogueItemId).toBe(item.id);
+    expect(dossier.commercialQuotationId).toBe(quotation.id);
+    expect(dossier.dossierVehicles.map((link) => link.vehicleId)).toEqual([
+      vehicle.id,
+    ]);
+    expect(await prisma.vehicle.count({ where: { organizationId } })).toBe(
+      before,
+    );
+    expect(
+      await prisma.financeTransaction.count({
+        where: { organizationId, sourceRecordId: quotation.id },
+      }),
+    ).toBe(0);
+    const sourceCounts = await prisma.chinaOffer.aggregate({
+      where: { organizationId },
+      _sum: { reservedQuantity: true },
+    });
+    await request(app.getHttpServer())
+      .patch(`/api/dossiers/${created.id}/status`)
+      .auth(token, { type: 'bearer' })
+      .send({ status: 'cancelled', comment: 'Annulation test stock' })
+      .expect(200);
+    expect(
+      (await prisma.vehicle.findUniqueOrThrow({ where: { id: vehicle.id } }))
+        .status,
+    ).toBe('available');
+    expect(
+      (await prisma.catalogueItem.findUniqueOrThrow({ where: { id: item.id } }))
+        .reservedQuantity,
+    ).toBe(0);
+    await request(app.getHttpServer())
+      .post(`/api/dossiers/${created.id}/restore`)
+      .auth(token, { type: 'bearer' })
+      .send({})
+      .expect(201);
+    expect(
+      (await prisma.catalogueItem.findUniqueOrThrow({ where: { id: item.id } }))
+        .reservedQuantity,
+    ).toBe(1);
+    expect(
+      await prisma.chinaOffer.aggregate({
+        where: { organizationId },
+        _sum: { reservedQuantity: true },
+      }),
+    ).toEqual(sourceCounts);
+    const stockPurchase = await prisma.purchase.create({
+      data: {
+        organizationId,
+        supplierId,
+        vehicleId: vehicle.id,
+        purchaseNumber: randomUUID(),
+        purchasePrice: 1800000,
+        currency: 'DZD',
+        status: 'confirmed',
+      },
+    });
+    await prisma.$transaction((tx) =>
+      app
+        .get(CostsService)
+        .recordPurchaseCommitment(tx, organizationId, userId, stockPurchase),
+    );
+    const financialBefore = await prisma.financeTransaction.count({
+      where: { organizationId },
+    });
+    await prisma.dossier.update({
+      where: { id: created.id },
+      data: { status: 'inspection', vehicleBookingVehicleId: vehicle.id },
+    });
+    await request(app.getHttpServer())
+      .patch(`/api/dossiers/${created.id}/status`)
+      .auth(token, { type: 'bearer' })
+      .send({ status: 'purchaseConfirmed' })
+      .expect(200);
+    expect(
+      await prisma.purchase.count({ where: { vehicleId: vehicle.id } }),
+    ).toBe(1);
+    expect(
+      await prisma.financeTransaction.count({ where: { organizationId } }),
+    ).toBe(financialBefore);
+    const financial = dataOf<any>(
+      await request(app.getHttpServer())
+        .get(`/api/finance/dossiers/${created.id}/summary`)
+        .auth(token, { type: 'bearer' })
+        .expect(200),
+    );
+    expect(financial.costs.purchaseCost).toBe('1800000');
+  });
+
+  it('synchronizes customer collections, supplier settlements, actual costs, treasury, reversals and historical rates', async () => {
+    const get = async (path: string) => {
+      const response = await request(app.getHttpServer())
+        .get(`/api/${path}`)
+        .auth(token, { type: 'bearer' });
+      expect(response.status).toBe(200);
+      return JSON.parse(response.text).data;
+    };
+    const post = async (path: string, body: object) => {
+      const response = await request(app.getHttpServer())
+        .post(`/api/${path}`)
+        .auth(token, { type: 'bearer' })
+        .send(body);
+      if (response.status !== 201)
+        throw new Error(`Unexpected ${response.status}: ${response.text}`);
+      return JSON.parse(response.text).data;
+    };
+    const overviewBefore = await get('finance/summary');
+    const treasuryBefore = await get('finance/treasury/accounts');
+    const balanceBefore = Number(
+      treasuryBefore.find((a) => a.id === treasuryAccounts.DZD).balance,
+    );
+    const { item } = await catalogue('USD', 'CIF');
+    const dossier = dataOf<{ id: string; vehicles: Array<{ id: string }> }>(
+      await createDossier(item.id),
+    );
+    const contract = await post('contracts', {
+      dossierId: dossier.id,
+      clientId,
+      totalAmount: 3000000,
+      currency: 'DZD',
+      requiredDeposit: 900000,
+      schedule: [{ amount: 900000 }, { amount: 2100000 }],
+    });
+    await prisma.contract.update({
+      where: { id: contract.id },
+      data: { status: 'SIGNED', signedAt: new Date() },
+    });
+    const payment = await post('finance/payments', {
+      clientId,
+      dossierId: dossier.id,
+      contractId: contract.id,
+      amount: 900000,
+      currency: 'DZD',
+      idempotencyKey: randomUUID(),
+    });
+    const noAccount = await request(app.getHttpServer())
+      .post(`/api/finance/payments/${payment.id}/confirm`)
+      .auth(token, { type: 'bearer' })
+      .send({});
+    expect(noAccount.status).toBe(400);
+    expect(
+      (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))
+        .status,
+    ).toBe('PENDING');
+    await post(`finance/payments/${payment.id}/confirm`, {
+      treasuryAccountId: treasuryAccounts.DZD,
+    });
+    await post(`finance/payments/${payment.id}/confirm`, {
+      treasuryAccountId: treasuryAccounts.DZD,
+    });
+    expect(
+      await prisma.financeTransaction.count({
+        where: { customerPaymentId: payment.id },
+      }),
+    ).toBe(1);
+    let overview = await get('finance/summary');
+    expect(
+      Number(overview.totalCollected) - Number(overviewBefore.totalCollected),
+    ).toBe(900000);
+    expect(
+      Number(overview.totalOutstanding) -
+        Number(overviewBefore.totalOutstanding),
+    ).toBe(2100000);
+    let summary = await get(`finance/dossiers/${dossier.id}/summary`);
+    expect(summary.revenue.collected).toBe('900000');
+    expect(summary.revenue.outstanding).toBe('2100000');
+    expect(
+      (await get('finance/treasury/accounts')).find(
+        (a) => a.id === treasuryAccounts.DZD,
+      ).balance,
+    ).toBe(String(balanceBefore + 900000));
+    const purchase = await prisma.purchase.create({
+      data: {
+        organizationId,
+        purchaseNumber: randomUUID(),
+        supplierId,
+        vehicleId: dossier.vehicles[0].id,
+        dossierId: dossier.id,
+        purchasePrice: 20000,
+        currency: 'USD',
+        status: 'confirmed',
+      },
+    });
+    await prisma.$transaction((tx) =>
+      app
+        .get(CostsService)
+        .recordPurchaseCommitment(tx, organizationId, userId, purchase),
+    );
+    for (const amount of [10000, 5000]) {
+      const supplierPayment = await post('finance/supplier-payments', {
+        supplierId,
+        purchaseId: purchase.id,
+        paymentKind: 'COMPLEMENT',
+        amount,
+        currency: 'USD',
+        idempotencyKey: randomUUID(),
+      });
+      await post(`finance/supplier-payments/${supplierPayment.id}/confirm`, {
+        treasuryAccountId: treasuryAccounts.USD,
+      });
+    }
+    const supplierRows = await get('finance/supplier-payments?limit=100');
+    const supplierRow = supplierRows.items.find(
+      (r) => r.purchase.id === purchase.id,
+    );
+    expect(supplierRow.purchasePaid).toBe('15000.00');
+    expect(supplierRow.purchaseRemaining).toBe('5000.00');
+    summary = await get(`finance/dossiers/${dossier.id}/summary`);
+    expect(summary.costs.purchaseCost).toBe('5000000');
+    await post('finance/costs', {
+      type: 'CUSTOMS',
+      costScope: 'DIRECT',
+      dossierId: dossier.id,
+      amount: 250000,
+      currency: 'DZD',
+    });
+    await post('finance/costs', {
+      type: 'RENT',
+      costScope: 'OPERATING',
+      amount: 50000,
+      currency: 'DZD',
+      treasuryAccountId: treasuryAccounts.DZD,
+    });
+    summary = await get(`finance/dossiers/${dossier.id}/summary`);
+    expect(summary.costs.totalInBaseCurrency).toBe('5250000');
+    expect(summary.profitability.grossMargin).toBe('-2250000');
+    const frozen = await prisma.financeTransaction.findMany({
+      where: { dossierId: dossier.id },
+      orderBy: { id: 'asc' },
+    });
+    const rate = await post('finance/exchange-rates', {
+      baseCurrency: 'USD',
+      quoteCurrency: 'DZD',
+      rate: 999,
+      rateType: 'COMMERCIAL',
+    });
+    expect(
+      (await get(`finance/dossiers/${dossier.id}/summary`)).costs
+        .totalInBaseCurrency,
+    ).toBe('5250000');
+    expect(
+      await prisma.financeTransaction.findMany({
+        where: { dossierId: dossier.id },
+        orderBy: { id: 'asc' },
+      }),
+    ).toEqual(frozen);
+    const entry = await prisma.financeTransaction.findUniqueOrThrow({
+      where: { customerPaymentId: payment.id },
+    });
+    await expect(
+      prisma.financeTransaction.delete({ where: { id: entry.id } }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.financeTransaction.update({
+        where: { id: entry.id },
+        data: { amountDzd: 1 },
+      }),
+    ).rejects.toThrow();
+    await post(`finance/transactions/${entry.id}/reverse`, {
+      reason: 'Correction test',
+    });
+    await post(`finance/transactions/${entry.id}/reverse`, {
+      reason: 'Correction test',
+    });
+    expect(
+      await prisma.financeTransaction.count({
+        where: { reversalOfId: entry.id },
+      }),
+    ).toBe(1);
+    expect(
+      (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))
+        .status,
+    ).toBe('REVERSED');
+    expect(
+      (await get(`finance/dossiers/${dossier.id}/summary`)).revenue.outstanding,
+    ).toBe('3000000');
+    expect(
+      (await get('finance/treasury/accounts')).find(
+        (a) => a.id === treasuryAccounts.DZD,
+      ).balance,
+    ).toBe(String(balanceBefore - 50000));
+    const officeId = treasuryBefore.find(
+      (a) => a.id === treasuryAccounts.DZD,
+    ).officeId;
+    const destination = await post('finance/treasury/accounts', {
+      code: `TR-${randomUUID()}`,
+      name: 'Destination test',
+      officeId,
+      currency: 'DZD',
+      type: 'BANK',
+      openingBalance: 0,
+    });
+    const beforeTransfer = await get('finance/summary');
+    const transferBody = {
+      sourceAccountId: treasuryAccounts.DZD,
+      destinationAccountId: destination.id,
+      amount: 10000,
+      reference: 'Transfert test',
+      idempotencyKey: randomUUID(),
+    };
+    const transfer = await post('finance/treasury/transfers', transferBody);
+    expect(
+      (await post('finance/treasury/transfers', transferBody))
+        .map((e) => e.id)
+        .sort(),
+    ).toEqual(transfer.map((e) => e.id).sort());
+    expect(await get('finance/summary')).toEqual(beforeTransfer);
+    expect(
+      (await get('finance/treasury/accounts')).find(
+        (a) => a.id === destination.id,
+      ).balance,
+    ).toBe('10000');
+    await post(`finance/transactions/${transfer[0].id}/reverse`, {
+      reason: 'Annulation transfert test',
+    });
+    expect(
+      (await get('finance/treasury/accounts')).find(
+        (a) => a.id === destination.id,
+      ).balance,
+    ).toBe('0');
+    expect(await get('finance/summary')).toEqual(beforeTransfer);
+    await request(app.getHttpServer())
+      .patch(`/api/finance/exchange-rates/${rate.id}/status`)
+      .auth(token, { type: 'bearer' })
+      .send({ isActive: false })
+      .expect(200);
+  });
+
+  it('enforces sales/China financial visibility and protects treasury administration at the API', async () => {
+    async function sessionWith(allowed: string[]) {
+      const permissions = (await prisma.permission.findMany()).filter((p) =>
+        allowed.includes(`${p.resource}:${p.action}`),
+      );
+      const role = await prisma.role.create({
+        data: {
+          organizationId,
+          name: randomUUID(),
+          scope: 'tenant',
+          rolePermissions: {
+            create: permissions.map((p) => ({ permissionId: p.id })),
+          },
+        },
+      });
+      const password = randomBytes(24).toString('base64url');
+      const user = await prisma.user.create({
+        data: {
+          organizationId,
+          email: `${randomUUID()}@example.test`,
+          firstName: 'Permission',
+          lastName: 'Test',
+          passwordHash: await bcrypt.hash(password, 4),
+          status: 'active',
+          userRoles: { create: { roleId: role.id } },
+        },
+      });
+      return dataOf<{ accessToken: string }>(
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: user.email, password }),
+      ).accessToken;
+    }
+    const { item } = await catalogue('USD', 'CIF');
+    const sales = await sessionWith([
+      Permission.VEHICLES_READ,
+      Permission.PAYMENTS_WRITE,
+      Permission.DOSSIERS_READ,
+    ]);
+    const response = await request(app.getHttpServer())
+      .get(`/api/catalogue/${item.id}`)
+      .auth(sales, { type: 'bearer' })
+      .expect(200);
+    const commercial = dataOf<{ pricing: { cif: Record<string, unknown> } }>(
+      response,
+    ).pricing.cif;
+    expect(commercial.sellingPriceDzd).toBeTruthy();
+    expect(commercial).not.toHaveProperty('estimatedCosts');
+    expect(commercial).not.toHaveProperty('estimatedProfitDzd');
+    expect(commercial).not.toHaveProperty('actual');
+    await request(app.getHttpServer())
+      .get('/api/finance/summary')
+      .auth(sales, { type: 'bearer' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/api/finance/treasury/accounts')
+      .auth(sales, { type: 'bearer' })
+      .expect(403);
+    const accounts = dataOf<Array<Record<string, unknown>>>(
+      await request(app.getHttpServer())
+        .get('/api/finance/treasury/payment-accounts')
+        .auth(sales, { type: 'bearer' })
+        .expect(200),
+    );
+    expect(accounts.length).toBeGreaterThan(0);
+    expect(accounts[0]).not.toHaveProperty('balance');
+    expect(accounts[0]).not.toHaveProperty('openingBalance');
+    const dossier = dataOf<any>(await createDossier(item.id));
+    const salesDossier = dataOf<any>(
+      await request(app.getHttpServer())
+        .get(`/api/dossiers/${dossier.id}`)
+        .auth(sales, { type: 'bearer' })
+        .expect(200),
+    );
+    expect(salesDossier.commercialQuotation.currentRevision).not.toHaveProperty(
+      'vehicleAmount',
+    );
+    expect(salesDossier.commercialQuotation.currentRevision).not.toHaveProperty(
+      'snapshot',
+    );
+    expect(salesDossier.commercialQuotation.currentRevision).not.toHaveProperty(
+      'costItems',
+    );
+    const china = await sessionWith([
+      Permission.PURCHASES_READ,
+      Permission.VEHICLES_READ,
+    ]);
+    await request(app.getHttpServer())
+      .get('/api/finance/payments')
+      .auth(china, { type: 'bearer' })
+      .expect(403);
+  });
+
+  it('uses rate types, rejects contradictory effective rates and synchronizes supplier and direct-cost reversals', async () => {
+    const post = async (path: string, body: object) =>
+      dataOf<any>(
+        await request(app.getHttpServer())
+          .post(`/api/${path}`)
+          .auth(token, { type: 'bearer' })
+          .send(body)
+          .expect(201),
+      );
+    const bankRate = {
+      baseCurrency: 'USD',
+      quoteCurrency: 'DZD',
+      rateType: 'BANK',
+      rate: 240,
+      effectiveAt: '2020-01-01T00:00:00.000Z',
+    };
+    await post('finance/exchange-rates', bankRate);
+    await request(app.getHttpServer())
+      .post('/api/finance/exchange-rates')
+      .auth(token, { type: 'bearer' })
+      .send({ ...bankRate, rate: 241 })
+      .expect(409);
+    const { item } = await catalogue('USD', 'CIF');
+    const dossier = dataOf<any>(await createDossier(item.id));
+    const purchase = await prisma.purchase.create({
+      data: {
+        organizationId,
+        purchaseNumber: randomUUID(),
+        supplierId,
+        vehicleId: dossier.vehicles[0].id,
+        dossierId: dossier.id,
+        purchasePrice: 10000,
+        currency: 'USD',
+        status: 'confirmed',
+      },
+    });
+    await prisma.$transaction((tx) =>
+      app
+        .get(CostsService)
+        .recordPurchaseCommitment(tx, organizationId, userId, purchase),
+    );
+    const attempts = await Promise.all(
+      [6000, 6000].map((amount) =>
+        request(app.getHttpServer())
+          .post('/api/finance/supplier-payments')
+          .auth(token, { type: 'bearer' })
+          .send({
+            supplierId,
+            purchaseId: purchase.id,
+            paymentKind: 'COMPLEMENT',
+            amount,
+            currency: 'USD',
+            idempotencyKey: randomUUID(),
+          }),
+      ),
+    );
+    expect(attempts.map((r) => r.status).sort()).toEqual([201, 409]);
+    const payment = dataOf<any>(attempts.find((r) => r.status === 201)!);
+    await request(app.getHttpServer())
+      .post(`/api/finance/supplier-payments/${payment.id}/confirm`)
+      .auth(token, { type: 'bearer' })
+      .send({ treasuryAccountId: treasuryAccounts.DZD })
+      .expect(404);
+    await post(`finance/supplier-payments/${payment.id}/confirm`, {
+      treasuryAccountId: treasuryAccounts.USD,
+      rateType: 'BANK',
+    });
+    const journal = await prisma.financeTransaction.findUniqueOrThrow({
+      where: { supplierPaymentId: payment.id },
+    });
+    expect(journal.exchangeRateSnapshot.toString()).toBe('240');
+    expect(journal.amountDzd.toString()).toBe('1440000');
+    await post(`finance/transactions/${journal.id}/reverse`, {
+      reason: 'Paiement fournisseur erroné',
+    });
+    expect(
+      (
+        await prisma.supplierPayment.findUniqueOrThrow({
+          where: { id: payment.id },
+        })
+      ).status,
+    ).toBe('REVERSED');
+    const cost = await post('finance/costs', {
+      type: 'INSURANCE',
+      costScope: 'DIRECT',
+      dossierId: dossier.id,
+      amount: 10000,
+      currency: 'DZD',
+      treasuryAccountId: treasuryAccounts.DZD,
+    });
+    const entry = await prisma.financeTransaction.findUniqueOrThrow({
+      where: { costId: cost.id },
+    });
+    await post(`finance/transactions/${entry.id}/reverse`, {
+      reason: 'Assurance corrigée',
+    });
+    expect(
+      (await prisma.cost.findUniqueOrThrow({ where: { id: cost.id } })).status,
+    ).toBe('REVERSED');
+    await request(app.getHttpServer())
+      .patch(`/api/finance/treasury/accounts/${treasuryAccounts.DZD}`)
+      .auth(token, { type: 'bearer' })
+      .send({ openingBalance: 999 })
+      .expect(400);
+  });
+
+  it('records a standalone deposit once and applies it without another treasury movement', async () => {
+    const post = async (path: string, body: object) =>
+      dataOf<any>(
+        await request(app.getHttpServer())
+          .post(`/api/${path}`)
+          .auth(token, { type: 'bearer' })
+          .send(body)
+          .expect(201),
+      );
+    const { item } = await catalogue('USD', 'CIF');
+    const dossier = dataOf<any>(await createDossier(item.id));
+    const invoice = await prisma.invoice.create({
+      data: {
+        organizationId,
+        clientId,
+        dossierId: dossier.id,
+        invoiceNumber: randomUUID(),
+        currency: 'DZD',
+        subtotal: 100000,
+        total: 100000,
+        amountDzd: 100000,
+        exchangeRateSnapshot: 1,
+        status: 'ISSUED',
+      },
+    });
+    const deposit = await post('finance/customer-deposits', {
+      clientId,
+      dossierId: dossier.id,
+      amount: 90000,
+      currency: 'DZD',
+      treasuryAccountId: treasuryAccounts.DZD,
+    });
+    expect(deposit.paymentId).toBeTruthy();
+    await post(`finance/customer-deposits/${deposit.id}/apply`, {
+      amount: 90000,
+      invoiceId: invoice.id,
+    });
+    expect(
+      (
+        await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })
+      ).paidAmount.toString(),
+    ).toBe('90000');
+    expect(
+      await prisma.financeTransaction.count({
+        where: { customerPaymentId: deposit.paymentId },
+      }),
+    ).toBe(1);
+    const entry = await prisma.financeTransaction.findUniqueOrThrow({
+      where: { customerPaymentId: deposit.paymentId },
+    });
+    await post(`finance/transactions/${entry.id}/reverse`, {
+      reason: 'Acompte corrigé',
+    });
+    expect(
+      (
+        await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })
+      ).paidAmount.toString(),
+    ).toBe('0');
+    expect(
+      (
+        await prisma.customerDeposit.findUniqueOrThrow({
+          where: { id: deposit.id },
+        })
+      ).status,
+    ).toBe('REVERSED');
+    const legacy = await prisma.customerDeposit.create({
+      data: {
+        organizationId,
+        clientId,
+        dossierId: dossier.id,
+        amount: 10000,
+        unappliedAmount: 10000,
+        currency: 'DZD',
+        status: 'CONFIRMED',
+      },
+    });
+    await request(app.getHttpServer())
+      .post(`/api/finance/customer-deposits/${legacy.id}/apply`)
+      .auth(token, { type: 'bearer' })
+      .send({ amount: 10000, invoiceId: invoice.id })
+      .expect(400);
+    const reconciled = await post(
+      `finance/customer-deposits/${legacy.id}/apply`,
+      {
+        amount: 10000,
+        invoiceId: invoice.id,
+        treasuryAccountId: treasuryAccounts.DZD,
+        reason: 'Rapprochement documenté test',
+      },
+    );
+    expect(
+      await prisma.financeTransaction.count({
+        where: { customerPaymentId: reconciled.paymentId },
+      }),
+    ).toBe(1);
+  });
+
   function testContractPdf() {
     return new Promise<Buffer>((resolve) => {
       const doc = new PDFDocument();
@@ -279,6 +987,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
       const deposit = await dossier.transition({
         status: 'depositReceived',
         deposit: {
+          treasuryAccountId: treasuryAccounts[currency],
           amount: 10000.25,
           currency,
           exchangeRateId: rate.id,
@@ -305,6 +1014,14 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
         ),
       );
       expect(bookings.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(
+        (
+          await dossier.transition({
+            status: 'inspection',
+            inspection: { url: 'https://example.test/inspection.pdf' },
+          })
+        ).status,
+      ).toBe(200);
       const purchase = await dossier.transition({
         status: 'purchaseConfirmed',
         purchase: {
@@ -369,6 +1086,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
   it('rejects missing rates, arbitrary currencies and stale displayed rates without changing the dossier', async () => {
     const dossier = await signedDossier('USD');
     const deposit = {
+      treasuryAccountId: treasuryAccounts.USD,
       amount: 10000,
       currency: 'USD',
       paymentMethod: 'CASH',
@@ -416,7 +1134,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
   it('backfills an existing catalogue dossier without duplicating an identifiable vehicle', async () => {
     const { item } = await catalogue('CNY', 'CIF');
     const source = await prisma.chinaOfferVehicle.findUniqueOrThrow({
-      where: { id: item.sourceOfferVehicleId },
+      where: { id: item.sourceOfferVehicleId! },
     });
     const vin = `MIGRATION-${randomUUID()}`;
     await prisma.chinaOfferVehicle.update({
@@ -667,7 +1385,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
   });
 
   it.each(['DZD', 'USD', 'CNY'])(
-    'creates from a stock vehicle in %s without requiring supplier-offer prices',
+    'requires a published quotation for stock priced in %s',
     async (currency) => {
       let upload = request(app.getHttpServer())
         .post('/api/vehicles/with-photos')
@@ -695,17 +1413,10 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
         .post('/api/dossiers')
         .auth(token, { type: 'bearer' })
         .send({ clientId, type: 'VEHICLE_SALE_CIF', vehicleIds: [vehicle.id] });
-      expect(response.status).toBe(201);
-      const dossier = dataOf<{ id: string; vehicles: Array<{ id: string }> }>(
-        response,
-      );
-      expect(dossier.vehicles.map((v) => v.id)).toContain(vehicle.id);
-      const stored = await prisma.dossier.findUniqueOrThrow({
-        where: { id: dossier.id },
-      });
-      expect(stored.cifPrice).toBeNull();
-      expect(stored.ddpPrice).toBeNull();
-      expect(stored.priceCurrency).toBeNull();
+      expect(response.status).toBe(409);
+      expect(
+        await prisma.dossierVehicle.count({ where: { vehicleId: vehicle.id } }),
+      ).toBe(0);
     },
   );
 
@@ -800,7 +1511,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
     expect(
       (
         await prisma.chinaOfferVehicle.findUniqueOrThrow({
-          where: { id: item.sourceOfferVehicleId },
+          where: { id: item.sourceOfferVehicleId! },
         })
       ).reservedQuantity,
     ).toBe(0);
@@ -816,7 +1527,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
       data: { availableQuantity: 1 },
     });
     await prisma.chinaOfferVehicle.update({
-      where: { id: item.sourceOfferVehicleId },
+      where: { id: item.sourceOfferVehicleId! },
       data: { quantity: 1 },
     });
     await prisma.chinaOffer.update({
@@ -1016,6 +1727,7 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
             DOSSIER_BROWSER_EMAIL: browserEmail,
             DOSSIER_BROWSER_PASSWORD: browserPassword,
             DOSSIER_BROWSER_CLIENT: clientId,
+            DOSSIER_BROWSER_TREASURY: treasuryAccounts.USD,
             DOSSIER_BROWSER_ITEM: item.id,
             DOSSIER_BROWSER_CONTRACT: (await testContractPdf()).toString(
               'base64',

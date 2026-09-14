@@ -13,7 +13,21 @@ import { commerceApi } from "@/lib/commerce-api";
 import { adminApi } from "@/lib/admin-api";
 import { fetchDossierDzdRates } from "@/lib/dossier-money";
 
-vi.mock("@/lib/admin-api", () => ({ adminApi: { lookupOffices: vi.fn().mockResolvedValue([]) } }));
+vi.mock("@/lib/finance-api", () => ({
+  fetchPaymentAccounts: vi.fn().mockResolvedValue(
+    ["USD", "CNY", "DZD"].map((currency) => ({
+      id: `account-${currency}`,
+      code: currency,
+      name: `Compte ${currency}`,
+      currency,
+      officeId: "office-id",
+      office: { id: "office-id", name: "Bureau API" },
+    })),
+  ),
+}));
+vi.mock("@/lib/admin-api", () => ({
+  adminApi: { lookupOffices: vi.fn().mockResolvedValue([]) },
+}));
 vi.mock("@/lib/commerce-api", () => ({
   commerceApi: { dossiers: { transition: vi.fn().mockResolvedValue({}) } },
 }));
@@ -101,24 +115,61 @@ describe("Dossier transition fields", () => {
   });
 });
 
-it.each(["USD", "CNY", "DZD"])("submits %s and the office returned by the existing API", async (currency) => {
-  vi.mocked(adminApi.lookupOffices).mockResolvedValue([{ id: "office-id", name: "Bureau API", city: null, country: null }]);
-  vi.mocked(fetchDossierDzdRates).mockResolvedValue({ rates: [
-    { currency: "USD", exchangeRateId: "usd-rate", exchangeRateUsed: "250" },
-    { currency: "CNY", exchangeRateId: "cny-rate", exchangeRateUsed: "35" },
-    { currency: "DZD", exchangeRateId: null, exchangeRateUsed: "1" },
-  ] });
-  show("depositReceived");
-  await screen.findByRole("option", { name: "Bureau API" });
-  fireEvent.change(screen.getByLabelText("Bureau"), { target: { value: "office-id" } });
-  fireEvent.change(screen.getByLabelText("Devise *"), { target: { value: currency } });
-  fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "100" } });
-  fireEvent.change(screen.getByLabelText("Moyen de paiement *"), { target: { value: "CASH" } });
-  const save = screen.getByRole("button", { name: /Valider/ });
-  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(save);
-  await waitFor(() => expect(commerceApi.dossiers.transition).toHaveBeenCalledWith("d1", "depositReceived", expect.objectContaining({
-    deposit: expect.objectContaining({ currency, officeId: "office-id", amount: 100 }),
-  })));
-  if (currency === "DZD") expect(screen.getByText(/100.00 DZD/)).toBeTruthy();
-});
+it.each(["USD", "CNY", "DZD"])(
+  "submits %s and the office returned by the existing API",
+  async (currency) => {
+    vi.mocked(adminApi.lookupOffices).mockResolvedValue([
+      { id: "office-id", name: "Bureau API", city: null, country: null },
+    ]);
+    vi.mocked(fetchDossierDzdRates).mockResolvedValue({
+      rates: [
+        {
+          currency: "USD",
+          exchangeRateId: "usd-rate",
+          exchangeRateUsed: "250",
+        },
+        { currency: "CNY", exchangeRateId: "cny-rate", exchangeRateUsed: "35" },
+        { currency: "DZD", exchangeRateId: null, exchangeRateUsed: "1" },
+      ],
+    });
+    show("depositReceived");
+    await screen.findByRole("option", { name: "Bureau API" });
+    fireEvent.change(screen.getByLabelText("Bureau"), {
+      target: { value: "office-id" },
+    });
+    fireEvent.change(screen.getByLabelText("Devise *"), {
+      target: { value: currency },
+    });
+    fireEvent.change(screen.getByRole("spinbutton"), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByLabelText("Moyen de paiement *"), {
+      target: { value: "CASH" },
+    });
+    await screen.findByRole("option", {
+      name: new RegExp(`Compte ${currency}`),
+    });
+    fireEvent.change(screen.getByLabelText("Compte de trésorerie"), {
+      target: { value: `account-${currency}` },
+    });
+    const save = screen.getByRole("button", { name: /Valider/ });
+    await waitFor(() =>
+      expect((save as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(commerceApi.dossiers.transition).toHaveBeenCalledWith(
+        "d1",
+        "depositReceived",
+        expect.objectContaining({
+          deposit: expect.objectContaining({
+            currency,
+            officeId: "office-id",
+            amount: 100,
+          }),
+        }),
+      ),
+    );
+    if (currency === "DZD") expect(screen.getByText(/100.00 DZD/)).toBeTruthy();
+  },
+);

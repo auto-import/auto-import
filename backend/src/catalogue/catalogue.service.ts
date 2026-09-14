@@ -6,6 +6,13 @@ import { FilterCatalogueDto } from './dto/filter-catalogue.dto';
 import { calculateActualProfitability } from '../finance/profitability-calculation';
 
 const catalogueItemInclude = {
+  sourceVehicle: {
+    include: {
+      specs: true,
+      supplier: { select: { id: true, name: true, country: true } },
+      photos: { include: { file: true } },
+    },
+  },
   sourceOfferVehicle: {
     include: {
       offer: {
@@ -47,9 +54,18 @@ type CatalogueRecord = Prisma.CatalogueItemGetPayload<{
 export class CatalogueService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(organizationId: string, filters: FilterCatalogueDto) {
-    const page = filters.page ?? 1;
-    const limit = filters.limit ?? 20;
+  async suppliers(organizationId: string) {
+    return this.prisma.partner.findMany({
+      where: { organizationId, type: 'supplier' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  private where(
+    organizationId: string,
+    filters: FilterCatalogueDto,
+  ): Prisma.CatalogueItemWhereInput {
     const publishedPricing: Prisma.CatalogueItemWhereInput = {
       OR: [
         {
@@ -93,21 +109,67 @@ export class CatalogueService {
       AND: [
         publishedPricing,
         {
-          sourceOfferVehicle: {
-            offer: {
-              archivedAt: null,
-              OR: [
-                { offerStatus: null },
-                { offerStatus: { notIn: ['LOST_DEAL', 'EXPIRED'] } },
-              ],
-              ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
+          OR: [
+            {
+              sourceVehicle: {
+                organizationId,
+                archivedAt: null,
+                status: { notIn: ['sold', 'delivered', 'rejected'] },
+                ...(filters.supplierId
+                  ? { supplierId: filters.supplierId }
+                  : {}),
+              },
             },
-          },
+            {
+              sourceOfferVehicle: {
+                organizationId,
+                status: {
+                  notIn: ['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'],
+                },
+                offer: {
+                  organizationId,
+                  archivedAt: null,
+                  OR: [
+                    { offerStatus: null },
+                    {
+                      offerStatus: {
+                        notIn: [
+                          'PURCHASED',
+                          'LOST_DEAL',
+                          'EXPIRED',
+                          'REJECTED',
+                        ],
+                      },
+                    },
+                  ],
+                  ...(filters.supplierId
+                    ? { supplierId: filters.supplierId }
+                    : {}),
+                },
+              },
+            },
+          ],
         },
+        ...(filters.sourceType === 'VEHICLE'
+          ? [{ sourceVehicleId: { not: null } }]
+          : filters.sourceType === 'CHINA_OFFER'
+            ? [{ sourceOfferVehicleId: { not: null } }]
+            : []),
         ...(filters.search
           ? [
               {
                 OR: [
+                  ...['brand', 'model', 'trim', 'vin'].map(
+                    (field) =>
+                      ({
+                        sourceVehicle: {
+                          [field]: {
+                            contains: filters.search,
+                            mode: 'insensitive',
+                          },
+                        },
+                      }) as Prisma.CatalogueItemWhereInput,
+                  ),
                   {
                     sourceOfferVehicle: {
                       brand: { contains: filters.search, mode: 'insensitive' },
@@ -137,6 +199,13 @@ export class CatalogueService {
           : []),
       ],
     };
+    return where;
+  }
+
+  async findAll(organizationId: string, filters: FilterCatalogueDto) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 20;
+    const where = this.where(organizationId, filters);
     const [items, total] = await Promise.all([
       this.prisma.catalogueItem.findMany({
         where,
@@ -155,7 +224,7 @@ export class CatalogueService {
 
   async findOne(id: string, organizationId: string) {
     const item = await this.prisma.catalogueItem.findFirst({
-      where: { id, organizationId, archivedAt: null },
+      where: { ...this.where(organizationId, {}), id },
       include: catalogueItemInclude,
     });
     if (!item) throw new NotFoundException('Véhicule catalogue introuvable.');
@@ -228,16 +297,17 @@ export class CatalogueService {
 
   private present(item: CatalogueRecord) {
     const source = item.sourceOfferVehicle;
-    const materialized = source.purchases[0]?.vehicle;
+    const materialized = item.sourceVehicle ?? source?.purchases[0]?.vehicle;
+    const vehicle = item.sourceVehicle;
     const remainingQuantity = Math.max(
       0,
       item.availableQuantity - item.reservedQuantity,
     );
     const specification =
-      source.specification &&
-      typeof source.specification === 'object' &&
-      !Array.isArray(source.specification)
-        ? source.specification
+      source?.specification &&
+      typeof source?.specification === 'object' &&
+      !Array.isArray(source?.specification)
+        ? source?.specification
         : {};
     const value = (key: string) => {
       const candidate = (specification as Record<string, unknown>)[key];
@@ -249,15 +319,18 @@ export class CatalogueService {
       id: item.id,
       catalogueItemId: item.id,
       sourceOfferVehicleId: item.sourceOfferVehicleId,
-      brand: source.brand,
-      model: source.model,
-      version: source.version,
-      trim: materialized?.trim ?? source.version,
-      year: source.year,
-      condition: source.condition,
-      mileage: materialized?.mileage ?? source.mileage,
-      specification: source.specification,
-      vin: materialized?.vin ?? source.vin,
+      sourceVehicleId: item.sourceVehicleId,
+      sourceType: vehicle ? ('VEHICLE' as const) : ('CHINA_OFFER' as const),
+      sourceId: vehicle?.id ?? source?.offerId,
+      brand: vehicle?.brand ?? source?.brand,
+      model: vehicle?.model ?? source?.model,
+      version: vehicle?.trim ?? source?.version,
+      trim: materialized?.trim ?? vehicle?.trim ?? source?.version,
+      year: vehicle?.year ?? source?.year,
+      condition: vehicle?.condition ?? source?.condition,
+      mileage: materialized?.mileage ?? vehicle?.mileage ?? source?.mileage,
+      specification: source?.specification,
+      vin: materialized?.vin ?? vehicle?.vin ?? source?.vin,
       fuel: materialized?.specs?.fuelType ?? value('fuelType') ?? value('fuel'),
       transmission: materialized?.specs?.transmission ?? value('transmission'),
       color: materialized?.specs?.color ?? value('color'),
@@ -278,9 +351,11 @@ export class CatalogueService {
       activeCifQuotationId: item.activeCifQuotationId,
       activeDdpQuotationId: item.activeDdpQuotationId,
       pricing: { cif: cifPricing, ddp: ddpPricing },
-      offer: { id: source.offer.id, reference: source.offer.reference },
-      supplier: source.offer.supplier,
-      photos: source.offer.photos,
+      offer: source
+        ? { id: source.offer.id, reference: source.offer.reference }
+        : null,
+      supplier: vehicle?.supplier ?? source?.offer.supplier ?? null,
+      photos: vehicle?.photos ?? source?.offer.photos ?? [],
       publishedAt: item.publishedAt,
     };
   }
@@ -294,21 +369,28 @@ export class CatalogueService {
     const revision = quote?.currentRevision;
     return Boolean(
       item.availableQuantity > item.reservedQuantity &&
-      source.quantity > source.reservedQuantity + source.purchasedQuantity &&
-      source.offer.availableQuantity > source.offer.reservedQuantity &&
-      !source.offer.archivedAt &&
-      !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
-        source.status,
-      ) &&
-      !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
-        source.offer.offerStatus ?? '',
-      ) &&
+      (item.sourceVehicle
+        ? !item.sourceVehicle.archivedAt &&
+          item.sourceVehicle.status === 'available'
+        : source &&
+          source.quantity >
+            source.reservedQuantity + source.purchasedQuantity &&
+          source.offer.availableQuantity > source.offer.reservedQuantity &&
+          !source.offer.archivedAt &&
+          !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+            source.status,
+          ) &&
+          !['PURCHASED', 'LOST_DEAL', 'EXPIRED', 'REJECTED'].includes(
+            source.offer.offerStatus ?? '',
+          )) &&
       quote?.cataloguePublished &&
       revision &&
       quote.currency === 'DZD' &&
       quote.priceBasis === basis &&
       quote.organizationId === item.organizationId &&
-      quote.sourceOfferVehicleId === source.id &&
+      (item.sourceVehicleId
+        ? quote.sourceVehicleId === item.sourceVehicleId
+        : quote.sourceOfferVehicleId === source?.id) &&
       revision.organizationId === item.organizationId &&
       revision.quotationId === quote.id &&
       !['REJECTED', 'EXPIRED'].includes(quote.status) &&

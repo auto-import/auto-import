@@ -1,0 +1,29 @@
+{
+  "section": 1,
+  "date": "2026-09-14",
+  "backend": {
+    "suites": 72,
+    "tests": 460,
+    "failed": 0,
+    "skipped": 0
+  },
+  "postgresql_integration": {
+    "tests": 6,
+    "failed": 0,
+    "skipped": 0,
+    "observed_http_500": 0,
+    "database": "local disposable PostgreSQL 17"
+  },
+  "frontend_shipment_detail": {
+    "tests": 1,
+    "failed": 0
+  },
+  "final_targeted_verification": {
+    "suites": 3,
+    "tests": 59,
+    "failed": 0
+  },
+  "nest_build": "passed",
+  "new_migrations": 0,
+  "deployed": false
+}

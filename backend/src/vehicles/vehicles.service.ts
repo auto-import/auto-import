@@ -7,6 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { normalizeVehicleColor, VEHICLE_COLOR_LABELS } from './vehicle-appearance';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
@@ -119,6 +120,7 @@ export class VehiclesService {
             data: {
               ...dto,
               ...canonical,
+              ...(dto.color ? { specs: { create: { color: VEHICLE_COLOR_LABELS[dto.color] } } } : {}),
               equipment: dto.equipment as Prisma.InputJsonValue | undefined,
               organizationId,
             },
@@ -267,6 +269,7 @@ export class VehiclesService {
           data: {
             ...createVehicleDto,
             ...canonical,
+            ...(createVehicleDto.color ? { specs: { create: { color: VEHICLE_COLOR_LABELS[createVehicleDto.color] } } } : {}),
             equipment: createVehicleDto.equipment as
               Prisma.InputJsonValue | undefined,
             organizationId,
@@ -575,6 +578,10 @@ export class VehiclesService {
             data: {
               ...updateVehicleDto,
               ...canonical,
+              ...(updateVehicleDto.color !== undefined ? { specs: { upsert: {
+                create: { color: updateVehicleDto.color ? VEHICLE_COLOR_LABELS[updateVehicleDto.color] : null },
+                update: { color: updateVehicleDto.color ? VEHICLE_COLOR_LABELS[updateVehicleDto.color] : null, colorLookupId: null },
+              } } } : {}),
               rejectedAt:
                 nextStatus === 'rejected' &&
                 existingVehicle.status !== 'rejected'
@@ -654,16 +661,21 @@ export class VehiclesService {
     specsDto: CreateVehicleSpecDto,
     organizationId: string,
   ) {
-    await this.findOne(vehicleId, organizationId);
-
-    const specs = await this.prisma.vehicleSpec.upsert({
-      where: { vehicleId },
-      update: specsDto,
-      create: {
-        vehicleId,
-        ...specsDto,
-      },
-    });
+    const specs = await this.prisma.$transaction(async (tx) => {
+      const vehicle = await tx.vehicle.findFirst({ where: { id: vehicleId, organizationId } });
+      if (!vehicle) throw new NotFoundException('Vehicle not found');
+      if (specsDto.color !== undefined) {
+        await tx.vehicle.update({
+          where: { id: vehicleId },
+          data: { color: normalizeVehicleColor(specsDto.color) },
+        });
+      }
+      return tx.vehicleSpec.upsert({
+        where: { vehicleId },
+        update: { ...specsDto, ...(specsDto.color !== undefined ? { colorLookupId: null } : {}) },
+        create: { vehicleId, ...specsDto },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     this.logger.log(`Vehicle specs updated for vehicle ${vehicleId}`);
     return specs;
