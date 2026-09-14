@@ -9,6 +9,7 @@ import {
   type ApiPartner,
   type ApiVehicle,
 } from "@/lib/commerce-api";
+import QuotationDialog from "./QuotationDialog";
 import {
   buttonClass,
   EmptyState,
@@ -50,6 +51,7 @@ export default function VehiclesWorkspace() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [showQuotation, setShowQuotation] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -261,7 +263,14 @@ export default function VehiclesWorkspace() {
                 </dd>
               </div>
             </dl>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                className={`${buttonClass} text-sm`}
+                onClick={() => setShowQuotation(true)}
+              >
+                <Plus className="mr-2 inline h-4 w-4" />
+                Add Devise
+              </button>
               <button
                 className="rounded-button border px-4 py-2 text-sm"
                 onClick={() => open(selected)}
@@ -284,6 +293,29 @@ export default function VehiclesWorkspace() {
             </div>
           </section>
         </div>
+      )}
+      {showQuotation && selected && (
+        <QuotationDialog
+          source={{
+            type: "VEHICLE",
+            id: selected.id,
+            vehicles: [
+              {
+                id: selected.id,
+                brand: selected.brand,
+                model: selected.model,
+                version: (selected as unknown as { trim?: string | null }).trim ?? null,
+                supplierPrice: selected.purchasePrice ?? selected.sellingPrice,
+                currency: selected.currency ?? "USD",
+              },
+            ],
+          }}
+          onClose={() => setShowQuotation(false)}
+          onCreated={async () => {
+            setShowQuotation(false);
+            await load();
+          }}
+        />
       )}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

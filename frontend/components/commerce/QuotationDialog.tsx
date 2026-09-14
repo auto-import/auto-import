@@ -95,7 +95,10 @@ export default function QuotationDialog({
     [otherCosts, quotationForm, rateMap],
   );
   const quotationPayload = useMemo(() => {
-    if (!quotationDraft.amounts || !quotationForm.sourceOfferVehicleId) {
+    if (!quotationDraft.amounts) return null;
+    if (source.type === "VEHICLE") {
+      if (!id) return null;
+    } else if (!quotationForm.sourceOfferVehicleId) {
       return null;
     }
     return {
@@ -217,7 +220,7 @@ export default function QuotationDialog({
   const createQuotation = async (event: FormEvent) => {
     event.preventDefault();
     setQuotationError("");
-    if (!quotationForm.sourceOfferVehicleId) {
+    if (source.type !== "VEHICLE" && !quotationForm.sourceOfferVehicleId) {
       setQuotationError("Sélectionnez un véhicule de l’offre.");
       return;
     }
@@ -271,41 +274,52 @@ export default function QuotationDialog({
           </div>
         )}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <label>
-            <span className="field-label">Véhicule *</span>
-            <select
-              required
-              className={inputClass}
-              value={quotationForm.sourceOfferVehicleId}
-              onChange={(event) => {
-                const vehicle = offer.vehicles?.find(
-                  (item) => item.id === event.target.value,
-                );
-                setQuotationForm((current) => ({
-                  ...current,
-                  sourceOfferVehicleId: event.target.value,
-                  vehicleAmount: vehicle ? String(vehicle.supplierPrice) : "",
-                  vehicleCurrency: foreignCurrency(
-                    vehicle?.currency ?? undefined,
-                  ),
-                  containerCurrency: foreignCurrency(
-                    vehicle?.currency ?? undefined,
-                  ),
-                  insuranceCurrency: foreignCurrency(
-                    vehicle?.currency ?? undefined,
-                  ),
-                }));
-              }}
-            >
-              <option value="">Sélectionner une ligne</option>
-              {offer.vehicles?.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  #{vehicle.lineNumber} · {vehicle.brand} {vehicle.model}{" "}
-                  {vehicle.version}
-                </option>
-              ))}
-            </select>
-          </label>
+          {source.type === "VEHICLE" ? (
+            <div className="rounded-card border border-border p-3 sm:col-span-2">
+              <span className="field-label">Véhicule source</span>
+              <p className="font-semibold">
+                {offer.vehicles[0]?.brand} {offer.vehicles[0]?.model}{" "}
+                {offer.vehicles[0]?.version ?? ""} · Stock
+              </p>
+              <p className="text-xs text-muted">ID: {id} — prix DZD à configurer</p>
+            </div>
+          ) : (
+            <label>
+              <span className="field-label">Véhicule *</span>
+              <select
+                required
+                className={inputClass}
+                value={quotationForm.sourceOfferVehicleId}
+                onChange={(event) => {
+                  const vehicle = offer.vehicles?.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  setQuotationForm((current) => ({
+                    ...current,
+                    sourceOfferVehicleId: event.target.value,
+                    vehicleAmount: vehicle ? String(vehicle.supplierPrice) : "",
+                    vehicleCurrency: foreignCurrency(
+                      vehicle?.currency ?? undefined,
+                    ),
+                    containerCurrency: foreignCurrency(
+                      vehicle?.currency ?? undefined,
+                    ),
+                    insuranceCurrency: foreignCurrency(
+                      vehicle?.currency ?? undefined,
+                    ),
+                  }));
+                }}
+              >
+                <option value="">Sélectionner une ligne</option>
+                {offer.vehicles?.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    #{vehicle.lineNumber} · {vehicle.brand} {vehicle.model}{" "}
+                    {vehicle.version}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             <span className="field-label">Base tarifaire *</span>
             <select
