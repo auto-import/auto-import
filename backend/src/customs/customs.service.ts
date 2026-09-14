@@ -1,4 +1,3 @@
-import { ShipmentsService } from '../shipments/shipments.service';
 import {
   BadRequestException,
   ConflictException,
@@ -15,6 +14,7 @@ import {
   UpdateCustomsFileDto,
 } from './dto/customs.dto';
 import { CostsService } from '../finance/costs.service';
+import { getTargetCustomsStatus } from '../dossiers/workflows/dossier-customs-status.map';
 
 const CUSTOMS_TRANSITIONS: Record<string, readonly string[]> = {
   TO_PREPARE: ['AWAITING_ARRIVAL'],
@@ -65,7 +65,6 @@ export class CustomsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly costsService: CostsService,
-    private readonly shipments: ShipmentsService,
   ) {}
 
   private async generateCustomsReference(
@@ -443,25 +442,16 @@ export class CustomsService {
           where: { id: file.dossierId, organizationId },
         })
       : null;
-    if (parentDossier?.type === 'VEHICLE_SALE_DDP') {
-      if (
-        dto.status === 'CLEARANCE_IN_PROGRESS' &&
-        parentDossier.status !== 'arrivedAtPort'
-      ) {
-        throw new ConflictException({
-          code: 'DDP_DOSSIER_NOT_READY_FOR_CLEARANCE',
-          message: 'The parent DDP dossier must be at Arrivée au port.',
-        });
-      }
-      if (
-        dto.status === 'RELEASE' &&
-        parentDossier.status !== 'customsClearance'
-      ) {
-        throw new ConflictException({
-          code: 'DDP_DOSSIER_NOT_IN_CLEARANCE',
-          message: 'The parent DDP dossier must first enter Dédouanement.',
-        });
-      }
+    if (
+      parentDossier?.type === 'VEHICLE_SALE_DDP' &&
+      ['CLEARANCE_IN_PROGRESS', 'RELEASE', 'PORT_EXIT', 'CLOSED'].includes(
+        dto.status,
+      )
+    ) {
+      throw new ConflictException({
+        code: 'DOSSIER_IS_CUSTOMS_LIFECYCLE_MASTER',
+        message: 'Advance this business milestone from the linked dossier.',
+      });
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -518,37 +508,6 @@ export class CustomsService {
         );
       }
 
-      const dossierStatus =
-        dto.status === 'CLEARANCE_IN_PROGRESS'
-          ? 'customsClearance'
-          : dto.status === 'RELEASE'
-            ? 'customsReleased'
-            : null;
-      if (dossierStatus && parentDossier?.type === 'VEHICLE_SALE_DDP') {
-        const fromStatus = parentDossier.status;
-        await tx.dossier.update({
-          where: { id: parentDossier.id },
-          data: { status: dossierStatus },
-        });
-        await tx.dossierStatusHistory.create({
-          data: {
-            dossierId: parentDossier.id,
-            fromStatus,
-            toStatus: dossierStatus,
-            changedBy: userId,
-            comment: `Progression pilotée par le dossier douane ${file.reference}${dto.comment ? ` — ${dto.comment}` : ''}`,
-          },
-        });
-        await this.shipments.syncFromDossier(tx, {
-          organizationId,
-          dossierId: parentDossier.id,
-          dossierReference: parentDossier.reference,
-          fromStatus,
-          toStatus: dossierStatus,
-          userId,
-        });
-      }
-
       if (dto.status === 'PORT_EXIT' && file.dossierId) {
         const dossier = await tx.dossier.findFirst({
           where: { id: file.dossierId, organizationId },
@@ -599,6 +558,152 @@ export class CustomsService {
 
       return updated;
     });
+  }
+
+  /**
+   * Applies only the coarse customs milestones owned by a DDP dossier. The
+   * detailed customs steps remain in the customs workflow and must reach the
+   * predecessor of each business milestone before the dossier can advance.
+   */
+  async syncFromDossier(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      dossierId: string;
+      dossierReference: string;
+      fromStatus: string;
+      toStatus: string;
+      userId: string;
+    },
+  ): Promise<void> {
+    const target = getTargetCustomsStatus(input.toStatus);
+    if (!target) return;
+    const parent = await tx.dossier.findFirst({
+      where: { id: input.dossierId, organizationId: input.organizationId },
+      select: { type: true },
+    });
+    if (parent?.type !== 'VEHICLE_SALE_DDP') return;
+    const requiredPrevious: Record<string, string> = {
+      CLEARANCE_IN_PROGRESS: 'FILE_TRANSMITTED',
+      RELEASE: 'DUTIES_TAXES',
+      PORT_EXIT: 'RELEASE',
+      CLOSED: 'PORT_EXIT',
+    };
+    const ranks = Object.keys(CUSTOMS_TRANSITIONS);
+    const files = await tx.customsFile.findMany({
+      where: {
+        organizationId: input.organizationId,
+        dossierId: input.dossierId,
+        v2Status: { not: null },
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (files.length === 0) {
+      throw new ConflictException({
+        code: 'DOSSIER_CUSTOMS_FILE_REQUIRED',
+        message: 'A linked customs file is required for this dossier stage.',
+      });
+    }
+    for (const file of files) {
+      const current = file.v2Status!;
+      if (current === target || ranks.indexOf(current) > ranks.indexOf(target))
+        continue;
+      if (current !== requiredPrevious[target]) {
+        throw new ConflictException({
+          code: 'CUSTOMS_NOT_READY_FOR_DOSSIER_STAGE',
+          customsFileId: file.id,
+          currentStatus: current,
+          requiredStatus: requiredPrevious[target],
+          targetStatus: target,
+          message: `Customs file ${file.reference} must reach ${requiredPrevious[target]} before the dossier can advance.`,
+        });
+      }
+      await tx.customsStatusHistory.create({
+        data: {
+          customsFileId: file.id,
+          fromStatus: current,
+          toStatus: target,
+          changedBy: input.userId,
+          comment: `Dossier ${input.dossierReference} (${input.dossierId}): ${input.fromStatus} -> ${input.toStatus}`,
+        },
+      });
+      const updated = await tx.customsFile.update({
+        where: { id: file.id },
+        data: {
+          status: V2_TO_LEGACY[target],
+          v2Status: target,
+          clearedAt:
+            target === 'RELEASE' && !file.clearedAt
+              ? new Date()
+              : file.clearedAt,
+          releasedAt:
+            target === 'RELEASE' && !file.releasedAt
+              ? new Date()
+              : file.releasedAt,
+          portExitAt:
+            target === 'PORT_EXIT' && !file.portExitAt
+              ? new Date()
+              : file.portExitAt,
+          closedAt:
+            target === 'CLOSED' && !file.closedAt ? new Date() : file.closedAt,
+        },
+      });
+      if (target === 'RELEASE') {
+        await this.costsService.recordCustomsActual(
+          tx,
+          input.organizationId,
+          input.userId,
+          updated,
+        );
+      }
+      if (target === 'PORT_EXIT') {
+        const dossier = await tx.dossier.findFirst({
+          where: { id: input.dossierId, organizationId: input.organizationId },
+        });
+        const responsible =
+          file.responsibleUserId ?? dossier?.opsUserId ?? dossier?.salesUserId;
+        if (dossier && responsible) {
+          await tx.task.upsert({
+            where: {
+              organizationId_automationKey: {
+                organizationId: input.organizationId,
+                automationKey: `delivery-handoff:${file.id}`,
+              },
+            },
+            create: {
+              organizationId: input.organizationId,
+              assignedTo: responsible,
+              createdBy: input.userId,
+              title: `Organiser la livraison de ${dossier.reference}`,
+              type: 'delivery_handoff',
+              status: 'todo',
+              dossierId: dossier.id,
+              relatedType: 'customsFile',
+              relatedId: file.id,
+              automationKey: `delivery-handoff:${file.id}`,
+            },
+            update: {},
+          });
+          await tx.notification.createMany({
+            data: [
+              {
+                organizationId: input.organizationId,
+                userId: responsible,
+                type: 'DELIVERY_HANDOFF_READY',
+                category: 'delivery',
+                severity: 'success',
+                title: `Sortie du port: ${dossier.reference}`,
+                relatedType: 'dossier',
+                relatedId: dossier.id,
+                entityUrl: `/dossiers/${dossier.id}`,
+                dedupeKey: `delivery-handoff:${file.id}:${responsible}`,
+              },
+            ],
+            skipDuplicates: true,
+          });
+        }
+      }
+    }
   }
 
   async findAll(organizationId: string, filter: FilterCustomsFilesDto) {

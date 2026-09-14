@@ -222,13 +222,25 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
       },
     );
 
-    it('rejects direct customs progression because Customs is the source of truth', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({
+    it('allows the dossier to drive its customs business milestone', async () => {
+      const dossier = {
         id: 'dos-ddp',
+        reference: 'CA-DDP',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_DDP,
         status: 'arrivedAtPort',
-      } as Awaited<ReturnType<DossiersService['findOne']>>);
+        workflowVersion: 2,
+        salesUserId: 'user-1',
+        opsUserId: null,
+        vehicles: [],
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(dossier as never);
+      prisma.dossier.update.mockResolvedValue({
+        ...dossier,
+        status: 'customsClearance',
+        dossierVehicles: [],
+      });
+      prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'history' });
 
       await expect(
         service.updateStatus(
@@ -237,24 +249,34 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
           'user-1',
           mockOrgId,
         ),
-      ).rejects.toMatchObject({
-        response: { code: 'CUSTOMS_IS_SOURCE_OF_TRUTH' },
-      });
+      ).resolves.toBeDefined();
+      expect(prisma.dossier.update).toHaveBeenCalled();
     });
 
     it('does not apply DDP checkpoint categories to shipping-only arrival', async () => {
       const dossier = {
-        id: 'dos-shipping', organizationId: mockOrgId,
-        reference: 'CA-SHIPPING', salesUserId: 'user-1',
-        type: DossierType.SHIPPING_ONLY, status: 'inTransit',
+        id: 'dos-shipping',
+        organizationId: mockOrgId,
+        reference: 'CA-SHIPPING',
+        salesUserId: 'user-1',
+        type: DossierType.SHIPPING_ONLY,
+        status: 'inTransit',
         dossierVehicles: [],
       };
       jest.spyOn(service, 'findOne').mockResolvedValue(dossier as never);
-      prisma.dossier.update.mockResolvedValue({ ...dossier, status: 'arrived' });
+      prisma.dossier.update.mockResolvedValue({
+        ...dossier,
+        status: 'arrived',
+      });
       prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'history' });
-      await expect(service.updateStatus(
-        'dos-shipping', { status: 'arrived' }, 'user-1', mockOrgId,
-      )).resolves.toBeDefined();
+      await expect(
+        service.updateStatus(
+          'dos-shipping',
+          { status: 'arrived' },
+          'user-1',
+          mockOrgId,
+        ),
+      ).resolves.toBeDefined();
       expect(documentsGate.verifyCheckpoint).not.toHaveBeenCalled();
     });
   });
@@ -377,17 +399,27 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
   });
 
   describe('Workflow 2: VEHICLE_SALE_DDP', () => {
-    it('4. should require DDP customs progression through the customs module', async () => {
+    it('4. should advance the DDP customs milestone from the dossier', async () => {
       const mockDossier = {
         id: 'dos-ddp',
         reference: 'CA-2026-0002',
         organizationId: mockOrgId,
         type: DossierType.VEHICLE_SALE_DDP,
         status: 'arrivedAtPort',
+        workflowVersion: 2,
+        salesUserId: 'ops-user',
+        opsUserId: null,
+        vehicles: [],
         dossierVehicles: [{ vehicleId: 'veh-1' }],
       };
 
-      prisma.dossier.findFirst.mockResolvedValue(mockDossier);
+      jest.spyOn(service, 'findOne').mockResolvedValue(mockDossier as never);
+      prisma.dossier.update.mockResolvedValue({
+        ...mockDossier,
+        status: 'customsClearance',
+        dossierVehicles: [],
+      });
+      prisma.dossierStatusHistory.create.mockResolvedValue({ id: 'history' });
       await expect(
         service.advanceStatus(
           'dos-ddp',
@@ -395,10 +427,8 @@ describe('DossiersService (Phase 2B Workflows & State Machine)', () => {
           'ops-user',
           mockOrgId,
         ),
-      ).rejects.toMatchObject({
-        response: { code: 'CUSTOMS_IS_SOURCE_OF_TRUTH' },
-      });
-      expect(prisma.dossier.update).not.toHaveBeenCalled();
+      ).resolves.toBeDefined();
+      expect(prisma.dossier.update).toHaveBeenCalled();
     });
 
     it('5. should reject skipping mandatory intermediate steps in DDP', async () => {

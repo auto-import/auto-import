@@ -88,11 +88,18 @@ export class VehicleStatusSyncService {
     input: VehicleStatusSyncInput,
   ): Promise<VehicleStatusSyncChange[]> {
     const target = this.targetFor(input.toStatus);
-    if (!target) return [];
+    const cancellation = input.toStatus === 'cancelled';
+    if (!target && !cancellation) return [];
 
     const changes: VehicleStatusSyncChange[] = [];
     for (const vehicle of input.vehicles) {
-      if (vehicle.status === target) {
+      const vehicleTarget = cancellation
+        ? vehicle.status === VehicleStatus.RESERVED
+          ? VehicleStatus.AVAILABLE
+          : null
+        : target;
+      if (!vehicleTarget) continue;
+      if (vehicle.status === vehicleTarget) {
         await prisma.auditLog.create({
           data: {
             organizationId: input.organizationId,
@@ -102,7 +109,7 @@ export class VehicleStatusSyncService {
             entityId: vehicle.id,
             oldValues: { status: vehicle.status },
             newValues: {
-              status: target,
+              status: vehicleTarget,
               reason: `Dossier transition: ${input.fromStatus} → ${input.toStatus}`,
               dossierId: input.dossierId,
               dossierReference: input.dossierReference,
@@ -122,7 +129,7 @@ export class VehicleStatusSyncService {
 
       await prisma.vehicle.update({
         where: { id: vehicle.id },
-        data: { status: target },
+        data: { status: vehicleTarget },
       });
       await prisma.auditLog.create({
         data: {
@@ -133,14 +140,18 @@ export class VehicleStatusSyncService {
           entityId: vehicle.id,
           oldValues: { status: vehicle.status },
           newValues: {
-            status: target,
+            status: vehicleTarget,
             reason: `Dossier transition: ${input.fromStatus} → ${input.toStatus}`,
             dossierId: input.dossierId,
             dossierReference: input.dossierReference,
           },
         },
       });
-      changes.push({ vehicleId: vehicle.id, from: vehicle.status, to: target });
+      changes.push({
+        vehicleId: vehicle.id,
+        from: vehicle.status,
+        to: vehicleTarget,
+      });
     }
     return changes;
   }

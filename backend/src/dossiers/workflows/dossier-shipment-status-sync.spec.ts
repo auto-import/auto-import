@@ -151,14 +151,20 @@ describe('Dossier maritime propagation', () => {
     expect(tx.shipment.findMany).not.toHaveBeenCalled();
   });
 
-  it('passes the same transaction to both projections and propagates failures', async () => {
+  it('passes one transaction through ordered projections and propagates failures', async () => {
     const vehicles = { syncForTransition: jest.fn().mockResolvedValue([]) };
+    const commerce = {
+      syncForTransition: jest.fn().mockResolvedValue(undefined),
+    };
     const shipments = {
       syncFromDossier: jest.fn().mockRejectedValue(new Error('arrival failed')),
     };
+    const customs = { syncFromDossier: jest.fn() };
     const service = new DossierStatusPropagationService(
       vehicles as never,
       shipments as never,
+      commerce as never,
+      customs as never,
     );
     const tx = {} as never;
     const input = { ...setup().input, vehicles: [] };
@@ -166,7 +172,9 @@ describe('Dossier maritime propagation', () => {
       'arrival failed',
     );
     expect(vehicles.syncForTransition).toHaveBeenCalledWith(tx, input);
+    expect(commerce.syncForTransition).toHaveBeenCalledWith(tx, input);
     expect(shipments.syncFromDossier).toHaveBeenCalledWith(tx, input);
+    expect(customs.syncFromDossier).not.toHaveBeenCalled();
   });
 
   it('rejects a backward dossier transition and a backward manual shipment transition', async () => {

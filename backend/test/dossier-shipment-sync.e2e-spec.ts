@@ -169,7 +169,15 @@ describe('Section 1: dossier and maritime shipment on PostgreSQL', () => {
       .auth(token, { type: 'bearer' })
       .send({ status });
   }
-  async function arrivalPhoto(dossierId: string, vehicleId: string) {
+  async function checkpointPhoto(
+    dossierId: string,
+    vehicleId: string,
+    checkpoint:
+      | 'ARRIVAL_AT_PORT'
+      | 'CUSTOMS'
+      | 'PORT_EXIT'
+      | 'LOCAL_TRANSPORT' = 'ARRIVAL_AT_PORT',
+  ) {
     const buffer = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX9sAAAAASUVORK5CYII=',
       'base64',
@@ -183,7 +191,7 @@ describe('Section 1: dossier and maritime shipment on PostgreSQL', () => {
         mimetype: 'image/png',
         buffer,
       },
-      { vehicleId, checkpoint: 'ARRIVAL_AT_PORT' },
+      { vehicleId, checkpoint },
     );
   }
 
@@ -218,7 +226,7 @@ describe('Section 1: dossier and maritime shipment on PostgreSQL', () => {
       (await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } }))
         .status,
     ).toBe('inTransit');
-    await arrivalPhoto(dossier.id, vehicle.id);
+    await checkpointPhoto(dossier.id, vehicle.id);
     await transition(dossier.id, 'arrivedAtPort').expect(200);
     const result = dataOf<any>(
       await request(app.getHttpServer())
@@ -393,8 +401,8 @@ describe('Section 1: dossier and maritime shipment on PostgreSQL', () => {
     ).toBe(2);
   });
 
-  it('synchronizes the explicit CustomsFile link when customs advances the parent DDP dossier', async () => {
-    const { dossier, shipment } = await fixture('arrivedAtPort');
+  it('synchronizes the CustomsFile from the parent DDP dossier without customs writing back', async () => {
+    const { dossier, vehicle, shipment } = await fixture('arrivedAtPort');
     await prisma.shipmentVehicle.deleteMany({
       where: { shipmentId: shipment.id },
     });
@@ -409,11 +417,19 @@ describe('Section 1: dossier and maritime shipment on PostgreSQL', () => {
         responsibleUserId: userId,
       },
     });
-    await app
-      .get(CustomsService)
-      .transition(file.id, organizationId, userId, {
-        status: 'CLEARANCE_IN_PROGRESS',
-      });
+    await checkpointPhoto(dossier.id, vehicle.id, 'CUSTOMS');
+    await transition(dossier.id, 'customsClearance').expect(200);
+    expect(
+      (await prisma.dossier.findUniqueOrThrow({ where: { id: dossier.id } }))
+        .status,
+    ).toBe('customsClearance');
+    expect(
+      (await prisma.customsFile.findUniqueOrThrow({ where: { id: file.id } }))
+        .v2Status,
+    ).toBe('CLEARANCE_IN_PROGRESS');
+    await app.get(CustomsService).transition(file.id, organizationId, userId, {
+      status: 'INSPECTION',
+    });
     expect(
       (await prisma.dossier.findUniqueOrThrow({ where: { id: dossier.id } }))
         .status,

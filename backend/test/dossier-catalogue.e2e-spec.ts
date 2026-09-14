@@ -979,6 +979,13 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
     'persists %s deposit, dossier vehicle, booking and purchase through real HTTP workflow',
     async (currency) => {
       const dossier = await signedDossier(currency);
+      const reservedLine = await prisma.chinaOfferVehicle.findUniqueOrThrow({
+        where: { id: dossier.item.sourceOfferVehicleId! },
+        include: { offer: true },
+      });
+      expect(reservedLine.status).toBe('RESERVED');
+      expect(reservedLine.reservedQuantity).toBe(1);
+      expect(reservedLine.offer.offerStatus).toBe('RESERVED');
       const rate = await prisma.exchangeRate.findFirstOrThrow({
         where: { organizationId, baseCurrency: currency, isActive: true },
         orderBy: { effectiveAt: 'desc' },
@@ -1034,6 +1041,33 @@ describe('Catalogue → dossier on migrated PostgreSQL', () => {
         },
       });
       expect(purchase.status).toBe(200);
+      const purchasedItem = await prisma.catalogueItem.findUniqueOrThrow({
+        where: { id: dossier.item.id },
+      });
+      const purchasedLine = await prisma.chinaOfferVehicle.findUniqueOrThrow({
+        where: { id: dossier.item.sourceOfferVehicleId! },
+        include: { offer: true },
+      });
+      expect(purchasedItem).toMatchObject({
+        availableQuantity: 19,
+        reservedQuantity: 0,
+      });
+      expect(purchasedLine).toMatchObject({
+        status: 'VALIDATED',
+        purchasedQuantity: 1,
+        reservedQuantity: 0,
+      });
+      expect(purchasedLine.offer).toMatchObject({
+        offerStatus: 'VALIDATED',
+        availableQuantity: 19,
+        reservedQuantity: 0,
+      });
+      expect(
+        await prisma.chinaOfferStatusHistory.findFirst({
+          where: { offerId: purchasedLine.offerId },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ).toMatchObject({ fromStatus: 'RESERVED', toStatus: 'VALIDATED' });
       const original = await prisma.financeTransaction.findMany({
         where: { dossierId: dossier.id },
         orderBy: { createdAt: 'asc' },

@@ -36,7 +36,7 @@ describe('Phase 2 Customs Comprehensive Tests', () => {
     jest.clearAllMocks();
     customsService = new CustomsService(mockPrisma, {
       recordCustomsActual: jest.fn(),
-    } as any, { syncFromDossier: jest.fn() } as never);
+    } as any);
   });
 
   it('should compute customsAmount correctly as sum of duty, tax and fees', async () => {

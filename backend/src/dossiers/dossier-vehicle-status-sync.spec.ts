@@ -192,15 +192,20 @@ describe('VehicleStatusSyncService.syncForTransition', () => {
     expect(prisma.vehicle.update).not.toHaveBeenCalled();
   });
 
-  it('no-ops for milestones without a target', async () => {
+  it('releases a reserved vehicle when its dossier is cancelled', async () => {
     const changes = await service.syncForTransition(
       prisma as never,
       syncInput({
         toStatus: DossierStatus.CANCELLED,
       }),
     );
-    expect(changes).toEqual([]);
-    expect(prisma.vehicle.update).not.toHaveBeenCalled();
+    expect(changes).toEqual([
+      { vehicleId: 'v1', from: 'reserved', to: 'available' },
+    ]);
+    expect(prisma.vehicle.update).toHaveBeenCalledWith({
+      where: { id: 'v1' },
+      data: { status: 'available' },
+    });
   });
 });
 
@@ -253,7 +258,9 @@ describe('DossiersService.updateStatus vehicle synchronization (integration)', (
       new DossierWorkflowService(),
       new VehicleStatusSyncService(),
       documentsGate as never,
-      new DossierStatusPropagationService(new VehicleStatusSyncService(), { syncFromDossier: jest.fn() } as never),
+      new DossierStatusPropagationService(new VehicleStatusSyncService(), {
+        syncFromDossier: jest.fn(),
+      } as never),
     );
   });
 

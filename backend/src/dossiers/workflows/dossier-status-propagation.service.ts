@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ShipmentsService } from '../../shipments/shipments.service';
+import { CustomsService } from '../../customs/customs.service';
+import { DossierCommerceSyncService } from './dossier-commerce-sync.service';
 import {
   VehicleStatusSyncService,
   VehicleStatusSyncInput,
@@ -12,6 +14,8 @@ export class DossierStatusPropagationService {
   constructor(
     private readonly vehicles: VehicleStatusSyncService,
     private readonly shipments: ShipmentsService,
+    @Optional() private readonly commerce?: DossierCommerceSyncService,
+    @Optional() private readonly customs?: CustomsService,
   ) {}
 
   async syncForTransition(
@@ -19,7 +23,9 @@ export class DossierStatusPropagationService {
     input: VehicleStatusSyncInput,
   ) {
     const changes = await this.vehicles.syncForTransition(tx, input);
+    await this.commerce?.syncForTransition(tx, input);
     await this.shipments.syncFromDossier(tx, input);
+    await this.customs?.syncFromDossier(tx, input);
     return changes;
   }
 }

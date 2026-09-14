@@ -512,6 +512,16 @@ export class DossiersService {
           },
         });
 
+        await this.statusPropagation.syncForTransition(prisma, {
+          organizationId: newDossier.organizationId,
+          dossierId: newDossier.id,
+          dossierReference: newDossier.reference,
+          fromStatus: '',
+          toStatus: newDossier.status,
+          vehicles: newDossier.dossierVehicles.map((link) => link.vehicle),
+          userId: salesUserIdToUse,
+        });
+
         if (offerReservationId) {
           operation = 'link-offer-reservation';
           const linked = await prisma.offerReservation.updateMany({
@@ -1142,17 +1152,6 @@ export class DossiersService {
       dossier.hasShipment,
     );
 
-    if (
-      status === DossierStatus.CUSTOMS_CLEARANCE ||
-      status === DossierStatus.CUSTOMS_RELEASED
-    ) {
-      throw new ConflictException({
-        code: 'CUSTOMS_IS_SOURCE_OF_TRUTH',
-        message:
-          'Dédouanement et Mainlevée sont pilotés depuis le dossier douane associé.',
-      });
-    }
-
     if (status === DossierStatus.DEPOSIT_RECEIVED && !updateStatusDto.deposit) {
       throw new BadRequestException({
         code: 'DEPOSIT_DATA_REQUIRED',
@@ -1687,148 +1686,16 @@ export class DossiersService {
           });
         }
 
-        // ────────────────────────────────────────────────────────────────
-        // Vehicle status synchronization (single source of truth).
-        // Cancellation only releases reserved vehicles; every other milestone
-        // is driven by the authoritative dossier → vehicle status mapping.
-        // ────────────────────────────────────────────────────────────────
         const syncVehicles = updated.dossierVehicles.map((dv) => dv.vehicle);
-        if (status === DossierStatus.CANCELLED) {
-          for (const vehicle of syncVehicles) {
-            if (vehicle.status !== VehicleStatus.RESERVED) continue;
-            await prisma.vehicle.update({
-              where: { id: vehicle.id },
-              data: { status: VehicleStatus.AVAILABLE },
-            });
-            await prisma.auditLog.create({
-              data: {
-                organizationId: updated.organizationId,
-                userId: userId || 'system',
-                action: 'vehicle.status.synced',
-                entityType: 'vehicle',
-                entityId: vehicle.id,
-                oldValues: { status: vehicle.status },
-                newValues: {
-                  status: VehicleStatus.AVAILABLE,
-                  reason: `Dossier cancelled (${currentStatus})`,
-                  dossierId: id,
-                  dossierReference: updated.reference,
-                },
-              },
-            });
-          }
-          if (updated.orderId) {
-            await prisma.reservation.updateMany({
-              where: {
-                orderId: updated.orderId,
-                organizationId: updated.organizationId,
-                status: 'active',
-              },
-              data: {
-                status: 'released',
-                releasedAt: new Date(),
-                releaseReason: 'dossierCancelled',
-              },
-            });
-          }
-          const offerReservation = await prisma.offerReservation.findFirst({
-            where: {
-              dossierId: id,
-              organizationId: updated.organizationId,
-              status: 'active',
-            },
-          });
-          if (offerReservation) {
-            await prisma.offerReservation.update({
-              where: { id: offerReservation.id },
-              data: {
-                status: 'released',
-                releasedAt: new Date(),
-                releaseReason: 'dossierCancelled',
-              },
-            });
-            await prisma.chinaOffer.update({
-              where: { id: offerReservation.offerId },
-              data: {
-                reservedQuantity: { decrement: offerReservation.quantity },
-              },
-            });
-          }
-          if (updated.catalogueItemId && updated.catalogueItem) {
-            const releasedCatalogue = await prisma.$executeRaw`
-            UPDATE "CatalogueItem"
-            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
-            WHERE "id" = ${updated.catalogueItemId}
-              AND "organizationId" = ${updated.organizationId}
-              AND "reservedQuantity" > 0`;
-            if (releasedCatalogue !== 1) {
-              throw new ConflictException(
-                'La réservation catalogue de ce dossier est incohérente.',
-              );
-            }
-            if (updated.catalogueItem.sourceOfferVehicle) {
-              const releasedOfferVehicle = await prisma.$executeRaw`
-            UPDATE "ChinaOfferVehicle"
-            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
-            WHERE "id" = ${updated.catalogueItem.sourceOfferVehicleId}
-              AND "organizationId" = ${updated.organizationId}
-              AND "reservedQuantity" > 0`;
-              if (releasedOfferVehicle !== 1) {
-                throw new ConflictException(
-                  "La réservation du véhicule de l'offre est incohérente.",
-                );
-              }
-              const releasedOffer = await prisma.$executeRaw`
-            UPDATE "ChinaOffer"
-            SET "reservedQuantity" = "reservedQuantity" - 1, "updatedAt" = NOW()
-            WHERE "id" = ${updated.catalogueItem.sourceOfferVehicle.offerId}
-              AND "organizationId" = ${updated.organizationId}
-              AND "reservedQuantity" > 0`;
-              if (releasedOffer !== 1) {
-                throw new ConflictException(
-                  "La quantité réservée de l'offre est incohérente.",
-                );
-              }
-            }
-          }
-        } else {
-          await this.statusPropagation.syncForTransition(prisma, {
-            organizationId: updated.organizationId,
-            dossierId: id,
-            dossierReference: updated.reference,
-            fromStatus: currentStatus,
-            toStatus: status,
-            vehicles: syncVehicles,
-            userId: userId || 'system',
-          });
-
-          // Only a completed vehicle-sale dossier can mark its vehicles sold.
-          if (
-            status === DossierStatus.CLOSED &&
-            updated.type !== DossierType.SHIPPING_ONLY
-          ) {
-            const offerReservation = await prisma.offerReservation.findFirst({
-              where: {
-                dossierId: id,
-                organizationId: updated.organizationId,
-                status: 'active',
-              },
-            });
-            if (offerReservation) {
-              await prisma.offerReservation.update({
-                where: { id: offerReservation.id },
-                data: { status: 'consumed' },
-              });
-              await prisma.chinaOffer.update({
-                where: { id: offerReservation.offerId },
-                data: {
-                  reservedQuantity: { decrement: offerReservation.quantity },
-                  availableQuantity: { decrement: offerReservation.quantity },
-                },
-              });
-            }
-          }
-        }
+        await this.statusPropagation.syncForTransition(prisma, {
+          organizationId: updated.organizationId,
+          dossierId: id,
+          dossierReference: updated.reference,
+          fromStatus: currentStatus,
+          toStatus: status,
+          vehicles: syncVehicles,
+          userId: userId || 'system',
+        });
 
         return updated;
       })
