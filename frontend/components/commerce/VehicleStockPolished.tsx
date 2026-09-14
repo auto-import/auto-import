@@ -62,25 +62,7 @@ const empty = {
   weightKg: "",
   rejectionReason: "",
   description: "",
-  fobFcaPrice: "",
-  shippingPrice: "",
-  purchasePrice: "",
-  profitAmount: "",
-  customsClearanceAmount: "",
-  localTransportAmount: "",
 };
-
-function computeVehiclePricing(form: typeof empty) {
-  const fobFca = Number(form.fobFcaPrice) || 0;
-  const shipping = Number(form.shippingPrice) || 0;
-  const purchase = Number(form.purchasePrice) || 0;
-  const profit = Number(form.profitAmount) || 0;
-  const cif = fobFca + shipping + purchase + profit;
-  const customsClearance = Number(form.customsClearanceAmount) || 0;
-  const localTransport = Number(form.localTransportAmount) || 0;
-  const ddp = cif + customsClearance + localTransport;
-  return { cif, ddp };
-}
 
 export default function VehicleStockPolished() {
   const { hasPermission } = useAuth();
@@ -213,26 +195,7 @@ export default function VehicleStockPolished() {
             weightKg: String(vehicle.weightKg ?? ""),
             rejectionReason: vehicle.rejectionReason ?? "",
             description: vehicle.specs?.description ?? "",
-            fobFcaPrice:
-              vehicle.fobFcaPrice != null ? String(vehicle.fobFcaPrice) : "",
-            shippingPrice:
-              vehicle.shippingPrice != null
-                ? String(vehicle.shippingPrice)
-                : "",
-            purchasePrice:
-              vehicle.purchasePrice != null
-                ? String(vehicle.purchasePrice)
-                : "",
-            profitAmount:
-              vehicle.profitAmount != null ? String(vehicle.profitAmount) : "",
-            customsClearanceAmount:
-              vehicle.customsClearanceAmount != null
-                ? String(vehicle.customsClearanceAmount)
-                : "",
-            localTransportAmount:
-              vehicle.localTransportAmount != null
-                ? String(vehicle.localTransportAmount)
-                : "",
+
           }
         : empty,
     );
@@ -260,7 +223,6 @@ export default function VehicleStockPolished() {
       return;
     }
     setSaving(true);
-    const { cif, ddp } = computeVehiclePricing(form);
     const payload = {
       vin: form.vin || undefined,
       brand: form.brand,
@@ -275,22 +237,6 @@ export default function VehicleStockPolished() {
       color: editing && form.color === (editing.color ?? "") ? undefined : (form.color || (editing ? null : undefined)),
       paintCondition: form.paintCondition,
       currency: form.currency,
-      fobFcaPrice: form.fobFcaPrice ? Number(form.fobFcaPrice) : undefined,
-      shippingPrice: form.shippingPrice
-        ? Number(form.shippingPrice)
-        : undefined,
-      purchasePrice: form.purchasePrice
-        ? Number(form.purchasePrice)
-        : undefined,
-      profitAmount: form.profitAmount ? Number(form.profitAmount) : undefined,
-      customsClearanceAmount: form.customsClearanceAmount
-        ? Number(form.customsClearanceAmount)
-        : undefined,
-      localTransportAmount: form.localTransportAmount
-        ? Number(form.localTransportAmount)
-        : undefined,
-      sellingPrice: cif || undefined,
-      ddpPrice: ddp || undefined,
       status: form.status,
       acquisitionType: form.acquisitionType,
       bodyType: form.bodyType || undefined,
@@ -792,7 +738,7 @@ function VehicleForm({
   close: () => void;
   save: (event: FormEvent) => void;
 }) {
-  const { cif, ddp } = computeVehiclePricing(form);
+
 
   const labels = ["Avant / couverture", "Arrière", "Intérieur / côté"];
   return (
@@ -1046,136 +992,6 @@ function VehicleForm({
               ))}
             </select>
           </label>
-        </div>
-        <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-          <h3 className="text-sm font-bold uppercase tracking-wide text-muted">
-            Prix de vente CIF
-          </h3>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <label>
-              <span className="field-label">FOB / FCA</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.fobFcaPrice}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    fobFcaPrice: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label>
-              <span className="field-label">Prix d’expédition</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.shippingPrice}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    shippingPrice: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label>
-              <span className="field-label">Prix d’achat</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.purchasePrice}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    purchasePrice: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label>
-              <span className="field-label">Bénéfice</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.profitAmount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    profitAmount: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label className="sm:col-span-2">
-              <span className="field-label">Prix de vente CIF</span>
-              <input
-                disabled
-                value={formatMoney(cif, form.currency || "DZD")}
-                className={`${inputClass} cursor-not-allowed bg-neutral-100 text-muted`}
-              />
-            </label>
-          </div>
-          <h3 className="mt-5 text-sm font-bold uppercase tracking-wide text-muted">
-            Prix de vente DDP
-          </h3>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <label>
-              <span className="field-label">Dédouanement</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.customsClearanceAmount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    customsClearanceAmount: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label>
-              <span className="field-label">Transport local</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className={inputClass}
-                value={form.localTransportAmount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    localTransportAmount: event.target.value,
-                  }))
-                }
-                placeholder="0"
-              />
-            </label>
-            <label className="sm:col-span-2">
-              <span className="field-label">Prix de vente DDP</span>
-              <input
-                disabled
-                value={formatMoney(ddp, form.currency || "DZD")}
-                className={`${inputClass} cursor-not-allowed bg-neutral-100 text-muted`}
-              />
-            </label>
-          </div>
         </div>
         <fieldset className="mt-6">
           <legend className="font-bold">
