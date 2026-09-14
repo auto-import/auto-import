@@ -334,10 +334,10 @@ export class CatalogueService {
       fuel: materialized?.specs?.fuelType ?? value('fuelType') ?? value('fuel'),
       transmission: materialized?.specs?.transmission ?? value('transmission'),
       color: materialized?.specs?.color ?? value('color'),
-      // Catalogue availability is governed by its own atomic reservation
-      // counters. A materialized purchased vehicle must not hide the remaining
-      // units of a multi-vehicle offer from sourcing.
-      status: remainingQuantity > 0 ? 'available' : 'reserved',
+      // Vehicle status is the canonical value from the database, managed by the
+      // dossier workflow's VehicleStatusSyncService. For China-offer-only items
+      // without a materialized vehicle, default to 'available'.
+      status: vehicle?.status ?? 'available',
       availableQuantity: item.availableQuantity,
       reservedQuantity: item.reservedQuantity,
       remainingQuantity,
